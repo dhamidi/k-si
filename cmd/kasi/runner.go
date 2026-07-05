@@ -316,7 +316,11 @@ func diagnostics(inst *instance) string {
 	}
 
 	if dropped := inst.app.Dropped(); len(dropped) > 0 {
-		b.WriteString("dropped: " + strings.Join(dropped, ", ") + "\n")
+		b.WriteString("dead sends: " + strings.Join(dropped, ", ") + "\n")
+	}
+
+	if failures := inst.app.Failures(); len(failures) > 0 {
+		b.WriteString("failures (recorded, reconciled): " + strings.Join(failures, ", ") + "\n")
 	}
 
 	return strings.TrimRight(b.String(), "\n")

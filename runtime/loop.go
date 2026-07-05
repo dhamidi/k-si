@@ -24,9 +24,15 @@ type App struct {
 	pending int // queued + applying + in-flight effects; 0 == quiescent
 	model   map[string]any
 	trace   []string
-	dropped []string
-	running map[string]runningSub
-	live    bool
+	// deadSends are messages that reached no handler (or would not decode) —
+	// a mistyped or mismatched tag. Fatal in a full assembly (docs/13). failures
+	// are unknown commands and effects that returned an error — recorded, but
+	// left to reconciliation, so fault-injection scenarios (a failed send that
+	// is later retried) are not mistaken for architectural bugs.
+	deadSends []string
+	failures  []string
+	running   map[string]runningSub
+	live      bool
 
 	inbox  chan envelope
 	cancel context.CancelFunc
@@ -187,7 +193,7 @@ func (a *App) loop(ctx context.Context) {
 		case e := <-a.inbox:
 			meta, err := a.log.Append(e.msg, e.cause, a.clock.Now())
 			if err != nil {
-				a.record(fmt.Sprintf("%s (log append failed: %v)", e.msg.Tag, err))
+				a.recordFailure(fmt.Sprintf("%s (log append failed: %v)", e.msg.Tag, err))
 			} else {
 				cmds := a.apply(e.msg, meta)
 				a.interpret(ctx, cmds, meta)
@@ -206,7 +212,7 @@ func (a *App) loop(ctx context.Context) {
 func (a *App) apply(msg Msg, meta Meta) []Cmd {
 	owner, ok := a.msgOwner[msg.Tag]
 	if !ok {
-		a.record(msg.Tag)
+		a.recordDeadSend(msg.Tag)
 		return nil
 	}
 
@@ -217,7 +223,7 @@ func (a *App) apply(msg Msg, meta Meta) []Cmd {
 
 	next, cmds, decoded := owner.handlers[msg.Tag](view, slice, msg.Payload, meta)
 	if !decoded {
-		a.record(fmt.Sprintf("%s (payload did not decode)", msg.Tag))
+		a.recordDeadSend(fmt.Sprintf("%s (payload did not decode)", msg.Tag))
 		return nil
 	}
 
@@ -245,7 +251,7 @@ func (a *App) interpret(ctx context.Context, cmds []Cmd, meta Meta) {
 
 		owner, ok := a.cmdOwner[c.Tag]
 		if !ok {
-			a.record(fmt.Sprintf("%s (command)", c.Tag))
+			a.recordFailure(fmt.Sprintf("%s (command)", c.Tag))
 			continue
 		}
 
@@ -258,7 +264,7 @@ func (a *App) interpret(ctx context.Context, cmds []Cmd, meta Meta) {
 
 			emit := func(m Msg) { a.enqueue(envelope{msg: m, cause: meta.Offset}) }
 			if err := owner.effects[c.Tag](ctx, owner.edges, c.Payload, emit); err != nil {
-				a.record(fmt.Sprintf("%s (effect failed: %v)", c.Tag, err))
+				a.recordFailure(fmt.Sprintf("%s (effect failed: %v)", c.Tag, err))
 			}
 		}(c, owner)
 	}
@@ -310,9 +316,15 @@ func (a *App) diffSubscriptions(ctx context.Context) {
 	}
 }
 
-func (a *App) record(entry string) {
+func (a *App) recordDeadSend(entry string) {
 	a.mu.Lock()
-	a.dropped = append(a.dropped, entry)
+	a.deadSends = append(a.deadSends, entry)
+	a.mu.Unlock()
+}
+
+func (a *App) recordFailure(entry string) {
+	a.mu.Lock()
+	a.failures = append(a.failures, entry)
 	a.mu.Unlock()
 }
 
@@ -387,12 +399,23 @@ func (a *App) DrainTrace() []string {
 	return t
 }
 
-// Dropped lists messages and commands that fell through: unhandled tags,
-// undecodable payloads, failed effects. Expected at a partial assembly's
-// boundary; fatal in a full one (docs/13).
+// Dropped lists messages that reached no handler (unhandled or undecodable
+// tags) — the dead sends. Expected at a partial assembly's boundary; fatal in
+// a full one (docs/13). Effect failures are NOT here — see Failures.
 func (a *App) Dropped() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	return append([]string(nil), a.dropped...)
+	return append([]string(nil), a.deadSends...)
+}
+
+// Failures lists unknown commands and effects that returned an error. Unlike a
+// dead send, a failure is not a wiring bug: it is what reconciliation exists to
+// recover from (a send that failed and will be retried — docs/03), so it is
+// recorded for diagnostics but never fails a scenario on its own.
+func (a *App) Failures() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return append([]string(nil), a.failures...)
 }
