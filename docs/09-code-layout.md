@@ -17,8 +17,10 @@ domain.
 
 ```
 kasi/
-├── cmd/kasi/            # main(): wire runtime + domains, open DBs, start
-├── cmd/kasictl/         # the `kasi` control CLI (supervisor's tool) ([11])
+├── cmd/kasi/            # main() for the single binary: `kasi serve` runs the
+│                        #   system; `kasi test` runs the test suite ([14]);
+│                        #   `kasi task`/`kasi tasks`/… are the control
+│                        #   subcommands (supervisor's tool) ([11])
 ├── runtime/             # the Elm-style core (domain-agnostic)
 │   ├── model.go              # Model aggregate; composed of domain slices
 │   ├── message.go            # Msg type, tags, registry
@@ -36,6 +38,7 @@ kasi/
 ├── secrets/             # secrets DB, secret:// resolver ([06])
 ├── web/                 # dispatch routes, htmlc components, Turbo ([08])
 ├── control/             # loopback control interface: reads + message inject ([11])
+├── testlang/            # test-script parser/evaluator, domain-agnostic ([14])
 └── store/               # SQLite access shared by domains ([03])
 ```
 
@@ -123,8 +126,8 @@ agents/
 The web `Stop` button ([08](./08-web-ui.md)) and the supervisor's
 `kasi task stop` ([11](./11-supervisor.md)) both funnel into the one
 `stop-agent-run` message — the browser view (`view_task.vue`,
-`view_transcript.vue`) lives in `web/`, the control CLI in `cmd/kasictl` talking to
-`control/`, and the run lifecycle in `agents/`.
+`view_transcript.vue`) lives in `web/`, the control subcommands of the one
+`kasi` binary talking to `control/`, and the run lifecycle in `agents/`.
 
 The pattern generalises: a reader can predict the filename for "the thing that
 sends email" (`command_send_email.go`) or "the message that finishes an agent

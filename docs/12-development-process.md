@@ -40,7 +40,7 @@ The suggested path from zero to productive:
    message/command/subscription cycle and the replay story in your head.
 3. **Read this document**, then [13](./13-testing.md) (the three test rings)
    and [14](./14-test-language.md) (the test language).
-4. **Run the scenario suite** (`kasi-test t/`) and watch it pass in well under a
+4. **Run the scenario suite** (`kasi test t/`) and watch it pass in well under a
    second. That speed is the point.
 5. **Open a scenario script next to its flow.** The walkthroughs in
    [10](./10-flows.md) and the scripts in `t/` describe the same happy paths in
@@ -57,7 +57,7 @@ are references: read each one when you first touch its domain.
 
 The inner development loop is:
 
-> **edit → `kasi-test t/` → repeat**, on the order of milliseconds per cycle.
+> **edit → `kasi test t/` → repeat**, on the order of milliseconds per cycle.
 
 The scenario suite runs the *entire* system — every domain, wired together,
 end-to-end — against simulated edges in a single process
@@ -152,8 +152,8 @@ Implications for development:
 ## No unit tests
 
 käsi deliberately has **no unit tests** and does not use Go's `testing` package
-for behaviour. The repository's tests are scenario scripts under `t/`, run by
-`kasi-test` ([14](./14-test-language.md)).
+for behaviour. The repository's tests are scripts under `t/`, run by
+`kasi test` ([14](./14-test-language.md)).
 
 Why this is safe here, when it wouldn't be elsewhere:
 
@@ -180,9 +180,9 @@ If you feel the urge to unit-test something, treat it as a design signal:
   the edge; lift it into a handler or a pure helper the handlers use, where
   scenarios reach it naturally.
 - *A tricky pure algorithm (MIME part mapping, threading keys) needs many
-  cases* → drive the cases from a scenario script; the test language handles
-  tabular cases fine, and real captured MIME from live probes makes better
-  cases than hand-built ones ([13](./13-testing.md)).
+  cases* → write them as a straight-line script, one send/expect pair per
+  case; real captured MIME from live probes makes better cases than
+  hand-built ones ([13](./13-testing.md)).
 
 ## Harness-agnostic by construction
 

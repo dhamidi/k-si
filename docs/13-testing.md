@@ -46,8 +46,8 @@ Because an instance is just goroutines and RAM, they are cheap:
 - **One instance** boots in microseconds. A scenario drives it through a whole
   multi-turn task — delivery, agent turns, replies, completion, archival — in
   a few milliseconds.
-- **A fleet** is many instances in one test process. Fleet scenarios run on
-  the order of a hundred instances concurrently — deliberately beyond the
+- **A fleet** is many instances in one test process — `kasi test -n 100`
+  runs a hundred copies of a script concurrently — deliberately beyond the
   scale envelope of ~100 concurrent agent runs
   ([12](./12-development-process.md)) — proving headroom on every run, and
   incidentally proving instances share no hidden global state (a package-level
@@ -120,7 +120,7 @@ Kinds of recordings, each captured at its edge's interface:
 |-----------|--------------|-------------|
 | **Harness run** — the inputs laid into `in/`, the session transcript (verbatim JSONL), the files left in `out/`, the exit status, per turn | A live agent run ([05](./05-agents-and-tasks.md)) | The recorded-harness edge: it emits the captured transcript, writes the captured `out/`, exits with the captured status |
 | **Mail exchange** — provider calls and responses at the mail-provider interface | A live JMAP session ([04](./04-email.md)) | The recorded mail edge |
-| **Raw MIME** — full RFC 5322 bytes of real inbound mail (real clients, real forwards, real oddities) | The live inbox | `mail deliver -raw` in any scenario; the best parser test cases are the ones reality wrote |
+| **Raw MIME** — full RFC 5322 bytes of real inbound mail (real clients, real forwards, real oddities) | The live inbox | `deliver -raw` in any scenario; the best parser test cases are the ones reality wrote |
 | **Message log** — the complete log of a live or recorded run | Any instance ([03](./03-persistence.md)) | Replayed against the current build: it must fold without error and reach a coherent model. Unknown tags must drop, not crash — this is the open-set compatibility promise of [01](./01-architecture.md), tested against genuinely old logs |
 
 Cassettes live under `t/cassettes/`, named by scenario. They are committed:

@@ -30,7 +30,7 @@ Start at the top; each doc assumes the ones above it.
 | 11 | [The supervisor](./11-supervisor.md) | The conversational agent that drives käsi's own data model, and the control interface behind it |
 | 12 | [Development process](./12-development-process.md) | The feedback loop, the seam rule, the scale envelope, and where a new developer starts |
 | 13 | [Testing](./13-testing.md) | The three rings: in-memory simulation, recorded reality, and rare live probes |
-| 14 | [The test language](./14-test-language.md) | käsikiri — the Tcl-inspired scenario language that replaces unit tests |
+| 14 | [The test language](./14-test-language.md) | The deliberately dumb, Tcl-inspired script language: send messages, assert on model fields and commands |
 
 **Joining the project?** Read [00](./00-vision.md), skim
 [01](./01-architecture.md), then go straight to

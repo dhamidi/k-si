@@ -68,8 +68,9 @@ through the **control interface**:
 - The runtime exposes a **loopback-only control endpoint** (a Unix socket on the
   exe.dev box). It answers read queries from the model and accepts message
   injections.
-- The supervisor's workspace is provisioned with the **`kasi` control CLI** (a
-  tool, via mise — [07](./07-skills-and-tools.md)), a thin client to that socket.
+- The supervisor's workspace is provisioned with the **`kasi` binary itself**
+  (as a tool, via mise — [07](./07-skills-and-tools.md)) — there is only one
+  executable, and its control subcommands are thin clients to that socket.
   `kasi tasks list` is a read; `kasi task stop 42` injects a `stop-agent-run`
   message.
 - Because the endpoint is loopback-only and the socket lives on a private
