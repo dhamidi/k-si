@@ -45,6 +45,23 @@ It is *agentic* (it runs real agents that use real tools, not a chatbot),
 - **Horizontal scale.** One process, one machine, business objects in RAM. If it
   ever needs to scale out, that is a redesign, not a config change.
 
+## The scale envelope
+
+käsi is small on purpose, and the numbers are part of the design:
+
+- **At most ~20 people** interact with an instance — the owner plus
+  participants CC'd into threads ([04](./04-email.md)) — with only a handful
+  actively messaging at any moment.
+- **~100 concurrent agent runs** is the load the system must handle
+  comfortably: many slow, long-running worker processes against a trickle of
+  human traffic.
+
+Every sizing decision — one process, business objects in RAM, full-log replay,
+SQLite — is justified against this envelope, and the test fleet exercises the
+system beyond it ([13](./13-testing.md)). If the envelope ever grows by an
+order of magnitude, revisit the design ([12](./12-development-process.md));
+do not pre-build for scale that may never come.
+
 ## Principles
 
 1. **Effects are described, then interpreted.** Handlers never perform I/O. They

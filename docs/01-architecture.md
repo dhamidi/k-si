@@ -274,12 +274,13 @@ which data lives where and why.
 
 ## Testing implications
 
-Because handlers are pure and effects are data:
-
-- **Handlers** are tested as `(model, msg) -> (model, cmds)` with no mocks.
-- **Replay** is tested by folding a fixed message list and asserting the model;
-  the same list must always produce the same model.
-- **Effects** are tested in isolation against real or faked I/O, asserting the
-  messages they emit.
-- **Whole flows** are tested by driving messages in and asserting the commands
-  that come out at each step (see the walkthroughs in [10](./10-flows.md)).
+Because handlers are pure and effects are data, the **entire application can
+run without the world**: swap each edge for a simulated twin and the whole
+system — routing, tasks, agent runs, replies, archival — executes in memory,
+deterministically. This is the foundation of the development process
+([12](./12-development-process.md)): tests are end-to-end scenarios driven
+through the front door (mail in, replies out), not unit tests against
+internals, and the same scenarios run against simulated, recorded, or live
+edges ([13](./13-testing.md), [14](./14-test-language.md)). Replay itself is
+verified continuously — every scenario re-folds its log and asserts the same
+model.
