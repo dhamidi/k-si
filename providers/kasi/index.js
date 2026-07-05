@@ -479,33 +479,54 @@ class KasiType {
 	}
 
 	/**
-	 * Wires a new module into the one assembly (docs/01: main.go is THE
-	 * assembly point). Before stage zero exists there is nothing to wire and
-	 * that is fine; once cmd/kasi/main.go exists, forgetting to wire is the
-	 * kind of silent divergence this provider exists to prevent.
+	 * Wires a new module into every assembly list (docs/01: main.go is THE
+	 * assembly point; BUILDING rule 4: forgetting to wire is the silent
+	 * divergence this provider exists to prevent). The project keeps its module
+	 * lists under cmd/kasi — main.go's serve+test `assembly(sim bool)` (two
+	 * branches) and the test runner's sim-world `assembleSim` — so this wires
+	 * each file there that builds a `[]*runtime.Module{ … }`, inserting a
+	 * compiling placeholder the implementer fills with real edges. Before stage
+	 * zero exists there is no such file and that is fine.
 	 */
 	async *wireIntoAssembly(spec, env, gomod) {
-		const mainPath = 'cmd/kasi/main.go'
+		const files = []
+		for await (const path of new Glob('cmd/kasi/*.go').scan({ cwd: process.cwd() })) {
+			files.push(path)
+		}
+		files.sort()
 
-		if (!(await Bun.file(mainPath).exists())) {
-			return
+		if (files.length === 0) {
+			return // no assembly yet — nothing to wire
 		}
 
-		const source = await env.readFile(mainPath)
-		const wired = wireModule(source, spec.name, gomod)
-
-		if (wired === source) {
-			if (source.includes(`${spec.name}.Module(`)) {
-				yield this.kit.Event.fileRead(mainPath) // already wired
-			} else {
-				yield this.kit.Event.error(
-					`could not wire ${spec.name} into ${mainPath}: expected an import ( block and a runtime.New( assembly (docs/01)`,
-				)
+		let sawAssembly = false
+		for (const path of files) {
+			const source = await env.readFile(path)
+			if (!source.includes('[]*runtime.Module{')) {
+				continue // not an assembly file
 			}
-			return
+			sawAssembly = true
+
+			const wired = wireModuleIntoFile(source, spec.name, gomod)
+			if (wired === source) {
+				if (source.includes(`${spec.name}.Module(`)) {
+					yield this.kit.Event.fileRead(path) // already wired
+				} else {
+					yield this.kit.Event.error(
+						`could not wire ${spec.name} into ${path}: no []*runtime.Module{ list to extend (docs/01)`,
+					)
+				}
+				continue
+			}
+
+			yield await env.editFile(path, () => wired)
 		}
 
-		yield await env.editFile(mainPath, () => wired)
+		if (!sawAssembly) {
+			yield this.kit.Event.error(
+				`could not wire ${spec.name}: no []*runtime.Module{ assembly list found under cmd/kasi/ (docs/01)`,
+			)
+		}
 	}
 
 	async *registerInModule(spec, env, call) {
@@ -1429,22 +1450,32 @@ function formMessageParse(rich) {
 	)
 }
 
-function wireModule(source, name, gomod) {
+// wireModuleIntoFile names a module in one assembly file: it adds the import (if
+// missing) and inserts a placeholder entry into EVERY `[]*runtime.Module{ … }`
+// literal in the file — both branches of `assembly(sim bool)`, or the sim
+// world's list. The entry is a compiling stub with an empty Edges and a TODO;
+// the implementer fills in the real edges (docs/15). Idempotent per file: a file
+// that already names the module is left untouched.
+function wireModuleIntoFile(source, name, gomod) {
 	if (source.includes(`${name}.Module(`)) {
 		return source
 	}
 
-	const withImport = source.replace(/(import \(\n)/, `$1\t"${gomod}/${name}"\n`)
-	const withModule = withImport.replace(
-		/(runtime\.New\(\n)/,
-		`$1\t\t${name}.Module(${name}.Edges{}), // TODO: wire real edges (docs/15)\n`,
-	)
-
-	if (withModule === withImport || withImport === source) {
-		return source // shape not recognised; caller reports it
+	let next = source
+	if (!next.includes(`"${gomod}/${name}"`)) {
+		next = next.replace(/(import \(\n)/, `$1\t"${gomod}/${name}"\n`)
 	}
 
-	return withModule
+	next = next.replace(
+		/(\[\]\*runtime\.Module\{\n)/g,
+		`$1\t\t${name}.Module(${name}.Edges{}), // TODO: wire edges (docs/15)\n`,
+	)
+
+	if (next === source) {
+		return source // no import block and no module list recognised; caller reports it
+	}
+
+	return next
 }
 
 // --- Naming -------------------------------------------------------------------
