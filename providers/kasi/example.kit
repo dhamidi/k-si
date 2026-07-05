@@ -1,0 +1,60 @@
+# Bootstrap the tasks domain (docs/05, docs/15) — module first, then its
+# seams, commands, objects, and sources. Apply with:
+#
+#   kit manifest apply providers/kasi/example.kit
+#
+# Everything deterministic is generated; each `intent` block becomes a
+# follow-up plan step for an agent to fill in.
+
+kasi module {
+	name tasks
+	description "task lifecycle and workspaces"
+}
+
+kasi message {
+	module tasks
+	tag create-task
+	seam true
+	fields {
+		inbox_id int64
+		route string
+		template string
+		sender string
+		cc []string
+		subject string
+		message_id string
+	}
+	description "sent by email/route-email; creates the Task"
+	intent {
+		Create the Task from the payload (id from meta.Offset), seed
+		participants from sender + cc, and return the workspace fan-out:
+		create-workspace, lay-in-inputs, provision-workspace, and a send of
+		agents' spawn-agent-run. See docs/10 Flow A step 2.
+	}
+}
+
+kasi command {
+	module tasks
+	tag create-workspace
+	fields {
+		task_id int64
+	}
+	description "make WORKDIR/task-ID with in/ and out/"
+	intent {
+		Create the workspace tree through the Workspace edge. Idempotent:
+		an existing tree is fine. See docs/05 "Workspace layout".
+	}
+}
+
+kasi model {
+	module tasks
+	name agent-run
+	description "one harness invocation and its status"
+}
+
+kasi subscription {
+	module tasks
+	name agent-watch
+	emits finish-agent-run
+	description "watch harness processes; emit finish-agent-run on exit"
+}

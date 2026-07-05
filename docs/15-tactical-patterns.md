@@ -10,6 +10,15 @@ not by review vigilance.
 The code below is canonical in *shape*, illustrative in detail — exact helper
 names may differ in the source; the structure, signatures, and rules do not.
 
+These shapes are also executable: the `kasi` [kit](https://github.com/dhamidi/kit)
+provider (`providers/kasi/`, tools pinned in `mise.toml`) lists, inspects, and
+generates them — `kit component list` shows every module, message, command,
+model object, and subscription in the codebase (discovered structurally with
+ast-grep, not by convention-guessing), and `kit generate` / `kit manifest
+apply` bootstrap new ones in exactly the forms below. If this document and
+the provider's templates ever disagree, one of them is wrong — fix both in
+the same change.
+
 ## The one-liners
 
 Every rule in this document, compressed:
