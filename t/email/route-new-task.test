@@ -1,0 +1,20 @@
+# t/email/route-new-task.test — routing a fresh mail hands off to tasks (docs/14).
+# A partial assembly of just email: the hand-off to tasks is observable at the
+# boundary as a dropped `create-task`, so email is built and tested before tasks
+# exists (docs/12, docs/13).
+use email
+
+send allow-sender { address owner@example.test }
+
+send route-email {
+    inbox_id   1
+    recipient  pay@kasi.test
+    sender     owner@example.test
+    cc         {alice@example.test}
+    subject    "Invoice from Vendor X"
+    message_id <m1@example.test>
+}
+
+# email authorises + routes, then crosses to tasks the only sanctioned way.
+commands are {send:create-task}
+dropped is create-task

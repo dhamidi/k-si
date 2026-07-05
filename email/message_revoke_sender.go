@@ -14,5 +14,6 @@ func registerRevokeSender(mod *runtime.Module) {
 func handleRevokeSender(v runtime.View, s Model, p msg.RevokeSenderPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	s.Allowlist = withoutAllowed(s.Allowlist, p.Address)
 	return s, nil
 }

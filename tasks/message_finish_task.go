@@ -14,5 +14,18 @@ func registerFinishTask(mod *runtime.Module) {
 func handleFinishTask(v runtime.View, s Model, p msg.FinishTaskPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
-	return s, nil
+	i := s.find(TaskID(p.TaskID))
+	if i < 0 {
+		return s, nil
+	}
+
+	tasks := append([]Task(nil), s.Tasks...)
+	t := tasks[i]
+	t.Status = Done
+	tasks[i] = t
+	s.Tasks = tasks
+
+	return s, []runtime.Cmd{
+		NewArchiveTask(ArchiveTaskPayload{TaskID: p.TaskID}),
+	}
 }

@@ -14,5 +14,6 @@ func registerAllowSender(mod *runtime.Module) {
 func handleAllowSender(v runtime.View, s Model, p msg.AllowSenderPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	s.Allowlist = withAllowed(s.Allowlist, p.Address)
 	return s, nil
 }

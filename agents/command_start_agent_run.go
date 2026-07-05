@@ -25,5 +25,14 @@ func registerStartAgentRun(mod *runtime.Module) {
 
 func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 	emit runtime.Emit) error {
-	return nil
+	// Register the live run and return immediately; the agent-watch
+	// subscription emits finish-agent-run when the turn completes (docs/05).
+	// No emit here — results leave only via that subscription.
+	var err error
+	if p.Resume {
+		_, err = e.Harness.Resume(ctx, p.TaskID, p.RunID, sessionFor(p.TaskID))
+	} else {
+		_, err = e.Harness.Start(ctx, p.TaskID, p.RunID)
+	}
+	return err
 }

@@ -129,6 +129,26 @@ in, receipt out, reply-all threading, completion link, archive verified
 before workspace deletion; the crash scenarios pass; `kasi test -n 100` of
 the journey passes; `ast-grep scan` stays clean.
 
+**Status: the gate is green.** In place: the `mime` object model (parse/build,
+part↔file lay-in/harvest, deterministic assembly), the `store` inbox/outbox/
+archive content tables (in-memory twin + SQLite), the `workspace` edge
+(archive-before-delete enforced), and the three domains — `email` (routing, the
+initiator allowlist, reply assembly, the durable outbox with crash-safe
+reconciliation, the sim mail edge), `tasks` (create/append/finish, the workspace
+lay-in/harvest/archive-then-delete commands, the completion token), and `agents`
+(the harness interface + sim harness with turn rendezvous, `spawn`/`start`, the
+`agent-watch` subscription, the stop path). The runner grew its shared sim world
+and the domain vocabulary (`deliver`, `agent`, `outbound`, `outbox`, `task`,
+`archive`, `click`, `fail`, `fixture`). Frozen scripts, all green: the invoice
+journey (Flow A), the clarification loop (Flow B), crash-before-send and
+crash-mid-run (Flow E), plus partial-assembly routing — under `kasi test`,
+`--log sqlite`, and `-n 100` fleets. Two runtime refinements landed with it: the
+reducer distinguishes dead sends from reconcilable failures, and quiescence now
+awaits one-shot reconciliation sources (`Sub.Await`) so a model-driven resend
+never races a stimulus's settle. Still open for stage 2: real edges (JMAP,
+Claude harness, secrets), the recorded ring, and the collaborator-by-CC and
+UI-request paths (Flows C/D) that stage 3 first needs.
+
 ## Stage 2 — the conversation, for real
 
 Turn the working logic into a working product by adding real edges — nothing

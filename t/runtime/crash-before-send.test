@@ -1,0 +1,29 @@
+# t/runtime/crash-before-send.test — Flow E (docs/10): a pending reply survives a
+# crash. The outbox is a durable, idempotent queue; replay rebuilds the model and
+# reconciliation delivers exactly once.
+
+send allow-sender { address owner@example.test }
+
+deliver {
+    from    owner@example.test
+    to      research@kasi.test
+    subject "q"
+}
+
+# The send will fail on its first attempt...
+fail mail send
+
+# ...so when the agent finishes, the reply is queued but not sent.
+agent { out reply.txt "done" }
+
+task 1 status is awaiting-user
+outbox last status is pending
+outbound count is 0
+
+# The process dies and comes back: full-log replay, then reconciliation.
+crash
+restart
+
+task 1 status is awaiting-user      # replay rebuilt the model
+outbox last status is sent          # reconciliation re-sent it
+outbound count is 1                 # exactly once

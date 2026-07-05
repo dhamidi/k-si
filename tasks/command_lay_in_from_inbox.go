@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 
+	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 )
 
@@ -24,5 +25,17 @@ func registerLayInFromInbox(mod *runtime.Module) {
 
 func layInFromInboxEffect(ctx context.Context, e Edges, p LayInFromInboxPayload,
 	emit runtime.Emit) error {
-	return nil
+
+	row, err := e.Content.Inbox(p.InboxID)
+	if err != nil {
+		return err
+	}
+	m, err := mime.Parse(row.Raw)
+	if err != nil {
+		return err
+	}
+	if err := e.Work.Create(p.TaskID); err != nil {
+		return err
+	}
+	return e.Work.LayIn(p.TaskID, mime.LayIn(m))
 }

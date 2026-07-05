@@ -14,5 +14,14 @@ func registerSpawnAgentRun(mod *runtime.Module) {
 func handleSpawnAgentRun(v runtime.View, s Model, p msg.SpawnAgentRunPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
-	return s, nil
+	runID := meta.Offset
+	s.Runs = append(s.Runs, AgentRun{
+		ID:      AgentRunID(runID),
+		TaskID:  p.TaskID,
+		Status:  StatusRunning,
+		Session: sessionFor(p.TaskID),
+	})
+	return s, []runtime.Cmd{
+		NewStartAgentRun(StartAgentRunPayload{TaskID: p.TaskID, RunID: runID, Resume: p.Resume}),
+	}
 }

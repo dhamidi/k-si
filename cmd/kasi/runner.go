@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -187,13 +186,17 @@ func logFactory(kind string) (logMaker, error) {
 	}
 }
 
-// instance is one script's world: a log that survives crashes, an assembly
-// subset, and the current App.
+// instance is one script's world: a log and the simulated external world (mail,
+// workspace, harness, content tables) that both survive a crash, an assembly
+// subset, and the current App. `crash` discards only the App; `restart` rebuilds
+// it against the same log and world, exactly as production keeps its disk and
+// databases across a process restart (docs/13).
 type instance struct {
 	log     runtime.Log
 	cleanup func()
 	newLog  logMaker
 	clock   *runtime.SimulatedClock
+	world   *simWorld
 	app     *runtime.App
 	only    []string // nil = the full assembly
 }
@@ -201,7 +204,7 @@ type instance struct {
 func (i *instance) full() bool { return i.only == nil }
 
 func (i *instance) boot() error {
-	mods := assembly(true)
+	mods := assembleSim(i.world, i.clock)
 
 	if i.only != nil {
 		var subset []*runtime.Module
@@ -241,7 +244,7 @@ func runScript(src, index string, newLog logMaker) (*instance, error) {
 		return nil, err
 	}
 
-	inst := &instance{log: log, cleanup: cleanup, newLog: newLog, clock: runtime.SimClock()}
+	inst := &instance{log: log, cleanup: cleanup, newLog: newLog, clock: runtime.SimClock(), world: newSimWorld()}
 	if err := inst.boot(); err != nil {
 		cleanup()
 		return nil, err
@@ -342,6 +345,7 @@ func registerVocabulary(in *testlang.Interp, inst *instance) {
 			return "", err
 		}
 		inst.log, inst.cleanup = log, cleanup
+		inst.world = newSimWorld() // a fresh external world too (docs/13)
 		if len(args) == 1 && args[0] == "*" {
 			inst.only = nil
 		} else {
@@ -434,6 +438,11 @@ func registerVocabulary(in *testlang.Interp, inst *instance) {
 		}
 		return finishRead("dropped", strings.Join(tags, " "), args)
 	}
+
+	// The domain vocabulary — deliver/agent/outbound/outbox/task/archive/click/
+	// fail/fixture — drives and observes the sim world (docs/14). Each module's
+	// twin lives in its package; the commands here delegate to it.
+	registerDomainVocabulary(in, inst)
 }
 
 // splitVerb separates a read's path from its trailing assertion verb.
@@ -461,11 +470,7 @@ func finishRead(what, value string, verb []string) (string, error) {
 			return "", fmt.Errorf("%s is %q, want %q", what, value, want)
 		}
 	case "matches":
-		ok, err := path.Match(want, value)
-		if err != nil {
-			return "", fmt.Errorf("bad pattern %q: %w", want, err)
-		}
-		if !ok {
+		if !globMatch(want, value) {
 			return "", fmt.Errorf("%s is %q, does not match %q", what, value, want)
 		}
 	default:
@@ -473,6 +478,29 @@ func finishRead(what, value string, verb []string) (string, error) {
 	}
 
 	return value, nil
+}
+
+// globMatch is the `matches` verb's matcher (docs/14): `*` matches any run of
+// characters, INCLUDING '/' and newlines — reply bodies carry URLs and line
+// breaks, so the path.Match separator semantics are wrong here. It is a plain
+// full-string glob, the right tool for asserting on wording the test doesn't own.
+func globMatch(pattern, s string) bool {
+	segs := strings.Split(pattern, "*")
+	if len(segs) == 1 {
+		return pattern == s
+	}
+	if !strings.HasPrefix(s, segs[0]) {
+		return false
+	}
+	s = s[len(segs[0]):]
+	for _, seg := range segs[1 : len(segs)-1] {
+		i := strings.Index(s, seg)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(seg):]
+	}
+	return strings.HasSuffix(s, segs[len(segs)-1])
 }
 
 // payloadFromBlock builds a message payload from a block of `field value`

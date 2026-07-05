@@ -1,6 +1,10 @@
 package agents
 
-import "github.com/dhamidi/k-si/runtime"
+import (
+	taskmsg "github.com/dhamidi/k-si/tasks/msg"
+
+	"github.com/dhamidi/k-si/runtime"
+)
 
 // "finish-agent-run" — emitted by agent-watch when the harness exits; records the run, hands off to tasks
 const FinishAgentRun = "finish-agent-run"
@@ -25,5 +29,22 @@ func registerFinishAgentRun(mod *runtime.Module) {
 func handleFinishAgentRun(v runtime.View, s Model, p FinishAgentRunPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
-	return s, nil
+	if i := s.findRun(AgentRunID(p.RunID)); i >= 0 {
+		if p.Stopped {
+			s.Runs[i].Status = StatusStopped
+		} else {
+			s.Runs[i].Status = StatusFinished
+		}
+		s.Runs[i].Exit = p.Exit
+		s.Runs[i].TranscriptPath = p.TranscriptPath
+	}
+	return s, []runtime.Cmd{
+		runtime.Send(taskmsg.NewAgentRunFinished(taskmsg.AgentRunFinishedPayload{
+			TaskID:         p.TaskID,
+			RunID:          p.RunID,
+			OutManifest:    p.OutManifest,
+			Stopped:        p.Stopped,
+			TranscriptPath: p.TranscriptPath,
+		})),
+	}
 }

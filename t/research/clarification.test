@@ -1,0 +1,47 @@
+# t/research/clarification.test — Flow B (docs/10): the clarification loop.
+# A task the agent cannot finish in one turn: it asks, the user answers in the
+# same thread, the session resumes, and it completes — the multi-turn shape that
+# every conversation generalises to.
+
+send allow-sender { address owner@example.test }
+
+# A question arrives at an unknown local part → the default (main) route.
+deliver {
+    from    owner@example.test
+    to      research@kasi.test
+    subject "Which competitors should I compare?"
+}
+
+task 1 route is research
+task 1 status is awaiting-agent
+
+# Turn 1: the agent needs a clarification before it can work.
+agent {
+    out reply.txt "Happy to help — which market segment should I focus on?"
+}
+
+task 1 status is awaiting-user
+outbound last to is owner@example.test
+outbound last body matches "*segment*"
+
+# The user answers in the same thread; the session resumes.
+deliver {
+    from owner@example.test
+    reply-to-last
+    body "Enterprise storage vendors."
+}
+
+task 1 status is awaiting-agent
+
+# Turn 2: with the answer in hand, the agent finishes the work.
+agent {
+    out reply.txt   "Here is the comparison."
+    out summary.txt "Vendor A vs Vendor B vs Vendor C"
+}
+
+task 1 status is awaiting-user
+outbound last attachments is summary.txt
+
+click [outbound last completion-link]
+task 1 status is done
+archive count task 1 transcript is 2

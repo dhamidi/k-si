@@ -2,6 +2,7 @@ package email
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dhamidi/k-si/runtime"
 )
@@ -24,7 +25,20 @@ func registerSendEmail(mod *runtime.Module) {
 
 func sendEmailEffect(ctx context.Context, e Edges, p SendEmailPayload,
 	emit runtime.Emit) error {
-	// On success, the result enters the model as a message (docs/01):
-	// emit(NewMarkEmailSent(…))
+
+	row, err := e.Content.Outbox(p.OutboxID)
+	if err != nil {
+		return fmt.Errorf("email: send-email: load outbox %d: %w", p.OutboxID, err)
+	}
+	// A send failure is left to reconciliation: the row stays pending, and the
+	// pre-generated Message-ID makes a later resend a duplicate the provider
+	// drops (docs/03, docs/04). We do NOT retry inside the effect.
+	if err := e.Mail.Submit(ctx, row.Raw); err != nil {
+		return err
+	}
+	if err := e.Content.MarkOutboxSent(p.OutboxID, e.Clock.Now()); err != nil {
+		return err
+	}
+	emit(NewMarkEmailSent(MarkEmailSentPayload{OutboxID: p.OutboxID}))
 	return nil
 }

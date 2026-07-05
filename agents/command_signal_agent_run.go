@@ -24,5 +24,8 @@ func registerSignalAgentRun(mod *runtime.Module) {
 
 func signalAgentRunEffect(ctx context.Context, e Edges, p SignalAgentRunPayload,
 	emit runtime.Emit) error {
-	return nil
+	// Ask the harness to stop; the agent-watch subscription observes the exit
+	// (its ctx is also cancelled as the run leaves "running") and emits
+	// finish-agent-run flagged stopped (docs/05). No emit here.
+	return e.Harness.Signal(ctx, Handle{TaskID: p.TaskID, RunID: p.RunID, Session: sessionFor(p.TaskID)})
 }

@@ -1,0 +1,16 @@
+# t/email/ignore-unauthorized.test — a new-task email from an address not on the
+# initiator allowlist is ignored: no task, no hand-off (docs/04). This is käsi's
+# spam boundary, not an error.
+use email
+
+send route-email {
+    inbox_id   1
+    recipient  pay@kasi.test
+    sender     stranger@example.test
+    subject    "please pay this"
+    message_id <m2@example.test>
+}
+
+# Nothing crosses the boundary and nothing is dropped: the mail simply stays put.
+commands are {}
+dropped is {}

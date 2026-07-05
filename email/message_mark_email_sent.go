@@ -20,5 +20,12 @@ func registerMarkEmailSent(mod *runtime.Module) {
 func handleMarkEmailSent(v runtime.View, s Model, p MarkEmailSentPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	next := append([]OutboxEntry(nil), s.Outbox...)
+	for i := range next {
+		if next[i].OutboxID == p.OutboxID {
+			next[i].Status = "sent"
+		}
+	}
+	s.Outbox = next
 	return s, nil
 }

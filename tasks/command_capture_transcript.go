@@ -2,8 +2,10 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/store"
 )
 
 // "capture-transcript" — copy a run's session transcript from the workspace into the archive
@@ -25,5 +27,18 @@ func registerCaptureTranscript(mod *runtime.Module) {
 
 func captureTranscriptEffect(ctx context.Context, e Edges, p CaptureTranscriptPayload,
 	emit runtime.Emit) error {
-	return nil
+
+	b, err := e.Work.ReadTranscript(p.TaskID, p.RunID)
+	if err != nil {
+		return err
+	}
+	_, err = e.Content.AddArchive(store.ArchiveRow{
+		TaskID:      p.TaskID,
+		AgentRun:    p.RunID,
+		Kind:        "transcript",
+		Filename:    fmt.Sprintf("transcript-%d.jsonl", p.RunID),
+		ContentType: "application/jsonl",
+		Bytes:       b,
+	})
+	return err
 }

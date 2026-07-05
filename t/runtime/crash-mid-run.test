@@ -1,0 +1,29 @@
+# t/runtime/crash-mid-run.test — Flow E (docs/10): a crash while the agent is
+# working. Replay rebuilds the task in awaiting-agent; reconciliation notices the
+# run has no live process and resumes the session. The workspace (on "disk")
+# survives the crash; only the process and the model are rebuilt.
+
+send allow-sender { address owner@example.test }
+
+deliver {
+    from    owner@example.test
+    to      research@kasi.test
+    subject "long job"
+}
+
+# The agent is still working — a stable state the script can stand in.
+task 1 status is awaiting-agent
+
+# The process dies mid-run and comes back.
+crash
+restart
+
+# Replay rebuilt the task; the run is resumed against the same session.
+task 1 status is awaiting-agent
+
+# The resumed turn completes.
+agent { out reply.txt "done after resume" }
+
+task 1 status is awaiting-user
+outbound count is 1
+archive count task 1 transcript is 1

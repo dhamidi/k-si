@@ -1,0 +1,54 @@
+# t/pay/invoice-confirmation.test — Flow A (docs/10): confirm, then pay.
+# One task ⇔ one thread ⇔ one resumable agent session, across two turns, with a
+# PDF in and a PDF out, reply-all threading, a completion link, and
+# archive-then-delete on completion.
+
+# The owner is on the initiator allowlist (docs/04); Alice is not — she joins the
+# task by being CC'd on an authorised message.
+send allow-sender { address owner@example.test }
+
+# You forward an invoice to pay@, CCing your accountant.
+deliver {
+    from    owner@example.test
+    to      pay@kasi.test
+    cc      alice@example.test
+    subject "Invoice from Vendor X"
+    attach  invoice.pdf [fixture pay/invoice.pdf]
+}
+
+task 1 route is pay
+task 1 participants are {owner@example.test alice@example.test}
+task 1 status is awaiting-agent
+
+# The agent sees the amount is large and asks before paying.
+agent {
+    out reply.txt "Large amount - please confirm before I pay."
+}
+
+task 1 status is awaiting-user
+outbound last to is {owner@example.test alice@example.test}
+outbound last body matches "*confirm*"
+
+# Alice confirms, in the same thread — she is a participant, so käsi acts.
+deliver {
+    from alice@example.test
+    reply-to-last
+    body "yes, pay it"
+}
+
+task 1 status is awaiting-agent
+
+# The agent resumes the same session, pays, and attaches the receipt.
+agent {
+    out reply.txt   "Paid. Receipt attached."
+    out receipt.pdf [fixture pay/receipt.pdf]
+}
+
+task 1 status is awaiting-user
+outbound last attachments is receipt.pdf
+
+# A participant clicks the completion link in the reply.
+click [outbound last completion-link]
+
+task 1 status is done
+archive count task 1 transcript is 2

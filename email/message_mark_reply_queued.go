@@ -23,5 +23,15 @@ func registerMarkReplyQueued(mod *runtime.Module) {
 func handleMarkReplyQueued(v runtime.View, s Model, p MarkReplyQueuedPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	// Record the queued reply as pending. The outbox-reconcile subscription then
+	// sees a pending entry and emits send-email — the single send path, so a
+	// crash that loses the in-flight send is recovered by replay rebuilding this
+	// entry and reconciliation firing again (docs/03).
+	s.Outbox = append(append([]OutboxEntry(nil), s.Outbox...), OutboxEntry{
+		OutboxID:  p.OutboxID,
+		TaskID:    p.TaskID,
+		MessageID: p.MessageID,
+		Status:    "pending",
+	})
 	return s, nil
 }
