@@ -360,6 +360,48 @@ class KasiType {
 		this.kit = kit
 	}
 
+	/**
+	 * The public entry point kit calls. Each type implements `generate`; this
+	 * wrapper runs it and then gofmt's the Go files it actually wrote, so
+	 * generated code is gofmt-clean the moment it lands (kit's templates are
+	 * canonical in shape, not whitespace). Files that were consulted but left
+	 * untouched (createFresh's fileRead) are NOT reformatted.
+	 */
+	async *create(rawSpec, env) {
+		yield* this.gofmtWritten(env, this.generate(rawSpec, env))
+	}
+
+	/**
+	 * Passes an inner generator's events through unchanged, collecting the Go
+	 * files it created or edited, then formats exactly those with gofmt. Uses
+	 * env.exec so it no-ops in dry-run (kit generate -n, manifest plan) — the
+	 * files were not written, so there is nothing to format.
+	 */
+	async *gofmtWritten(env, inner) {
+		const written = []
+		for await (const event of inner) {
+			yield event
+			const json = typeof event?.toJSON === 'function' ? event.toJSON() : event
+			if (
+				json &&
+				(json.type === 'file.created' || json.type === 'file.edited') &&
+				typeof json.path === 'string' &&
+				json.path.endsWith('.go')
+			) {
+				written.push(json.path.replace(/^file:\/\//, ''))
+			}
+		}
+
+		if (written.length === 0) {
+			return
+		}
+
+		const result = await env.exec(['gofmt', '-w', ...new Set(written)])
+		if (result.code !== 0) {
+			yield this.kit.Event.error(`gofmt failed (exit ${result.code}): ${result.stderr.trim()}`)
+		}
+	}
+
 	parse(argv) {
 		return this.kit.parseArgs({
 			args: argv,
@@ -602,7 +644,7 @@ class ModuleType extends KasiType {
 		return { ...spec, name, module: name }
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		const gomod = await goModulePath(env)
 		const what = spec.description ?? `the ${spec.name} domain`
@@ -655,7 +697,7 @@ class MessageType extends KasiType {
 		})
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		await this.ensureTagFree(spec, 'message')
 		const gomod = await goModulePath(env)
@@ -718,7 +760,7 @@ class CommandType extends KasiType {
 		})
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		await this.ensureTagFree(spec, 'command')
 		const gomod = await goModulePath(env)
@@ -774,7 +816,7 @@ class ModelType extends KasiType {
 		})
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		const file = `${spec.module}/model_${snakeCase(spec.name)}.go`
 
@@ -817,7 +859,7 @@ class SubscriptionType extends KasiType {
 		})
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		const gomod = await goModulePath(env)
 		const file = `${spec.module}/subscription_${snakeCase(spec.name)}.go`
@@ -894,7 +936,7 @@ class ViewType extends KasiType {
 		return { ...spec, name, render, module: 'web' }
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		const snake = snakeCase(spec.name)
 		const vueFile = `web/view_${snake}.vue`
@@ -958,7 +1000,7 @@ class FormType extends KasiType {
 		return { ...normalized, message: normalized.message ?? normalized.name }
 	}
 
-	async *create(rawSpec, env) {
+	async *generate(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
 		const gomod = await goModulePath(env)
 		const file = `web/form_${snakeCase(spec.name)}.go`
