@@ -51,7 +51,9 @@ The suggested path from zero to productive:
    you can't, you've found the question to ask.
 
 The remaining design docs ([02](./02-object-model.md)–[11](./11-supervisor.md))
-are references: read each one when you first touch its domain.
+are references: read each one when you first touch its domain. And
+[15](./15-tactical-patterns.md) is the pattern book — open it the first time
+you write a message, command, handler, or model slice, and copy its shapes.
 
 ## The loop
 
@@ -156,7 +158,9 @@ the guarantees below quietly stop being checked.
 
 Only then do domains proceed — in parallel if desired, against nothing but
 agreed message tags and payloads, which the `send` boundary makes sufficient
-([01](./01-architecture.md)). Each domain is built against the flow scripts
+([01](./01-architecture.md)). Concretely, agreeing a seam means committing
+the receiving domain's `msg/` package first ([15](./15-tactical-patterns.md));
+the contract is then compiler-checked on both sides. Each domain is built against the flow scripts
 written from [10](./10-flows.md), and those scripts are **written before
 their domains and are not edited by whoever (or whatever) makes them pass**:
 changing a flow script is changing the design, and goes through the same

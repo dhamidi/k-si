@@ -132,8 +132,12 @@ observable story, not plumbing hidden from it.
 
 - In a `send` block, each line is `field value…`; the payload is serialised
   to JSON on the log as always ([03](./03-persistence.md)). A braced value is
-  a list; an omitted field is absent. The message enters through the front of
-  the runtime — logged, applied by the reducer — exactly as in production.
+  a list; an omitted field is absent. The runner decodes the block **against
+  the tag's registered payload struct** ([15](./15-tactical-patterns.md)) and
+  a field the struct doesn't have fails the script — production tolerates
+  drift for old logs' sake; tests never do. The message then enters through
+  the front of the runtime — logged, applied by the reducer — exactly as in
+  production.
   Because messages are imperative and complete ([01](./01-architecture.md)),
   a script can hand-feed *any* sequence the real edges could produce,
   including the awkward ones they rarely do.

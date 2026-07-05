@@ -204,7 +204,9 @@ Why a command rather than a function call or a shared write:
   already in the log; nothing is double-applied.
 - **Boundaries stay real under parallel development.** The message is the
   entire interface between two domains: two people (or two agents) can build
-  `email/` and `tasks/` against nothing but an agreed tag and payload.
+  `email/` and `tasks/` against nothing but an agreed tag and payload —
+  concretely, the receiving domain's seam package
+  ([15](./15-tactical-patterns.md)).
 - **Drift gets a choke point.** `send` is the one place that knows a message
   is being *aimed at* a handler. In live mode an unhandled tag is dropped and
   recorded — the open-set rule, which exists so old logs replay

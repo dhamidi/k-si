@@ -31,6 +31,7 @@ Start at the top; each doc assumes the ones above it.
 | 12 | [Development process](./12-development-process.md) | The feedback loop, the seam rule, the scale envelope, and where a new developer starts |
 | 13 | [Testing](./13-testing.md) | The three rings: in-memory simulation, recorded reality, and rare live probes |
 | 14 | [The test language](./14-test-language.md) | The deliberately dumb, Tcl-inspired script language: send messages, assert on model fields and commands |
+| 15 | [Tactical patterns](./15-tactical-patterns.md) | The canonical Go shapes: tags, payloads, constructors, handlers, effects, slices, seams, modules |
 
 **Joining the project?** Read [00](./00-vision.md), skim
 [01](./01-architecture.md), then go straight to
