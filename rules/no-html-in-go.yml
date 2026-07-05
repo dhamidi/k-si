@@ -1,0 +1,11 @@
+id: no-html-in-go
+language: go
+severity: error
+files:
+  - '**/*.go'
+message: Don't hardcode HTML in Go — render an htmlc view (web/view_*.vue + a <Name>View struct), never a string literal (docs/08, docs/15)
+rule:
+  regex: '(?i)<(!doctype|/?(html|head|body|article|section|div|table|thead|tbody|form|nav|main|footer|header|h[1-6])\b)'
+  any:
+    - kind: interpreted_string_literal
+    - kind: raw_string_literal

@@ -1,0 +1,16 @@
+id: no-url-string-building
+language: go
+severity: error
+message: Build and parse URLs with net/url or dispatch's named routes, never fmt.Sprintf or string concatenation — capability links live in the link package (docs/04, docs/08)
+rule:
+  any:
+    # fmt.Sprintf whose format string is an http(s) URL
+    - pattern: fmt.Sprintf($URL, $$$)
+    - pattern: fmt.Sprintf($URL)
+    # string concatenation embedding an http(s) URL literal
+    - all:
+        - pattern: $A + $B
+        - regex: 'https?://'
+constraints:
+  URL:
+    regex: 'https?://'
