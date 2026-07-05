@@ -5,15 +5,20 @@
 package web
 
 import (
+	"crypto/subtle"
 	"embed"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/dhamidi/dispatch"
 	"github.com/dhamidi/htmlc"
 
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/tasks"
+	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 )
 
 //go:embed view_*.vue
@@ -43,8 +48,47 @@ func NewServer(app *runtime.App) (*Server, error) {
 	if err := s.router.POST("counter.increment", "/increment", http.HandlerFunc(s.increment)); err != nil {
 		return nil, err
 	}
+	// The completion link — the one routine interaction that leaves email for the
+	// web (docs/04). A capability URL: the unguessable token IS the authorisation.
+	if err := s.router.GET("tasks.done", "/tasks/{id}/done", http.HandlerFunc(s.finishTask)); err != nil {
+		return nil, err
+	}
 
 	return s, nil
+}
+
+// finishTask handles the completion link in an email reply (docs/04, docs/08):
+// it validates the capability token against the task's, emits finish-task
+// through the one front door, and confirms. The token check is constant-time —
+// the token is the only credential.
+func (s *Server) finishTask(w http.ResponseWriter, r *http.Request) {
+	params, _ := dispatch.ParamsFromContext(r.Context())
+	id, err := strconv.ParseInt(params["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	token := r.URL.Query().Get("token")
+
+	task, ok := tasks.Get(s.app.View(), tasks.TaskID(id))
+	if !ok || task.CompletionToken == "" ||
+		subtle.ConstantTimeCompare([]byte(task.CompletionToken), []byte(token)) != 1 {
+		http.Error(w, "invalid or expired link", http.StatusNotFound)
+		return
+	}
+
+	// Idempotent: clicking an already-done link just re-confirms (App.Send blocks
+	// until applied, so a re-render would see the final state anyway).
+	if task.Status != tasks.Done {
+		s.app.Send(taskmsg.NewFinishTask(taskmsg.FinishTaskPayload{TaskID: id}))
+	}
+
+	// Minimal confirmation — the real task views land in stage 3 (BUILDING).
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8">`+
+		`<meta name="viewport" content="width=device-width,initial-scale=1"><title>Task done</title></head>`+
+		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">`+
+		`<h1>Done ✓</h1><p>This task has been marked complete. You can close this page.</p></body></html>`)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
