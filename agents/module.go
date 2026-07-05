@@ -14,6 +14,10 @@ func Module(e Edges) *runtime.Module {
 
 	registerSpawnAgentRun(mod)
 	registerStopAgentRun(mod)
+	registerFinishAgentRun(mod)
+	registerStartAgentRun(mod)
+	registerSignalAgentRun(mod)
+	runtime.Subscribe(mod, agentWatchSubs)
 	return mod
 }
 

@@ -15,6 +15,10 @@ func Module(e Edges) *runtime.Module {
 	registerCreateTask(mod)
 	registerAppendToTask(mod)
 	registerFinishTask(mod)
+	registerAgentRunFinished(mod)
+	registerLayInFromInbox(mod)
+	registerCaptureTranscript(mod)
+	registerArchiveTask(mod)
 	return mod
 }
 

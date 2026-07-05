@@ -15,6 +15,11 @@ func Module(e Edges) *runtime.Module {
 	registerAllowSender(mod)
 	registerRevokeSender(mod)
 	registerAssembleReply(mod)
+	registerRouteEmail(mod)
+	registerMarkReplyQueued(mod)
+	registerMarkEmailSent(mod)
+	registerSendEmail(mod)
+	runtime.Subscribe(mod, outboxReconcileSubs)
 	return mod
 }
 
