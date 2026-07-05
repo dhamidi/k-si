@@ -15,9 +15,12 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/counter"
+	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
+	"github.com/dhamidi/k-si/tasks"
 	"github.com/dhamidi/k-si/web"
 )
 
@@ -27,11 +30,18 @@ func assembly(sim bool) []*runtime.Module {
 	if sim {
 		return []*runtime.Module{
 			counter.Module(counter.SimEdges()),
+			email.Module(email.SimEdges()),
+			tasks.Module(tasks.SimEdges()),
+			agents.Module(agents.SimEdges()),
 		}
 	}
 
+	clock := runtime.RealClock{}
 	return []*runtime.Module{
-		counter.Module(counter.Edges{Clock: runtime.RealClock{}}),
+		counter.Module(counter.Edges{Clock: clock}),
+		email.Module(email.Edges{Clock: clock}),
+		tasks.Module(tasks.Edges{Clock: clock}),
+		agents.Module(agents.Edges{Clock: clock}),
 	}
 }
 
