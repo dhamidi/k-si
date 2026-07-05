@@ -1,7 +1,8 @@
 [tools]
 "github:dhamidi/kit" = "latest"
 ast-grep = "latest"
-go = "1.24"
+go = "1.26"
+fnox = "latest"
 
 # The mechanical gate (docs/12, BUILDING.md): run before merging, always.
 [tasks.check]
