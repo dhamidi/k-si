@@ -17,6 +17,10 @@ framework, minimal JavaScript.
   structs and evaluate a JS-compatible expression subset; directives (`v-if`,
   `v-for`, `:attr`, slots, scoped styles) work as authored. We use `RenderPage`
   for full pages and `RenderFragment` for the HTML fragments Turbo swaps in.
+  Each view is a `web/view_<name>.vue` + `view_<name>.go` pair: the Go file
+  declares the view's `<Name>View` struct and render helper — htmlc receives a
+  `map[string]any`, and every value in it is one of these structs, never a raw
+  model object ([15](./15-tactical-patterns.md)).
 - **[dispatch](https://github.com/dhamidi/dispatch)** — the HTTP router: named,
   reversible routes over RFC 6570 URI templates, `net/http`-compatible. Named
   routes mean links and form actions are generated from route names, never

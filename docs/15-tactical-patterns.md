@@ -38,6 +38,9 @@ Every rule in this document, compressed:
    out, ids derived from the log.
 7. **`module.go` is a table of contents**; `main.go` is the only place
    modules meet edges ([01](./01-architecture.md)).
+8. **Views render View structs.** htmlc receives `map[string]any`, and every
+   value in it is a named `<Name>View` struct built by the route handler —
+   never a raw model object, never an ad-hoc map.
 
 ## Messages: `message_*.go`
 
@@ -390,6 +393,51 @@ watcher, a run leaving it cancels one. The body never loops-and-sleeps to
 poll the model — if it wants model state, it is a handler wearing the wrong
 hat.
 
+## Views: `view_*.go` + `view_*.vue`
+
+The web UI renders htmlc components ([08](./08-web-ui.md)); each view is a
+pair of files in `web/` ([09](./09-code-layout.md)) — the `.vue` template and
+its Go side:
+
+```go
+// web/view_task.go
+
+// TaskView is the data view_task.vue renders — one task: thread,
+// participants, runs, artifacts.
+type TaskView struct {
+	ID           string
+	Status       string
+	Subject      string
+	Participants []string
+	Runs         []AgentRunView
+}
+
+// RenderTask writes the full page ([08]).
+func RenderTask(w io.Writer, engine *htmlc.Engine, view TaskView) error {
+	return engine.RenderPage(w, "view_task", map[string]any{
+		"task": view,
+	})
+}
+```
+
+- **One View struct per view, named `<Name>View`.** htmlc receives a
+  `map[string]any`, and idiomatically **every value in that map is a
+  struct** like this one — built from the model by the route handler, never
+  a raw model object and never an ad-hoc map. Handing a template a model
+  object couples the template to the model's shape (and hands it data the
+  page has no business seeing); building the map field-by-field scatters
+  the page's data shape across the handler. The View struct is the explicit,
+  greppable answer to "what does this page show," and the model→view mapping
+  in the handler is where presentation concerns (formatting dates, sizes,
+  truncation) live — keeping both the model and the template clean.
+- **Pages use `RenderPage`; Turbo-swapped fragments use `RenderFragment`**
+  ([08](./08-web-ui.md)). Nothing else about the pair differs.
+- **`web/` may read domains; domains never import `web/`.** Mapping model to
+  View structs is a read like any other edge read.
+- **A view never writes.** Forms post to dispatch routes whose handlers emit
+  imperative runtime messages ([08](./08-web-ui.md)) — the same front door
+  as everything else.
+
 ## Where each fact may live — a checklist
 
 When writing a new capability, place each ingredient by this table; if
@@ -405,3 +453,4 @@ something has no row, it probably belongs to an edge:
 | I/O of any kind | An effect or subscription body, through an edge | Handlers, model files, `msg/` packages |
 | A cross-domain instruction | `runtime.Send` of the other domain's `msg/` constructor | A direct call, a shared slice write |
 | A secret | `secret://` URL until inside an effect ([06](./06-secrets.md)) | Payloads, the model, logs |
+| Data a template renders | A `<Name>View` struct in `web/`, one per view | Raw model objects or ad-hoc maps in the props map |

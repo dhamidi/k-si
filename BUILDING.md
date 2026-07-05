@@ -142,7 +142,9 @@ recorded suite runs green offline.
 
 Grow the UI on top of the working conversation, per [08](./docs/08-web-ui.md)
 (htmlc + dispatch + Turbo). Each feature lands with a scenario driving the
-web edge. In rough order:
+web edge, and every view is scaffolded through the provider
+(`kit generate kasi view.<name>`), which keeps the View-struct idiom uniform
+([15](./docs/15-tactical-patterns.md)). In rough order:
 
 1. Task list and task detail (read-only fallback view).
 2. Live transcript view for a running agent; the Stop button.

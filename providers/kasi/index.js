@@ -8,6 +8,7 @@ import { Glob } from 'bun'
  * - command       command_<tag>.go: tag const + payload + constructor + effect
  * - model         model_<name>.go: a model slice / business object
  * - subscription  subscription_<name>.go: state -> set of running sources
+ * - view          web/view_<name>.vue + view_<name>.go: an htmlc view and its View struct
  *
  * Discovery is structural (ast-grep over Go source); generation emits the
  * canonical shapes from the pattern book, so generated code and documented
@@ -15,7 +16,10 @@ import { Glob } from 'bun'
  */
 
 const RUNTIME_PACKAGE = 'runtime'
-const RESERVED_DIRS = new Set(['runtime', 'cmd', 'testlang', 't', 'providers', 'docs', 'vendor'])
+const RESERVED_DIRS = new Set([
+	'runtime', 'cmd', 'testlang', 't', 'providers', 'docs', 'vendor',
+	'web', 'store', 'mime', 'control', 'msg', // packages that are not domain modules ([09])
+])
 
 class KasiProvider {
 	constructor(kit) {
@@ -32,6 +36,7 @@ class KasiProvider {
 		yield new CommandType(this.kit)
 		yield new ModelType(this.kit)
 		yield new SubscriptionType(this.kit)
+		yield new ViewType(this.kit)
 	}
 
 	async *components() {
@@ -97,6 +102,16 @@ class KasiProvider {
 			})
 		}
 
+		for (const view of scan.views) {
+			yield new KasiComponent({
+				kind: 'view',
+				id: `view.${view.name}`,
+				description: view.description ?? `htmlc view ${view.name}`,
+				files: view.files,
+				details: { render: view.render },
+			})
+		}
+
 		for (const scenario of scan.scenarios) {
 			yield new KasiComponent({
 				kind: 'scenario',
@@ -109,14 +124,34 @@ class KasiProvider {
 	}
 
 	async create(spec, env) {
-		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription) to generate')
+		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription, view) to generate')
 	}
 }
 
 // --- Discovery ---------------------------------------------------------------
 
 async function scanRepository(kit) {
-	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [] }
+	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [], views: [] }
+
+	for await (const path of new Glob('web/view_*.vue').scan({ cwd: process.cwd() })) {
+		const snake = path.replace(/^web\/view_([a-z0-9_]+)\.vue$/, '$1')
+		const goFile = `web/view_${snake}.go`
+		const files = [path]
+		let render
+
+		if (await Bun.file(goFile).exists()) {
+			files.push(goFile)
+			const source = await Bun.file(goFile).text()
+			render = source.includes('RenderFragment(') ? 'fragment' : 'page'
+		}
+
+		scan.views.push({
+			name: snake.replaceAll('_', '-'),
+			files,
+			render,
+			description: await docComment(path, /<!-- view_[a-z0-9_]+\.vue [—-] ?(.+?)(?: \(docs\/[0-9]+\))? -->/),
+		})
+	}
 
 	for await (const path of new Glob('t/**/*.test').scan({ cwd: process.cwd() })) {
 		scan.scenarios.push({
@@ -760,6 +795,87 @@ emit, never the model (docs/15). Do not refactor unrelated code.`,
 	}
 }
 
+// --- view ----------------------------------------------------------------------
+
+class ViewType extends KasiType {
+	id() {
+		return 'view'
+	}
+
+	description() {
+		return 'An htmlc view: web/view_<name>.vue + its <Name>View struct and render helper (docs/08)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			name: this.tagField('View name, kebab-case; becomes view_<name>.vue + view_<name>.go in web/', [
+				'task',
+				'task-list',
+				'request-form',
+			]),
+			render: Type.Optional(
+				Type.String({
+					description: 'page (RenderPage, full page) or fragment (RenderFragment, a Turbo swap target) — docs/08',
+					examples: ['page'],
+					pattern: '^(page|fragment)$',
+				}),
+			),
+			props: Type.Optional(
+				Type.Record(Type.String({ pattern: '^[a-z][a-z0-9_]*$' }), Type.String({ description: 'Go type of the field' }), {
+					description: 'Fields of the <Name>View struct the template renders',
+					examples: [{ id: 'string', status: 'string', subject: 'string' }],
+					cli: false,
+				}),
+			),
+			description: this.descriptionField(['one task: thread, participants, runs, artifacts']),
+		})
+	}
+
+	normalize(spec) {
+		const name = spec.name
+
+		if (name === undefined || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
+			throw new this.kit.UserError(`view: name must be kebab-case, got ${JSON.stringify(name)}`)
+		}
+
+		const render = spec.render ?? 'page'
+
+		if (!/^(page|fragment)$/.test(render)) {
+			throw new this.kit.UserError(`view: render must be "page" or "fragment", got ${JSON.stringify(render)}`)
+		}
+
+		return { ...spec, name, render, module: 'web' }
+	}
+
+	async *create(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const snake = snakeCase(spec.name)
+		const vueFile = `web/view_${snake}.vue`
+		const goFile = `web/view_${snake}.go`
+
+		yield* this.createFresh(env, vueFile, viewVueTemplate(spec))
+		yield* this.createFresh(env, goFile, viewGoTemplate(spec))
+
+		if (spec.intent !== undefined) {
+			yield this.plan(
+				spec,
+				`Implement the ${spec.name} view`,
+				[vueFile, goFile],
+				`Intent: ${spec.intent}
+
+Implement the ${spec.name} view. The route handler builds a ${pascalCase(spec.name)}View
+from the in-RAM model and hands it to Render${pascalCase(spec.name)} — htmlc receives
+map[string]any and every value in it is a View struct, never a raw model
+object or an ad-hoc map (docs/08, docs/15). Semantic, mobile-first HTML that
+works without JavaScript; lead with the decision or primary action. Writes go
+through dispatch routes that emit runtime messages. Do not refactor unrelated
+code.`,
+			)
+		}
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1028,6 +1144,69 @@ function payloadFields(fields) {
 	return entries
 		.map(([name, goType]) => `\t${pascalCase(name).padEnd(width)} ${goType} \`json:"${name}"\`\n`)
 		.join('')
+}
+
+function viewVueTemplate(spec) {
+	const camel = camelCase(spec.name)
+	return `<!-- view_${snakeCase(spec.name)}.vue — ${spec.description ?? 'TODO: one line on what this view shows'} (docs/08) -->
+<template>
+	<article class="view-${spec.name}">
+		<!-- lead with the decision or the primary action; single column,
+		     semantic HTML, works without JavaScript (docs/08) -->
+		{{ ${camel} }}
+	</article>
+</template>
+
+<style scoped>
+</style>
+`
+}
+
+function viewGoTemplate(spec) {
+	const pascal = pascalCase(spec.name)
+	const snake = snakeCase(spec.name)
+	const camel = camelCase(spec.name)
+	const render = spec.render === 'fragment' ? 'RenderFragment' : 'RenderPage'
+	const role =
+		spec.render === 'fragment'
+			? 'writes the HTML fragment Turbo swaps in'
+			: 'writes the full page'
+
+	return `package web
+
+import (
+	"io"
+
+	"github.com/dhamidi/htmlc"
+)
+
+// ${pascal}View is the data view_${snake}.vue renders — ${spec.description ?? 'TODO: one line'}.
+// htmlc receives map[string]any, and idiomatically every value in it is a
+// struct like this one: built from the model by the route handler, never a
+// raw model object and never an ad-hoc map (docs/08, docs/15).
+${viewStruct(pascal, spec.props)}
+
+// Render${pascal} ${role} (docs/08).
+func Render${pascal}(w io.Writer, engine *htmlc.Engine, view ${pascal}View) error {
+	return engine.${render}(w, "view_${snake}", map[string]any{
+		"${camel}": view,
+	})
+}
+`
+}
+
+function viewStruct(pascal, props) {
+	const body = viewFields(props)
+	if (body === '') return `type ${pascal}View struct{}`
+	return `type ${pascal}View struct {\n${body}}`
+}
+
+function viewFields(props) {
+	const entries = Object.entries(props ?? {})
+	if (entries.length === 0) return ''
+
+	const width = Math.max(...entries.map(([name]) => pascalCase(name).length))
+	return entries.map(([name, goType]) => `\t${pascalCase(name).padEnd(width)} ${goType}\n`).join('')
 }
 
 function wireModule(source, name, gomod) {
