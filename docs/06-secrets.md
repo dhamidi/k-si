@@ -8,8 +8,8 @@ rule: **secrets are references everywhere except at the moment of use.**
 
 - Secrets live in a **separate SQLite database file** from the main database
   ([03](./03-persistence.md)). Physical separation keeps plaintext out of the
-  message log, snapshots, inbox/outbox, and archives, and lets the secrets file
-  carry tighter file permissions and its own backup policy.
+  message log, inbox/outbox, and archives, and lets the secrets file carry
+  tighter file permissions and its own backup policy.
 - A secret is addressed by a **`secret://` URL**. The URL is an opaque
   reference, safe to store and log.
 - The **runtime resolves** a `secret://` URL to its plaintext value **only inside
@@ -93,8 +93,8 @@ deliberate trade recorded here so it is not forgotten.
 
 ## Invariants
 
-1. **No plaintext in the main database.** Not in the log, snapshots, inbox,
-   outbox, or archives — only `secret://` references.
+1. **No plaintext in the main database.** Not in the log, inbox, outbox, or
+   archives — only `secret://` references.
 2. **No plaintext in messages or commands after resolution.** Resolution output
    never becomes a runtime message.
 3. **No plaintext in workspaces.** Agents receive secrets via environment/config

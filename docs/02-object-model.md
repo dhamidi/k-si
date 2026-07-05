@@ -43,9 +43,10 @@ glossary in [00](./00-vision.md)):
 - A **runtime message** (`Msg`) is a TEA *event* — a fact fed to the reducer. It
   lives in the message log.
 
-They meet at the edges: an inbound MIME message in the inbox causes an
-`email.received` runtime message that *references* it by id (not by value — we
-don't inline whole PDFs into the log).
+They meet at the edges: an inbound MIME message in the inbox causes a
+`route-email` runtime message that *references* it by id (not by value — we
+don't inline whole PDFs into the log), while carrying the routing facts inline so
+the handler stays pure ([01](./01-architecture.md)).
 
 ## The business objects
 
@@ -61,6 +62,8 @@ The central object. One task = one email thread = one agent session (see
 - the **originating MIME message** (inbox row id),
 - the **thread key** (`Message-ID` / `References`) used to thread replies,
 - the **route** that selected its task template,
+- its **participants** — the initiator plus any addresses CC'd in by an
+  authorised sender, who may all interact with this task ([04](./04-email.md)),
 - its **workspace** path,
 - an ordered list of **agent runs** and their transcripts,
 - the **outbound MIME messages** it has produced (outbox row ids),
@@ -84,7 +87,9 @@ are the same operation in two directions.
 A reusable instruction/prompt bundle provisioned into agent runs (see
 [07](./07-skills-and-tools.md)). Represented as content (Markdown + metadata),
 it can itself be carried as a MIME part, but is primarily a registry entry in
-the model plus stored content.
+the model plus content stored durably in SQLite ([03](./03-persistence.md)).
+Skills come from two origins: authored in the web UI, or **written by an agent
+during a task** and stored so later runs can use them.
 
 ### Tool
 

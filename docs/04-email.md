@@ -41,12 +41,15 @@ The pipeline:
 2. **Fetch & store.** For each new message, fetch the raw RFC 5322 bytes and
    insert a row into the `inbox` table ([03](./03-persistence.md)) with the
    envelope recipient recorded. Storage is idempotent on `Message-ID`.
-3. **Announce.** Emit an `email.received` runtime message referencing the inbox
-   row id and recipient. This is the point where durable content becomes a
-   logged event ([01](./01-architecture.md)).
-4. **Route.** The `email.received` handler inspects the recipient's **local
-   part** and selects a route (below), then either threads the mail onto an
-   existing task or creates a new one.
+3. **Announce.** Emit a `route-email` runtime message that carries the routing
+   facts inline — recipient, sender, `Cc` list, subject, `Message-ID`,
+   `In-Reply-To`/`References` — and references the inbox row id for the bulk MIME.
+   The message is imperative and **complete**: the handler routes purely from it,
+   without re-opening the stored mail ([01](./01-architecture.md)). This is the
+   point where durable content becomes a logged event.
+4. **Route.** The `route-email` handler inspects the recipient's **local part**,
+   checks authorisation (below), and either threads the mail onto an existing
+   task or creates a new one.
 
 Storing to SQLite *before* emitting the runtime message means a crash between
 "Fastmail has the mail" and "käsi processed it" cannot lose the mail: on restart
@@ -74,16 +77,52 @@ Routing decisions:
 
 - **Thread vs. new task.** If the message carries `In-Reply-To` / `References`
   matching a known task's thread key, it is a *reply within an existing task* —
-  the user answering the agent's question — and is appended to that task
+  someone answering the agent's question — and is appended to that task
   ([05](./05-agents-and-tasks.md)). Otherwise the local part selects a template
   and a **new task** is created.
-- **Sender allow-listing.** Because the domain is catch-all, anyone could email
-  it. käsi acts only on mail from allow-listed senders (the owner's addresses),
-  configured in the UI. Non-allow-listed mail is stored (`status='ignored'`) but
-  produces no task. This is käsi's spam/abuse boundary; it is not
-  authentication (there is none in-app — see [08](./08-web-ui.md)).
 - **Unknown local part.** Falls through to the default route (the general main
   agent), rather than being rejected.
+
+### Authorisation: who may act, and on what
+
+Because the domain is catch-all, anyone could email it. käsi acts only on
+authorised mail. There are **two distinct gates**, and a message must pass the one
+that applies to it:
+
+1. **Initiating a new task** requires the sender to be on the **initiator
+   allowlist** — a global list of addresses (the owner's) permitted to *start*
+   conversations, configured in the UI ([08](./08-web-ui.md)). A new-task email
+   from an address not on the list is stored (`status='ignored'`) and produces no
+   task. This is käsi's spam/abuse boundary; it is not authentication (there is
+   none in-app — see [08](./08-web-ui.md)).
+
+2. **Interacting with an existing task** requires the sender to be a
+   **participant** of *that task* — either the initiator or an address that was
+   CC'd in by an authorised sender (below). A reply from a non-participant is
+   ignored for that task.
+
+### Adding collaborators by CC
+
+Participation is granted dynamically, by email, with no UI visit: **when an
+authorised sender CCs an address on a message to käsi, that address becomes a
+participant of the task.**
+
+- CC'ing `alice@example.com` on the *first* email (initiator on the allowlist)
+  seeds the new task's participant set with Alice.
+- CC'ing someone on a *later* reply (from any current participant) adds them to
+  the task from then on.
+- Participation is **task-scoped**: it lets Alice reply into *this* thread and
+  have käsi act on it. It does **not** put Alice on the initiator allowlist — she
+  still cannot start new tasks.
+- Replies käsi sends go to the task's participants (reply-all across the thread),
+  so the conversation stays shared.
+
+Concretely, the `route-email` handler updates `Task.participants`
+([02](./02-object-model.md)) from the message's `Cc` list (emitting/using an
+`add-collaborator` state change), gated by the sender already being authorised
+for the task. The allowlist itself is edited via `allow-sender` / `revoke-sender`
+messages from the UI. All of this is pure model state over complete messages
+([01](./01-architecture.md)).
 
 ## Outbound: from agent to reply
 
@@ -93,10 +132,10 @@ When a task produces a response ([05](./05-agents-and-tasks.md)):
    ([02](./02-object-model.md)): body text, harvested attachments, and threading
    headers.
 2. The assemble effect writes a `pending` row to the `outbox`
-   ([03](./03-persistence.md)) and emits `email.queued`.
+   ([03](./03-persistence.md)) and emits `mark-reply-queued`.
 3. A **send** subscription/command transmits every `pending` outbox row via JMAP
-   (`Email/set` + `EmailSubmission/set`), then emits `email.sent`, whose handler
-   marks the row `sent`.
+   (`Email/set` + `EmailSubmission/set`), then emits `mark-email-sent`, whose
+   handler marks the row `sent`.
 
 Because the outbox is a durable, idempotent queue, a crash mid-send is
 recoverable: reconciliation re-sends anything still `pending`

@@ -61,8 +61,9 @@ awaiting-user ◄─ awaiting-agent     │
 - **done** — the user clicked the completion link ([04](./04-email.md)); archive
   and clean up.
 
-Every transition is a runtime message (`task.created`, `agent.finished`,
-`email.sent`, `task.done`) and is therefore logged and replayable.
+Every transition is an imperative runtime message (`route-email`,
+`finish-agent-run`, `mark-email-sent`, `finish-task`) and is therefore logged and
+replayable ([01](./01-architecture.md)).
 
 ## Workspace layout
 
@@ -77,8 +78,8 @@ $WORKDIR/task-$ID/
 ├── out/           # outputs from the agent (harvested)
 │   ├── reply.txt         # becomes the reply body
 │   ├── receipt.pdf       # becomes a reply attachment
-│   └── ...
-├── skills/        # skills provisioned for this template ([07])
+│   └── skills/           # any skill the agent authored, stored to SQLite ([07])
+├── skills/        # skills provisioned for this run ([07])
 ├── .mise.toml     # tool versions for this workspace ([07])
 └── (harness working files, session/transcript)
 ```
@@ -104,16 +105,22 @@ same interface.
 The `spawn-agent-run` command effect:
 
 1. Ensures the workspace exists and `in/` is populated.
-2. Ensures required tools are installed and pinned (`mise install`) and skills
-   are present ([07](./07-skills-and-tools.md)).
+2. Ensures required tools are installed and pinned, and skills present, from the
+   task's template plus any skills authored by earlier runs
+   ([07](./07-skills-and-tools.md)). Tool installs go to a **shared, persistent
+   mise data directory** so they carry across tasks and are not re-downloaded,
+   and käsi **pre-trusts** each workspace's `.mise.toml` so the agent never has to
+   run `mise trust` or deal with a trust prompt (see [07](./07-skills-and-tools.md)).
 3. Resolves any `secret://` references the run needs into environment/config at
    the edge ([06](./06-secrets.md)) — plaintext never enters the model or log.
 4. Invokes the harness in the workspace, either **starting** a new session (first
    turn of a task) or **resuming** the existing session id (subsequent turns), so
    the conversation is continuous.
 5. Registers a subscription that **watches** the harness process and emits
-   `agent.finished` (with exit status and the session/transcript location) when
-   it exits.
+   `finish-agent-run` when it exits. That message is **complete**: it carries the
+   exit status, the transcript location, and a manifest of what the run left in
+   `out/` (and any authored skill), so the handler decides what to do next purely
+   from the message ([01](./01-architecture.md)).
 
 The effect returns immediately after spawning; the long-running work happens in
 the worker process, watched by the subscription. The reducer is never blocked by
@@ -126,8 +133,9 @@ touching the runtime.
 
 ## Capturing the transcript
 
-When `agent.finished` fires, käsi **copies the harness's session transcript into
-SQLite** (`archive`, `kind='transcript'`, [03](./03-persistence.md)), verbatim.
+When `finish-agent-run` fires, käsi **copies the harness's session transcript
+into SQLite** (`archive`, `kind='transcript'`, [03](./03-persistence.md)),
+verbatim.
 The transcript is the durable record of what the agent did and thought this
 turn; it survives workspace deletion and is the audit trail for the task. It is
 stored as-received (typically JSONL) rather than reformatted, so it stays
@@ -140,21 +148,45 @@ transcript remains as the historical record.
 
 ## Producing the response
 
-After `agent.finished` (success):
+After `finish-agent-run` (success):
 
 1. **Harvest `out/`** into MIME parts ([02](./02-object-model.md)).
 2. If the agent's output indicates the task is **complete or needs the user**,
    emit `assemble-reply` → the reply goes to the outbox and out to the user
    ([04](./04-email.md)), and the task moves to `awaiting-user`.
 3. **Archive** this run's artifacts and transcript.
+4. **Store any authored skill** (below).
 
 If the agent produced nothing to send (e.g. a purely internal step), no reply is
 assembled; the task simply waits for the next message.
 
+## Agents that author skills
+
+A run may **produce a skill** as part of its work — for example, working out how
+to reconcile a particular vendor's invoices and writing that know-how down for
+next time. The workflow is edge-does-I/O, model-stays-pure:
+
+1. The agent writes the skill into a designated place in its output (e.g.
+   `out/skills/<name>.md` with front-matter metadata). The file-based contract
+   mirrors the reply contract: *"leave a skill in `out/skills/` to teach käsi."*
+2. The `finish-agent-run` manifest flags it. The handler emits a `store-skill`
+   command.
+3. The `store-skill` effect writes the skill's content to the `skill` table in
+   SQLite ([03](./03-persistence.md)) and emits `register-skill` — a complete
+   message naming the skill and referencing its stored content.
+4. The `register-skill` handler adds it to the in-RAM skill registry
+   ([07](./07-skills-and-tools.md)).
+
+From then on the skill is available to **subsequent agent runs**: the very next
+turn of this task, and any other task whose provisioning includes it
+([07](./07-skills-and-tools.md)). Because the skill lives in SQLite, it survives
+this task's workspace deletion — the whole point of storing it durably rather
+than leaving it in the ephemeral `out/`.
+
 ## Completion, archival, and cleanup
 
 The user ends a task by clicking the **completion link** in any reply
-([04](./04-email.md)), which emits `task.done`. Its handler runs a strict
+([04](./04-email.md)), which emits `finish-task`. Its handler runs a strict
 **archive-then-delete** sequence:
 
 1. **Archive everything not yet archived**: inbound attachments in `in/`, any
@@ -174,11 +206,12 @@ directory is gone.
 
 The clarification loop ([10](./10-flows.md)) falls straight out of the model:
 
-- Agent finishes a turn, asks a question → reply sent → `awaiting-user`.
-- User replies in the thread → routed as "reply within task" ([04](./04-email.md))
-  → the new text (and any new attachments) is laid into `in/` → a new agent run
-  **resumes** the same session → `awaiting-agent`.
-- Repeat until the user clicks done.
+- Agent finishes a turn, asks a question → reply sent to the task's participants
+  → `awaiting-user`.
+- A participant replies in the thread → routed as "reply within task"
+  ([04](./04-email.md)) → the new text (and any new attachments) is laid into
+  `in/` → a new agent run **resumes** the same session → `awaiting-agent`.
+- Repeat until a participant clicks done.
 
 Each turn is one agent run against one continuous session, one exchange in one
 email thread — the anchoring equivalence, sustained across the whole

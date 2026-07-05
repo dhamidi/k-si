@@ -50,6 +50,13 @@ It is *agentic* (it runs real agents that use real tools, not a chatbot),
 1. **Effects are described, then interpreted.** Handlers never perform I/O. They
    return *commands* — data — and the runtime performs the effect. This is what
    makes replay safe and testing trivial.
+   - **Messages are imperative and complete.** Every runtime message is phrased
+     in the imperative mood — it *tells the model what to do* (`route-email`,
+     `finish-agent-run`, `mark-email-sent`) — always, no exceptions. And it
+     carries *everything its handler needs* to compute the next state. A handler
+     never reaches out for more data: no file read, no query, no clock. All I/O
+     already happened at the edge that produced the message. This is what keeps
+     handlers pure and replay deterministic (see [01](./01-architecture.md)).
 2. **The log is the source of truth for state; SQLite tables are the source of
    truth for content.** The message log reconstructs the model. The inbox,
    outbox, archives, and secrets are durable stores the model points into. Keep
@@ -76,7 +83,7 @@ always qualify it.
 
 | Term | Meaning |
 |------|---------|
-| **Runtime message** (`Msg`) | An event fed into the Elm-style core. Pure input to handlers. Every one is appended to the message log. Never confuse with a MIME message. |
+| **Runtime message** (`Msg`) | An imperative, self-complete instruction fed into the Elm-style core. Pure input to handlers. Every one is appended to the message log. Never confuse with a MIME message. |
 | **Command** (`Cmd`) | A *description* of an effect, returned by a handler. Interpreted by the runtime, which performs the effect and feeds results back as runtime messages. |
 | **Subscription** (`Sub`) | A declared, long-lived source of runtime messages (a poller, a timer, an event stream) that the runtime keeps alive while the model asks for it. |
 | **Model** | The entire in-RAM application state. A pure fold of all runtime messages. |
@@ -92,6 +99,8 @@ always qualify it.
 | **Task template** | The prompt, skills, and tools that define a category of work. Selected by the route. |
 | **Skill** | A reusable instruction/prompt bundle made available to agent runs. |
 | **Tool** | A CLI program provisioned into a workspace via mise. |
+| **Initiator allowlist** | The set of email addresses permitted to *start* a new task. A global gate on new conversations. |
+| **Participant / collaborator** | An address authorised to interact with *one existing task*, granted by being CC'd on an authorised message. Task-scoped; does not grant initiation rights. |
 | **Secret** | A credential stored in the separate secrets database, addressed by a `secret://` URL. |
 
 ## Dependencies
@@ -105,9 +114,9 @@ Deliberately small. Anything not here should be questioned.
 - **The agent harness** — the Claude CLI/SDK by default; other official
   harnesses are pluggable.
 - **Web stack**: [htmlc](https://github.com/dhamidi/htmlc) (server-side Vue-SFC
-  rendering in Go), [dispatch](https://github.com/dhamidi/dispatch) (named,
-  reversible routing), [Turbo](https://turbo.hotwired.dev/) (progressive
-  enhancement), and html.sh conventions for semantic markup. See
+  rendering in Go; docs at [htmlc.sh](https://htmlc.sh)),
+  [dispatch](https://github.com/dhamidi/dispatch) (named, reversible routing),
+  and [Turbo](https://turbo.hotwired.dev/) (progressive enhancement). See
   [08](./08-web-ui.md).
 - **Fastmail** over JMAP for all email I/O. See [04](./04-email.md).
 - **exe.dev** as the host. See [08](./08-web-ui.md).

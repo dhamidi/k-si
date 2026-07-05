@@ -24,8 +24,7 @@ kasi/
 │   ├── command.go            # Cmd type, interpreter, replay vs live mode
 │   ├── subscription.go       # Sub type, diffing, lifecycle
 │   ├── loop.go               # the reducer goroutine + inbound channel
-│   ├── log.go                # append/replay against message_log
-│   └── snapshot.go           # snapshot write/load
+│   └── log.go                # append + full-log replay against message_log
 ├── email/               # Fastmail JMAP, inbox/outbox, routing ([04])
 ├── agents/              # harness invocation, agent runs, transcripts ([05])
 ├── tasks/               # task lifecycle, workspaces ([05])
@@ -47,9 +46,12 @@ registering its tags — no central union to edit ([01](./01-architecture.md)).
 Within a package, each concrete thing gets its own file, prefixed by its kind.
 The prefix makes the file's role obvious and groups related files in a listing.
 
+Message and command files are named after their **imperative tag**
+([01](./01-architecture.md)), so the filename *is* the tag in snake_case.
+
 | Prefix | Contains | Example |
 |--------|----------|---------|
-| `message_*.go` | one runtime message type + its handler(s) | `message_email_received.go` |
+| `message_*.go` | one runtime message type (imperative) + its handler(s) | `message_route_email.go` |
 | `command_*.go` | one command type + its effect (interpreter) | `command_send_email.go` |
 | `subscription_*.go` | one subscription source | `subscription_inbox_poll.go` |
 | `model_*.go` | one business object / model slice | `model_task.go` |
@@ -59,10 +61,12 @@ Illustrative listing for the `email/` package:
 
 ```
 email/
-├── model_route.go                 # Route + route table (model slice)
-├── message_email_received.go      # "email.received" + handler (routes it)
-├── message_email_queued.go        # "email.queued" + handler
-├── message_email_sent.go          # "email.sent" + handler (mark sent)
+├── model_route.go                 # Route table + initiator allowlist (model slice)
+├── message_route_email.go         # "route-email" + handler (auth, route, thread)
+├── message_add_collaborator.go    # "add-collaborator" + handler (CC -> participant)
+├── message_allow_sender.go        # "allow-sender" / "revoke-sender" + handlers
+├── message_mark_reply_queued.go   # "mark-reply-queued" + handler
+├── message_mark_email_sent.go     # "mark-email-sent" + handler (mark sent)
 ├── command_assemble_reply.go      # build MIME reply from out/  ([02])
 ├── command_send_email.go          # JMAP EmailSubmission effect
 ├── subscription_inbox_poll.go     # JMAP Email/changes poller
@@ -74,20 +78,20 @@ And `tasks/`:
 
 ```
 tasks/
-├── model_task.go                  # Task struct + state machine
-├── message_task_created.go        # "task.created" + handler
-├── message_agent_finished.go      # "agent.finished" + handler (harvest/reply)
-├── message_task_done.go           # "task.done" + handler (archive+cleanup)
+├── model_task.go                  # Task struct + state machine + participants
+├── message_finish_agent_run.go    # "finish-agent-run" + handler (harvest/reply/skill)
+├── message_finish_task.go         # "finish-task" + handler (archive+cleanup)
 ├── command_create_workspace.go    # make $WORKDIR/task-$ID, in/, out/
-├── command_lay_in.go              # write MIME parts into in/  ([02])
-├── command_harvest_out.go         # read out/ into MIME parts ([02])
+├── command_lay_in_inputs.go       # write MIME parts into in/  ([02])
+├── command_harvest_output.go      # read out/ into MIME parts ([02])
 ├── command_archive_task.go        # archive-then-delete ([05])
 └── workspace.go                   # workspace path helpers
 ```
 
 The pattern generalises: a reader can predict the filename for "the thing that
-sends email" (`command_send_email.go`) or "the invoice-received message"
-(`message_*` in `email/`) without searching.
+sends email" (`command_send_email.go`) or "the message that finishes an agent
+run" (`message_finish_agent_run.go`) without searching — and because message tags
+are imperative, the filename reads as the instruction it carries.
 
 ## Rules of thumb
 
@@ -104,7 +108,7 @@ sends email" (`command_send_email.go`) or "the invoice-received message"
   and the loop — never about tasks or email. Domains depend on `runtime`, not the
   reverse.
 - **Cross-domain interaction is by message, not by call.** `email/` doesn't call
-  into `tasks/`; it emits `email.received` and `tasks/` handles it. This keeps
-  the open-set, replayable design intact ([01](./01-architecture.md)).
+  into `tasks/`; it emits `route-email` and `tasks/` handles it. This keeps the
+  open-set, replayable design intact ([01](./01-architecture.md)).
 - **Keep files small and single-purpose.** If a file needs an "and" to describe
   it, it is probably two files.

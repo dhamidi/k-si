@@ -3,14 +3,19 @@
 These walkthroughs trace concrete scenarios as sequences of **runtime messages**
 (`Msg`) and **commands** (`Cmd`) through the runtime ([01](./01-architecture.md)).
 They tie the other documents together and double as a specification of the
-happy paths. Message and command tags are illustrative.
+happy paths.
+
+Recall the message discipline ([01](./01-architecture.md)): every message is
+**imperative** (it tells the model what to do) and **complete** (it carries
+everything its handler needs, so the handler does no I/O). Tags below are
+illustrative.
 
 Notation: `Msg` in **bold**, `Cmd` in `code`, effects italicised.
 
 ## Flow A — Pay an invoice (the canonical example)
 
-You forward an email with a PDF invoice to **`pay@kasi.decode.ee`** and get a
-reply thread until the invoice is paid.
+You forward an email with a PDF invoice to **`pay@kasi.decode.ee`**, CC your
+accountant `alice@example.com`, and get a reply thread until the invoice is paid.
 
 ### 1. Delivery → inbox
 
@@ -19,24 +24,29 @@ Fastmail's catch-all on `kasi.decode.ee` delivers the mail to käsi's account
 `Email/changes`, fetches the raw MIME, and writes an `inbox` row
 ([03](./03-persistence.md)).
 
-→ emits **`email.received`** `{inbox_id, recipient: "pay@kasi.decode.ee"}`
+→ emits **`route-email`**
+`{inbox_id, recipient: "pay@kasi.decode.ee", sender: "you@…", cc: ["alice@…"],
+subject, message_id, in_reply_to: null}`
 
-The runtime logs this message before applying it ([01](./01-architecture.md)).
+The message is **complete** — it carries the routing facts inline — and is logged
+before it is applied ([01](./01-architecture.md)).
 
-### 2. Route → new task
+### 2. Route → authorise → new task
 
-The **`email.received`** handler:
+The **`route-email`** handler, purely from the message and model:
 
-- checks the sender against the allow-list ([04](./04-email.md)) — passes;
-- finds no matching thread key → this is a **new task**;
-- reads the local part `pay` → route `pay` → template `invoice-payment`
-  ([04](./04-email.md), [07](./07-skills-and-tools.md)).
+- no `in_reply_to` match → this is a **new task**, so the sender must be on the
+  **initiator allowlist** ([04](./04-email.md)) — they are;
+- reads local part `pay` → route `pay` → template `invoice-payment`
+  ([04](./04-email.md), [07](./07-skills-and-tools.md));
+- seeds the task's **participants** from sender + `cc` → you and Alice
+  ([04](./04-email.md)); Alice may now reply into this thread, but is not added to
+  the initiator allowlist.
 
-→ updates model: new `Task{status: open, route: pay, template: invoice-payment}`
-→ returns `[create-workspace, lay-in, provision, spawn-agent-run]`
-
-(The task id needs to be deterministic under replay — derived from the log
-offset or supplied via an `id.generated` message ([01](./01-architecture.md)).)
+→ updates model: new `Task{status: open, route: pay, template: invoice-payment,
+participants: [you, alice]}` (id derived from the log offset —
+[01](./01-architecture.md))
+→ returns `[create-workspace, lay-in-inputs, provision-workspace, spawn-agent-run]`
 
 ### 3. Prepare the workspace
 
@@ -44,10 +54,11 @@ Effects run concurrently in workers ([01](./01-architecture.md)):
 
 - `create-workspace` — *makes `$WORKDIR/task-$ID/` with `in/` and `out/`*
   ([05](./05-agents-and-tasks.md)).
-- `lay-in` — *writes the email text to `in/body.txt` and the PDF part to
+- `lay-in-inputs` — *writes the email text to `in/body.txt` and the PDF part to
   `in/invoice.pdf`* ([02](./02-object-model.md)).
-- `provision` — *writes the template's skills into `skills/` and `.mise.toml`,
-  runs `mise install`* ([07](./07-skills-and-tools.md)).
+- `provision-workspace` — *lays the template's skills into `skills/`, writes
+  `.mise.toml`, `mise trust`s the workspace, and `mise install`s the pinned tools
+  into the shared, persistent mise data dir* ([07](./07-skills-and-tools.md)).
 
 ### 4. Run the agent
 
@@ -65,21 +76,22 @@ proceeds ([01](./01-architecture.md)).
 
 The invoice is for a large amount, so the agent decides to confirm before paying.
 It writes a question into `out/reply.txt` and exits. The **agent-watch
-subscription** sees the process exit.
+subscription** sees the process exit and reads what it left behind.
 
-→ emits **`agent.finished`** `{task_id, run_id, exit: 0, transcript_path}`
+→ emits **`finish-agent-run`**
+`{task_id, run_id, exit: 0, transcript_path, out_manifest: ["reply.txt"]}`
 
-The **`agent.finished`** handler returns
-`[capture-transcript, harvest-out, assemble-reply]`:
+The message is complete — the manifest names what's in `out/`, so the handler
+decides next steps without touching disk. It returns
+`[capture-transcript, assemble-reply]`:
 
 - `capture-transcript` — *copies the session transcript into `archive`*
   (`kind='transcript'`) ([03](./03-persistence.md), [05](./05-agents-and-tasks.md)).
-- `harvest-out` — *reads `out/` into MIME parts* ([02](./02-object-model.md)).
-- `assemble-reply` — *builds the reply MIME (body = the question, threading
-  headers, a completion link), writes a `pending` `outbox` row*
-  ([04](./04-email.md)).
+- `assemble-reply` — *harvests `out/` into MIME parts, builds the reply (body =
+  the question, threading headers, recipients = participants, a completion link),
+  writes a `pending` `outbox` row* ([02](./02-object-model.md), [04](./04-email.md)).
 
-→ emits **`email.queued`** → handler sets `Task.status = awaiting-user`.
+→ emits **`mark-reply-queued`** → handler sets `Task.status = awaiting-user`.
 
 ### 6. Send the reply
 
@@ -87,17 +99,19 @@ The **send** path transmits the `pending` outbox row via JMAP
 `EmailSubmission/set` ([04](./04-email.md)); the Fastmail token is resolved from
 `secret://fastmail/api-token` at the edge ([06](./06-secrets.md)).
 
-→ emits **`email.sent`** `{outbox_id}` → handler marks the row `sent`.
+→ emits **`mark-email-sent`** `{outbox_id}` → handler marks the row `sent`.
 
-You receive the agent's question **as a reply in your original thread**.
+You and Alice both receive the agent's question **as a reply in the original
+thread**.
 
-### 7. You reply with confirmation
+### 7. A participant replies with confirmation
 
-You reply "yes, pay it" in the same thread. Steps 1–2 repeat, but now the
-**`email.received`** handler matches the thread key → **reply within the existing
-task** ([04](./04-email.md), [05](./05-agents-and-tasks.md)):
+Alice replies "yes, pay it" in the same thread. Steps 1–2 repeat, but now the
+**`route-email`** handler matches the thread key → **reply within the existing
+task**, and Alice is a **participant**, so she is authorised
+([04](./04-email.md), [05](./05-agents-and-tasks.md)):
 
-→ returns `[lay-in (new text into in/), spawn-agent-run (resume session)]`
+→ returns `[lay-in-inputs (new text into in/), spawn-agent-run (resume session)]`
 → `Task.status = awaiting-agent`
 
 The agent **resumes the same session** ([05](./05-agents-and-tasks.md)), pays the
@@ -105,21 +119,21 @@ invoice using its provisioned tool and `secret://route/pay/*` credential
 ([06](./06-secrets.md), [07](./07-skills-and-tools.md)), and writes a confirmation
 plus `out/receipt.pdf`.
 
-→ **`agent.finished`** → `capture-transcript`, `harvest-out`, `assemble-reply`
-(body = "Paid. Receipt attached.", attachment = the receipt) → `email.queued` →
-`email.sent`.
+→ **`finish-agent-run`** → `capture-transcript`, `assemble-reply`
+(body = "Paid. Receipt attached.", attachment = the receipt) →
+**`mark-reply-queued`** → **`mark-email-sent`**.
 
-You get the receipt in the thread.
+Everyone on the thread gets the receipt.
 
-### 8. You mark it done
+### 8. Mark it done
 
-You click the **completion link** in the reply ([04](./04-email.md),
-[08](./08-web-ui.md)). The web edge validates the token and feeds a message to
-the core ([08](./08-web-ui.md)):
+A participant clicks the **completion link** in the reply ([04](./04-email.md),
+[08](./08-web-ui.md)). The web edge validates the token and feeds the core
+([08](./08-web-ui.md)):
 
-→ emits **`task.done`** `{task_id}`
+→ emits **`finish-task`** `{task_id}`
 
-The **`task.done`** handler returns `[archive-task]`:
+The **`finish-task`** handler returns `[archive-task]`:
 
 - `archive-task` — *archives every not-yet-archived `in/` attachment, `out/`
   artifact, and transcript; verifies completeness; then deletes
@@ -134,48 +148,73 @@ transcripts); only the scratch directory is gone.
 Flow A steps 5–7 generalise to any multi-turn task:
 
 ```
-awaiting-agent ──agent.finished (asks)──► assemble-reply ──► awaiting-user
+awaiting-agent ──finish-agent-run (asks)──► assemble-reply ──► awaiting-user
       ▲                                                            │
-      └────── email.received (reply in thread) ──► spawn (resume) ─┘
+      └──── route-email (participant replies in thread) ─ spawn (resume) ─┘
 ```
 
 Each turn: one **agent run**, one continuous **session**, one exchange in one
 **email thread** — the anchoring equivalence ([05](./05-agents-and-tasks.md)),
-sustained for as many rounds as the work needs, until **`task.done`**.
+sustained for as many rounds as the work needs, until **`finish-task`**.
 
-## Flow C — Crash and restart (durability)
+## Flow C — Agent authors a reusable skill
 
-Suppose käsi is killed right after step 6 emits **`email.sent`** but before you
-reply.
+During a task, the agent works out how to reconcile a vendor's odd invoice format
+and writes the know-how down for next time ([05](./05-agents-and-tasks.md),
+[07](./07-skills-and-tools.md)).
+
+- The agent leaves `out/skills/vendor-x-invoices.md` (with metadata). It exits.
+- **`finish-agent-run`** `{…, out_manifest: [..., "skills/vendor-x-invoices.md"]}`
+  — the manifest flags the authored skill, so the handler adds `store-skill` to
+  its returned commands.
+- `store-skill` — *writes the skill's content to the `skill` table in SQLite*
+  (`origin='agent'`, [03](./03-persistence.md)) — then
+  → emits **`register-skill`** `{skill_id, name: "vendor-x-invoices", content_ref}`.
+- **`register-skill`** handler adds the skill to the in-RAM registry
+  ([07](./07-skills-and-tools.md)).
+
+From now on, `provision-workspace` for any run that includes this skill lays it
+into the workspace — the **next turn of this task immediately**, and other tasks
+once they reference it. Because it lives in SQLite, it **survives this task's
+workspace deletion**: a skill learned once is available to future agent runs.
+
+## Flow D — Crash and restart (durability)
+
+Suppose käsi is killed right after step 6 emits **`mark-email-sent`** but before
+Alice replies.
 
 On restart ([01](./01-architecture.md), [03](./03-persistence.md)):
 
-1. Load the newest snapshot; replay `message_log` after it with **effects
-   suppressed**. Replaying **`email.received`**, **`task.created`**,
-   **`agent.finished`**, **`email.queued`**, **`email.sent`** rebuilds the exact
-   model: this task in `awaiting-user`. No email is re-sent, no agent re-spawned —
-   those were effects, and replay performs none ([01](./01-architecture.md)).
+1. Start from the zero model and replay the **entire** `message_log` with
+   **effects suppressed** — there are no snapshots ([01](./01-architecture.md)).
+   Replaying **`route-email`**, **`finish-agent-run`**, **`mark-reply-queued`**,
+   **`mark-email-sent`** rebuilds the exact model: this task in `awaiting-user`,
+   participants intact. No email is re-sent, no agent re-spawned — those were
+   effects, and replay performs none.
 2. Switch to live mode; compute `subscriptions(model)` and start them, including
    the inbox poller.
 3. **Reconciliation** ([03](./03-persistence.md)) inspects the model: the outbox
-   row is already `sent`, so nothing to resend; no agent is `awaiting-agent`, so
-   nothing to resume. The system is exactly where it left off.
+   row is already `sent`, so nothing to resend; no task is stuck in
+   `awaiting-agent` without a live process, so nothing to resume. The system is
+   exactly where it left off.
 
-Had the crash happened one step earlier — outbox row `pending`, **`email.sent`**
-never logged — replay would rebuild the task in a state with a `pending` row, and
-the reconciliation subscription would emit `send-email`, delivering the reply
-exactly once (the pre-generated `Message-ID` guards against duplicates
-([04](./04-email.md))). This is why effects are described-then-interpreted and
-outbound sending is a durable, idempotent queue.
+Had the crash happened one step earlier — outbox row `pending`,
+**`mark-email-sent`** never logged — replay would rebuild the task with a
+`pending` row, and the reconciliation subscription would emit `send-email`,
+delivering the reply exactly once (the pre-generated `Message-ID` guards against
+duplicates ([04](./04-email.md))). This is why effects are
+described-then-interpreted and outbound sending is a durable, idempotent queue.
 
 ## What every flow demonstrates
 
-- **Message → commands → effects → messages**, folded by one reducer
-  ([01](./01-architecture.md)).
+- **Imperative, complete messages → commands → effects → messages**, folded by
+  one reducer with no I/O in handlers ([01](./01-architecture.md)).
 - **MIME at every boundary** — inbox, `in/`, `out/`, outbox, archive
   ([02](./02-object-model.md)).
 - **Secrets resolved only at the edge** ([06](./06-secrets.md)).
-- **Durability by logging messages, not effects** ([01](./01-architecture.md),
-  [03](./03-persistence.md)).
+- **Durability by full-log replay, not effect-replay and not snapshots**
+  ([01](./01-architecture.md), [03](./03-persistence.md)).
+- **Capabilities that grow** — participants added by CC, skills authored by
+  agents and kept in SQLite ([04](./04-email.md), [05](./05-agents-and-tasks.md)).
 - **One task ⇔ one thread ⇔ one session**, from first email to completion
   ([05](./05-agents-and-tasks.md)).

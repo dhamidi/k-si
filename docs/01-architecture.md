@@ -45,7 +45,7 @@ In classic Elm, `Msg` is a closed sum type; the compiler forces `update` to
 handle every case. käsi does the opposite on purpose.
 
 - A **runtime message** is identified by a stable string **type tag** (e.g.
-  `email.received`, `task.created`, `agent.finished`) and carries a payload.
+  `route-email`, `finish-agent-run`, `mark-email-sent`) and carries a payload.
 - Handlers are registered in a map keyed by type tag. Dispatch looks up the
   handler for the incoming message's tag.
 - **If no handler is registered, the message is dropped** — recorded as
@@ -68,13 +68,49 @@ The cost is that a typo in a tag fails silently. We mitigate this with: a single
 registry per domain, tests that assert the expected tags are registered, and a
 startup log line enumerating every registered tag.
 
+## Message discipline: imperative and complete
+
+Two rules govern every runtime message, without exception. They are what make
+handlers pure and replay deterministic.
+
+1. **Imperative mood, always.** A message's tag is phrased as a command to the
+   model — `route-email`, `finish-agent-run`, `mark-email-sent`, `finish-task`,
+   `register-skill` — never as a passive event (`email.received`,
+   `agent.finished`). The message *instructs the model to make a state change*.
+   This reads naturally because a message is, precisely, an order the reducer
+   carries out. Commands ([below](#the-twist-open-message-and-command-sets)) are
+   imperative too (`send-email`, `spawn-agent-run`); the difference is the target
+   — a message orders the *model*, a command orders the *runtime* to touch the
+   world.
+
+2. **Complete, always.** A message carries **everything its handler needs** to
+   compute the next state. The handler performs **no I/O**: it does not read a
+   file, query SQLite, call the network, or read the clock. Whatever fact the
+   transition depends on — the recipient address, the sender, the exit code, the
+   current time, a generated id — is already *in the message*, put there by the
+   edge (a subscription or a command effect) that did the I/O before formulating
+   the message.
+
+Completeness has a nuance worth stating: "everything the handler needs" means
+everything needed *for the state transition*, not every byte of associated
+content. A message may carry a *reference* to bulk content (an inbox row id, a
+transcript path) when the handler only records the reference and never reads it.
+What a message must never do is force the handler to fetch a fact it doesn't
+already hold. For example, `route-email` carries the recipient, sender, subject,
+and threading keys inline, so routing is a pure decision over the message and the
+model — the handler never opens the stored MIME to route.
+
+Because messages are complete and handlers are pure, replay is a total function
+of the log: fold the same messages, get the same model, on any machine, with no
+I/O and no external state (see *Persistence* below).
+
 ### Shape in Go
 
 ```go
 // A runtime message: a stable tag plus an opaque, serialisable payload.
 type Msg struct {
-    Tag     string          // e.g. "email.received"
-    Payload json.RawMessage // decoded by the handler for that tag
+    Tag     string          // imperative, e.g. "route-email"
+    Payload json.RawMessage // complete: all the handler needs, no I/O required
     // metadata (id, causation, time) is added by the runtime, not handlers
 }
 
@@ -96,8 +132,8 @@ unknown message (dropped, recorded), never a panic.
 ## Handlers return many commands
 
 `update` returns a *slice* of commands. A single message can fan out: e.g.
-`email.received` for a `pay@` address might return `[create-workspace,
-lay-in-attachments, provision-tools, spawn-agent-run]`. The runtime runs them;
+`route-email` for a `pay@` address might return `[create-workspace,
+lay-in-inputs, provision-workspace, spawn-agent-run]`. The runtime runs them;
 each may emit its own follow-up messages, which drive the next step. This keeps
 each handler small and the workflow expressed as message → commands → messages,
 not as one long imperative function.
@@ -107,9 +143,9 @@ not as one long imperative function.
 Some message sources are long-lived and their lifetime depends on state:
 
 - the **Fastmail poller** (or JMAP push stream) that turns new mail into
-  `email.received` messages,
-- a **ticker** that emits `tick` messages carrying the current time,
-- per-running-agent **process watchers** that emit `agent.finished` when a
+  `route-email` messages,
+- a **ticker** that emits `advance-clock` messages carrying the current time,
+- per-running-agent **process watchers** that emit `finish-agent-run` when a
   harness exits.
 
 `subscriptions(model)` returns the set that *should* be running now, each keyed
@@ -146,7 +182,7 @@ model rather than manual goroutine bookkeeping.
 Backpressure: the inbound channel is buffered; if it fills, emitters block,
 which naturally throttles effect workers. Long-running effects (an agent run
 that takes minutes) do not block the reducer — they run in a worker and emit a
-single `agent.finished` message when done, watched by a subscription.
+single `finish-agent-run` message when done, watched by a subscription.
 
 ## Persistence: event-sourced state
 
@@ -158,27 +194,29 @@ The model is never saved directly. Instead:
 > where effects are *not* performed. Replaying the messages reconstructs exactly
 > the model that existed when the process died.
 
-This works because of one strict rule (Principle 4 in [00](./00-vision.md)):
+This works because of the message discipline above (imperative and **complete**,
+Principle 1 in [00](./00-vision.md)) plus the determinism rule (Principle 4):
 
-> **Handlers are pure functions of `(model, msg)`. All non-determinism enters as
-> a message.**
+> **Handlers are pure functions of `(model, msg)`. All non-determinism, and all
+> I/O results, enter as a complete message.**
 
 Consequences that make replay sound:
 
 - The **output of every effect is itself a message that gets logged.** When the
-  Fastmail poller finds mail, it emits `email.received` (logged). When an agent
-  run finishes, the watcher emits `agent.finished` (logged). During replay we do
+  Fastmail poller finds mail, it emits `route-email` (logged). When an agent run
+  finishes, the watcher emits `finish-agent-run` (logged). During replay we do
   **not** re-run the poller or re-spawn the agent; we simply replay the already
   logged result message. So the log is a complete, self-contained record of
-  everything the model ever saw.
+  everything the model ever saw. This is the completeness rule doing its job: the
+  message carries the *result* of the I/O, so replay never repeats the I/O.
 - **Time comes in on messages.** A handler never calls `time.Now()`. The ticker
-  subscription emits `tick{at: ...}`; effects that need a timestamp stamp it into
-  the message they emit. Replay uses the recorded timestamps.
-- **IDs and randomness come in on messages.** A handler that needs a new task ID
-  emits a command; the effect generates the ID and emits `id.generated{id: ...}`
-  (logged); the handler for that message stores it. Replay reuses the recorded
-  ID. (Alternatively, IDs may be derived deterministically from the message's own
-  log offset — either way, no fresh randomness during replay.)
+  subscription emits `advance-clock{now: ...}`; effects that need a timestamp
+  stamp it into the message they emit. Replay uses the recorded timestamps.
+- **IDs and randomness come in on messages.** IDs are derived deterministically
+  from the message's own log offset, so a handler that needs a new task id
+  computes it purely from `(model, msg)` with no fresh randomness. Any value that
+  genuinely must come from outside (rare) is generated by an effect and carried
+  back inline on the message it emits, so replay reuses the recorded value.
 
 ### What is and isn't logged
 
@@ -190,14 +228,15 @@ Consequences that make replay sound:
 
 ### Replay mode in detail
 
-Startup sequence:
+There are **no snapshots**. The model is always rebuilt by folding the *entire*
+message log from the beginning. The log is the single, complete source of truth
+for state; nothing derived from it is persisted. Startup sequence:
 
-1. Open the databases. Load the latest **snapshot** if one exists (see below);
-   otherwise start from the zero model.
+1. Open the databases and start from the zero model.
 2. Set the interpreter to replay mode: commands are decoded and discarded
    (recorded for debugging) rather than executed. Handlers still run and still
    return commands — we just don't perform them.
-3. Fold every logged message after the snapshot point through `update`.
+3. Fold every logged message, in order, through `update`.
 4. Switch the interpreter to live mode.
 5. Compute `subscriptions(model)` and start the declared sources. Normal
    operation resumes.
@@ -209,14 +248,12 @@ handled by reconciliation subscriptions in live mode, driven by the model
 (e.g. "for every outbox row still marked `pending`, emit `send-email`"), not by
 re-running history.
 
-### Snapshots (log compaction)
-
-Replaying from the beginning grows slower over time. Periodically the runtime
-writes a **snapshot**: a serialised model plus the log offset it reflects. On
-startup we load the newest snapshot and replay only messages after it.
-Snapshots are an optimisation, never the source of truth — deleting them only
-makes startup slower. A snapshot must be a pure serialisation of the model and
-must round-trip exactly.
+Full-log replay keeps the model honest — there is no serialisation format to
+drift, no snapshot to corrupt, and startup is trivially correct. It is a
+deliberate trade for a single-user system where the log stays small enough that
+replay is fast; if that ever stops holding, the answer is to prune genuinely dead
+history (e.g. drop the message stream of long-`done` tasks), not to cache derived
+state.
 
 ## Business objects live in RAM
 

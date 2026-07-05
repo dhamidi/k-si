@@ -24,7 +24,7 @@ Start at the top; each doc assumes the ones above it.
 | 05 | [Agents & tasks](./05-agents-and-tasks.md) | Task lifecycle, workspaces, harness invocation, transcripts, archival |
 | 06 | [Secrets](./06-secrets.md) | The separate secrets database and `secret://` resolution |
 | 07 | [Skills & tools](./07-skills-and-tools.md) | Reusable skills and CLI tools provisioned via mise |
-| 08 | [Web UI](./08-web-ui.md) | The html.sh / htmlc / dispatch / Turbo stack, hosted on exe.dev |
+| 08 | [Web UI](./08-web-ui.md) | The htmlc / dispatch / Turbo stack, hosted on exe.dev |
 | 09 | [Code layout](./09-code-layout.md) | Package-by-domain structure and file-naming conventions |
 | 10 | [End-to-end flows](./10-flows.md) | Worked walkthroughs, including the invoice-payment example |
 
