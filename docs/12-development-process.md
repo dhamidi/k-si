@@ -98,7 +98,9 @@ The one rule that keeps the in-memory story true forever:
 Edges are the *only* places käsi touches the world, and each is defined by a
 small interface with (at least) two implementations, living side by side per
 the naming conventions of [09](./09-code-layout.md) (e.g. `harness_claude.go`
-beside `harness_sim.go`):
+beside `harness_sim.go`) and shipped together in the domain's module, so
+assembling an instance is choosing which implementation of each edge to wire
+([01](./01-architecture.md)):
 
 | Edge | Real implementation | Simulated twin |
 |------|--------------------|----------------|

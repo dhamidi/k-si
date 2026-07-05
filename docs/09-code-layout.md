@@ -17,9 +17,9 @@ domain.
 
 ```
 kasi/
-├── cmd/kasi/            # main() for the single binary: `kasi serve` runs the
-│                        #   system; `kasi test` runs the test suite ([14]);
-│                        #   `kasi task`/`kasi tasks`/… are the control
+├── cmd/kasi/            # main.go: THE assembly point — the full module list,
+│                        #   real edges ([01]). Subcommands of the one binary:
+│                        #   `kasi serve`, `kasi test` ([14]), and the control
 │                        #   subcommands (supervisor's tool) ([11])
 ├── runtime/             # the Elm-style core (domain-agnostic)
 │   ├── model.go              # Model aggregate; composed of domain slices
@@ -57,6 +57,7 @@ Message and command files are named after their **imperative tag**
 
 | Prefix | Contains | Example |
 |--------|----------|---------|
+| `module.go` | the domain's module: everything it contributes, assembled by `main.go` ([01](./01-architecture.md)) | `module.go` |
 | `message_*.go` | one runtime message type (imperative) + its handler(s) | `message_route_email.go` |
 | `command_*.go` | one command type + its effect (interpreter) | `command_send_email.go` |
 | `subscription_*.go` | one subscription source | `subscription_inbox_poll.go` |
@@ -67,6 +68,7 @@ Illustrative listing for the `email/` package:
 
 ```
 email/
+├── module.go                      # the email module: handlers, effects, subs, edges ([01])
 ├── model_route.go                 # Route table + initiator allowlist (model slice)
 ├── message_route_email.go         # "route-email" + handler (auth, route, thread)
 ├── message_add_collaborator.go    # "add-collaborator" + handler (CC -> participant)
@@ -139,6 +141,12 @@ are imperative, the filename reads as the instruction it carries.
 - **A message and its handler live together.** The `message_*.go` file both
   defines the tag/payload and registers the handler. You never hunt across the
   tree to find who handles a tag.
+- **One `module.go` per domain; one assembly in `main.go`.** The module is the
+  only thing a domain exports for wiring — handlers, effects, subscriptions,
+  model slice, edges — and `main.go` is the only place modules are assembled
+  into a program ([01](./01-architecture.md)). No `init()` registration, no
+  globals: an instance is a value, which is what lets tests construct many,
+  or partial, assemblies ([14](./14-test-language.md)).
 - **A command and its effect live together.** `command_*.go` defines the command
   and its interpreter, including any `secret://` resolution it needs
   ([06](./06-secrets.md)).

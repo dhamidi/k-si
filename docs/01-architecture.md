@@ -68,6 +68,40 @@ The cost is that a typo in a tag fails silently. We mitigate this with: a single
 registry per domain, tests that assert the expected tags are registered, and a
 startup log line enumerating every registered tag.
 
+## Modules and assembly
+
+Registration has to happen somewhere, and that somewhere is deliberately
+boring: **`main.go` is the one place the application is assembled.**
+
+Each domain package ([09](./09-code-layout.md)) exports a **module** — a plain
+value bundling everything the domain contributes:
+
+- its message handlers (tag → handler),
+- its command effects (tag → effect),
+- its subscription sources,
+- its slice of the model, with the zero value folding starts from,
+- its edges, in every implementation the domain ships — real and simulated
+  side by side ([12](./12-development-process.md)).
+
+An **instance** of käsi is constructed by handing the runtime a list of
+modules and a choice of edge implementations. `main.go` does exactly this,
+once, in the open: the full module list, real edges, start. There is no
+`init()` magic, no package-level registration, no global registries — if a
+module isn't named in `main.go`, it isn't in the program.
+
+Two consequences are the point:
+
+- **The build is legible in one file.** Reading `main.go` answers "what is
+  this program made of" the way reading the tree answers "what does käsi do"
+  ([09](./09-code-layout.md)).
+- **Instances are values.** Nothing lives in globals, so any number of
+  instances can coexist in one process. The test runner exploits this
+  directly: it assembles instances from the same modules with simulated
+  edges, in fleets ([13](./13-testing.md)), and a test script can assemble a
+  *partial* application (`use email tasks`) to drive a few domains' handlers
+  in isolation ([14](./14-test-language.md)) — messages whose domains aren't
+  assembled simply drop, exactly as the open-set rule promises.
+
 ## Message discipline: imperative and complete
 
 Two rules govern every runtime message, without exception. They are what make

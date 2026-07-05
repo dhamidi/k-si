@@ -33,13 +33,16 @@ Each ring answers a different question:
 
 ## Ring 1 — Simulation
 
-An **instance** in the simulation ring is the complete käsi application — the
-runtime, every domain package, every handler and registry — wired to simulated
-edges: an in-memory mailbox, a scripted harness, a virtual clock, in-memory
-SQLite, a throwaway workspace tree, sentinel-valued secrets
+An **instance** in the simulation ring is the käsi application assembled from
+the same modules `main.go` assembles ([01](./01-architecture.md)) — every
+handler, effect, and subscription — but wired to simulated edges: an
+in-memory mailbox, a scripted harness, a virtual clock, in-memory SQLite, a
+throwaway workspace tree, sentinel-valued secrets
 ([12](./12-development-process.md)). Nothing is stubbed *inside* the seam; an
 instance routes mail, creates tasks, "runs" agents, assembles MIME replies,
-archives, and replays its log exactly as production does.
+archives, and replays its log exactly as production does. A script may also
+assemble a **partial** application (`use email tasks`) when it wants to drive
+a few domains' handlers directly ([14](./14-test-language.md)).
 
 Because an instance is just goroutines and RAM, they are cheap:
 
