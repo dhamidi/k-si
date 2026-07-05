@@ -1,0 +1,10 @@
+id: contract-packages-are-leaves
+language: go
+severity: error
+files:
+  - '**/msg/*.go'
+message: Contract packages import nothing but runtime — they are leaves so cross-domain imports can never cycle (docs/15)
+rule:
+  kind: import_spec
+  not:
+    regex: runtime"$

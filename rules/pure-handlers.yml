@@ -1,0 +1,23 @@
+id: pure-handlers
+language: go
+severity: error
+files:
+  - '**/message_*.go'
+  - '**/model_*.go'
+message: Handlers and models are pure — no I/O, no time, no randomness, no goroutines; facts enter on messages, effects live at edges (docs/15)
+rule:
+  any:
+    # both arities: in Go patterns, `($$$)` does not match an empty argument list
+    - pattern: time.$F($$$)
+    - pattern: time.$F()
+    - pattern: os.$F($$$)
+    - pattern: os.$F()
+    - pattern: sql.$F($$$)
+    - pattern: sql.$F()
+    - pattern: http.$F($$$)
+    - pattern: http.$F()
+    - pattern: exec.$F($$$)
+    - pattern: exec.$F()
+    - pattern: rand.$F($$$)
+    - pattern: rand.$F()
+    - kind: go_statement

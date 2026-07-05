@@ -1,0 +1,11 @@
+id: no-inline-tag-literals
+language: go
+severity: error
+message: Pass the tag constant, not a string — a tag literal appears exactly once, in the file that owns it (docs/15)
+rule:
+  any:
+    - pattern: runtime.HandleMsg($MOD, $TAG, $H)
+    - pattern: runtime.HandleCmd($MOD, $TAG, $H)
+constraints:
+  TAG:
+    regex: ^"

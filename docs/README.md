@@ -38,6 +38,10 @@ Start at the top; each doc assumes the ones above it.
 [12 — Development process](./12-development-process.md); it is written as the
 contributor's entry point and pulls in the rest as needed.
 
+These documents are evergreen — they state the shape of the system, not its
+progress. The *sequenced* companion — what gets built in what order, with
+gates — is [BUILDING.md](../BUILDING.md) at the repository root.
+
 ## The one-paragraph version
 
 käsi is a single Go process, dependency-light, hosted on an exe.dev VPS. Its

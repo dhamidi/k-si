@@ -96,6 +96,16 @@ class KasiProvider {
 				details: { module: subscription.module },
 			})
 		}
+
+		for (const scenario of scan.scenarios) {
+			yield new KasiComponent({
+				kind: 'scenario',
+				id: `scenario.${scenario.name}`,
+				description: scenario.description ?? `Test scenario ${scenario.name}`,
+				files: scenario.files,
+				details: {},
+			})
+		}
 	}
 
 	async create(spec, env) {
@@ -106,7 +116,16 @@ class KasiProvider {
 // --- Discovery ---------------------------------------------------------------
 
 async function scanRepository(kit) {
-	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [] }
+	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [] }
+
+	for await (const path of new Glob('t/**/*.test').scan({ cwd: process.cwd() })) {
+		scan.scenarios.push({
+			name: path.replace(/^t\//, '').replace(/\.test$/, '').replaceAll('/', '.'),
+			files: [path],
+			description: await docComment(path, /^# (?:t\/\S+ — )?(.+)$/m),
+		})
+	}
+
 	const goFiles = await glob('*/**.go')
 
 	if (goFiles.length === 0) {
@@ -365,6 +384,70 @@ class KasiType {
 		)
 	}
 
+	/**
+	 * Creates a file only if it does not exist yet, so re-applying a manifest
+	 * never clobbers code someone has already implemented. An existing file is
+	 * reported as read: consulted, left untouched.
+	 */
+	async *createFresh(env, path, content) {
+		if (await Bun.file(path).exists()) {
+			yield this.kit.Event.fileRead(path)
+			return
+		}
+
+		yield await env.createFile(path, content)
+	}
+
+	/**
+	 * Tags are globally unique — one tag, one owner (docs/01). Regenerating
+	 * the same component is fine (createFresh makes it a no-op); the same tag
+	 * under a different module or kind is refused.
+	 */
+	async ensureTagFree(spec, kind) {
+		const scan = await scanRepository(this.kit)
+		const owners = [
+			...scan.messages.map((m) => ({ ...m, kind: 'message' })),
+			...scan.commands.map((c) => ({ ...c, kind: 'command' })),
+		]
+		const clash = owners.find((owner) => owner.tag === spec.name)
+
+		if (clash && (clash.module !== spec.module || clash.kind !== kind)) {
+			throw new this.kit.UserError(
+				`tag "${spec.name}" is already owned by ${clash.kind} ${clash.module}.${clash.tag} (${clash.files[0]}); tags are globally unique (docs/01)`,
+			)
+		}
+	}
+
+	/**
+	 * Wires a new module into the one assembly (docs/01: main.go is THE
+	 * assembly point). Before stage zero exists there is nothing to wire and
+	 * that is fine; once cmd/kasi/main.go exists, forgetting to wire is the
+	 * kind of silent divergence this provider exists to prevent.
+	 */
+	async *wireIntoAssembly(spec, env, gomod) {
+		const mainPath = 'cmd/kasi/main.go'
+
+		if (!(await Bun.file(mainPath).exists())) {
+			return
+		}
+
+		const source = await env.readFile(mainPath)
+		const wired = wireModule(source, spec.name, gomod)
+
+		if (wired === source) {
+			if (source.includes(`${spec.name}.Module(`)) {
+				yield this.kit.Event.fileRead(mainPath) // already wired
+			} else {
+				yield this.kit.Event.error(
+					`could not wire ${spec.name} into ${mainPath}: expected an import ( block and a runtime.New( assembly (docs/01)`,
+				)
+			}
+			return
+		}
+
+		yield await env.editFile(mainPath, () => wired)
+	}
+
 	async *registerInModule(spec, env, call) {
 		const modulePath = `${spec.module}/module.go`
 
@@ -443,9 +526,10 @@ class ModuleType extends KasiType {
 		const gomod = await goModulePath(env)
 		const what = spec.description ?? `the ${spec.name} domain`
 
-		yield await env.createFile(`${spec.name}/module.go`, moduleTemplate(spec.name, what, gomod))
-		yield await env.createFile(`${spec.name}/model_${spec.name}.go`, modelSliceTemplate(spec.name))
-		yield await env.createFile(`${spec.name}/msg/doc.go`, contractDocTemplate(spec.name))
+		yield* this.createFresh(env, `${spec.name}/module.go`, moduleTemplate(spec.name, what, gomod))
+		yield* this.createFresh(env, `${spec.name}/model_${spec.name}.go`, modelSliceTemplate(spec.name))
+		yield* this.createFresh(env, `${spec.name}/msg/doc.go`, contractDocTemplate(spec.name))
+		yield* this.wireIntoAssembly(spec, env, gomod)
 
 		if (spec.intent !== undefined) {
 			yield this.plan(
@@ -492,6 +576,7 @@ class MessageType extends KasiType {
 
 	async *create(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
+		await this.ensureTagFree(spec, 'message')
 		const gomod = await goModulePath(env)
 		const snake = snakeCase(spec.name)
 		const messageFile = `${spec.module}/message_${snake}.go`
@@ -499,11 +584,11 @@ class MessageType extends KasiType {
 
 		if (spec.contract) {
 			const contractFile = `${spec.module}/msg/${snake}.go`
-			yield await env.createFile(contractFile, contractMessageTemplate(spec, gomod))
-			yield await env.createFile(messageFile, contractHandlerTemplate(spec, gomod))
+			yield* this.createFresh(env, contractFile, contractMessageTemplate(spec, gomod))
+			yield* this.createFresh(env, messageFile, contractHandlerTemplate(spec, gomod))
 			files.push(contractFile)
 		} else {
-			yield await env.createFile(messageFile, messageTemplate(spec, gomod))
+			yield* this.createFresh(env, messageFile, messageTemplate(spec, gomod))
 		}
 
 		yield* this.registerInModule(spec, env, `register${pascalCase(spec.name)}(mod)`)
@@ -554,6 +639,7 @@ class CommandType extends KasiType {
 
 	async *create(rawSpec, env) {
 		const spec = this.normalize(rawSpec)
+		await this.ensureTagFree(spec, 'command')
 		const gomod = await goModulePath(env)
 		const snake = snakeCase(spec.name)
 		const commandFile = `${spec.module}/command_${snake}.go`
@@ -561,11 +647,11 @@ class CommandType extends KasiType {
 
 		if (spec.contract) {
 			const contractFile = `${spec.module}/msg/${snake}.go`
-			yield await env.createFile(contractFile, contractCommandTemplate(spec, gomod))
-			yield await env.createFile(commandFile, contractEffectTemplate(spec, gomod))
+			yield* this.createFresh(env, contractFile, contractCommandTemplate(spec, gomod))
+			yield* this.createFresh(env, commandFile, contractEffectTemplate(spec, gomod))
 			files.push(contractFile)
 		} else {
-			yield await env.createFile(commandFile, commandTemplate(spec, gomod))
+			yield* this.createFresh(env, commandFile, commandTemplate(spec, gomod))
 		}
 
 		yield* this.registerInModule(spec, env, `register${pascalCase(spec.name)}(mod)`)
@@ -611,7 +697,7 @@ class ModelType extends KasiType {
 		const spec = this.normalize(rawSpec)
 		const file = `${spec.module}/model_${snakeCase(spec.name)}.go`
 
-		yield await env.createFile(file, modelTemplate(spec))
+		yield* this.createFresh(env, file, modelTemplate(spec))
 
 		if (spec.intent !== undefined) {
 			yield this.plan(
@@ -655,7 +741,7 @@ class SubscriptionType extends KasiType {
 		const gomod = await goModulePath(env)
 		const file = `${spec.module}/subscription_${snakeCase(spec.name)}.go`
 
-		yield await env.createFile(file, subscriptionTemplate(spec, gomod))
+		yield* this.createFresh(env, file, subscriptionTemplate(spec, gomod))
 		yield* this.registerInModule(spec, env, `runtime.Subscribe(mod, ${camelCase(spec.name)}Subs)`)
 
 		if (spec.intent !== undefined) {
@@ -942,6 +1028,24 @@ function payloadFields(fields) {
 	return entries
 		.map(([name, goType]) => `\t${pascalCase(name).padEnd(width)} ${goType} \`json:"${name}"\`\n`)
 		.join('')
+}
+
+function wireModule(source, name, gomod) {
+	if (source.includes(`${name}.Module(`)) {
+		return source
+	}
+
+	const withImport = source.replace(/(import \(\n)/, `$1\t"${gomod}/${name}"\n`)
+	const withModule = withImport.replace(
+		/(runtime\.New\(\n)/,
+		`$1\t\t${name}.Module(${name}.Edges{}), // TODO: wire real edges (docs/15)\n`,
+	)
+
+	if (withModule === withImport || withImport === source) {
+		return source // shape not recognised; caller reports it
+	}
+
+	return withModule
 }
 
 // --- Naming -------------------------------------------------------------------

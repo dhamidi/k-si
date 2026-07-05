@@ -128,6 +128,10 @@ of the boundary — move it to an edge and deliver its result as a message
 
 ## Build order: stage zero comes first
 
+(The full staged sequence, with per-stage gates, lives in
+[BUILDING.md](../BUILDING.md) — the one planning document that changes as
+stages complete. This section states the principle it applies.)
+
 Everything in this process leans on shared machinery, so the machinery is
 built first — sequentially, and finished — before any domain work fans out.
 This matters double when the "developers" are agents working in parallel:

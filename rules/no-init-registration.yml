@@ -1,0 +1,6 @@
+id: no-init-registration
+language: go
+severity: error
+message: No init() — assembly is explicit in main.go; instances are values (docs/01)
+rule:
+  pattern: func init() { $$$ }
