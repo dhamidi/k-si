@@ -272,6 +272,87 @@ func (c *JMAP) Recent(ctx context.Context, limit int) ([]Inbound, error) {
 	return out, nil
 }
 
+// Fetch returns inbound messages that arrived since a prior JMAP state, plus the
+// new state to poll from next — the incremental inbound path (docs/04). The first
+// call (empty sinceState) returns the CURRENT state and no messages, so a poller
+// only ever processes mail that arrives after it starts, never the whole mailbox.
+func (c *JMAP) Fetch(ctx context.Context, sinceState string) (msgs []Inbound, newState string, err error) {
+	token, err := c.token(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := c.ensureSession(ctx, token); err != nil {
+		return nil, "", err
+	}
+
+	if sinceState == "" {
+		state, err := c.mailState(ctx, token)
+		return nil, state, err
+	}
+
+	responses, err := c.call(ctx, token, []string{capCore, capMail},
+		invoke("Email/changes", map[string]any{
+			"accountId":  c.accountID,
+			"sinceState": sinceState,
+			"maxChanges": 50,
+		}, "ch"),
+		invoke("Email/get", map[string]any{
+			"accountId":  c.accountID,
+			"#ids":       map[string]any{"resultOf": "ch", "name": "Email/changes", "path": "/created"},
+			"properties": []string{"id", "blobId", "messageId", "to"},
+		}, "g"),
+	)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var changed struct {
+		NewState string `json:"newState"`
+	}
+	if err := decodeResult(responses, "Email/changes", &changed); err != nil {
+		return nil, "", err
+	}
+
+	var got struct {
+		List []struct {
+			BlobID    string   `json:"blobId"`
+			MessageID []string `json:"messageId"`
+			To        []struct {
+				Email string `json:"email"`
+			} `json:"to"`
+		} `json:"list"`
+	}
+	if err := decodeResult(responses, "Email/get", &got); err != nil {
+		return nil, "", err
+	}
+
+	for _, e := range got.List {
+		raw, err := c.download(ctx, token, e.BlobID, "message.eml")
+		if err != nil {
+			return nil, "", err
+		}
+		msgs = append(msgs, Inbound{Raw: raw, MessageID: first(e.MessageID), Recipient: firstEmail(e.To)})
+	}
+	return msgs, changed.NewState, nil
+}
+
+// mailState reads the current Email state (the high-water mark to poll from).
+func (c *JMAP) mailState(ctx context.Context, token string) (string, error) {
+	responses, err := c.call(ctx, token, []string{capCore, capMail},
+		invoke("Email/get", map[string]any{"accountId": c.accountID, "ids": []string{}}, "s"),
+	)
+	if err != nil {
+		return "", err
+	}
+	var got struct {
+		State string `json:"state"`
+	}
+	if err := decodeResult(responses, "Email/get", &got); err != nil {
+		return "", err
+	}
+	return got.State, nil
+}
+
 func (c *JMAP) inboxID(ctx context.Context, token string) (string, error) {
 	responses, err := c.call(ctx, token, []string{capCore, capMail},
 		invoke("Mailbox/query", map[string]any{

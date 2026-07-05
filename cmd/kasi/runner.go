@@ -280,7 +280,7 @@ func standingChecks(inst *instance) error {
 		}
 	}
 
-	mods := assembly(true)
+	mods := assembly()
 	if inst.only != nil {
 		var subset []*runtime.Module
 		for _, m := range mods {

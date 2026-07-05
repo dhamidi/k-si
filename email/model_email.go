@@ -36,6 +36,12 @@ func (m Model) allows(addr string) bool {
 	return false
 }
 
+// IsAllowed reports whether addr is on the initiator allowlist — the exported
+// read serve uses to seed the allowlist without re-logging existing entries.
+func IsAllowed(v runtime.View, addr string) bool {
+	return runtime.Slice[Model](v, "email").allows(addr)
+}
+
 // withAllowed returns the allowlist with addr added (sorted, no duplicate).
 func withAllowed(list []string, addr string) []string {
 	for _, a := range list {

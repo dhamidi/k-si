@@ -76,12 +76,12 @@ func replayCassette(path string) error {
 		return err
 	}
 
-	first := runtime.New(assembly(true)...).UseLog(c)
+	first := runtime.New(assembly()...).UseLog(c)
 	if err := first.Replay(); err != nil {
 		return fmt.Errorf("replay failed: %w", err)
 	}
 
-	second := runtime.New(assembly(true)...).UseLog(c)
+	second := runtime.New(assembly()...).UseLog(c)
 	if err := second.Replay(); err != nil {
 		return fmt.Errorf("second replay failed: %w", err)
 	}
