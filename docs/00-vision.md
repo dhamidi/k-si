@@ -93,7 +93,9 @@ always qualify it.
 | **Task** | One unit of work = one email thread = one agent session. The central business object. |
 | **Workspace** | The on-disk directory for a task, `$WORKDIR/task-$ID`, with `in/` and `out/` subdirectories. |
 | **Agent run** | A single invocation of a harness (Claude by default) inside a workspace. |
-| **Main agent / orchestrator** | käsi itself, in its role of managing the inbox/outbox of every agent run. |
+| **Main agent / orchestrator** | käsi itself, in its role of managing the inbox/outbox of every agent run. Its conversational face is the *supervisor*. |
+| **Supervisor** | The conversational agent you email to drive käsi's own data model — list/inspect/stop/resume/archive tasks and UI requests ([11](./11-supervisor.md)). |
+| **Control interface** | A loopback endpoint the runtime exposes so out-of-process edges (the supervisor's CLI) can read the model and inject messages ([11](./11-supervisor.md)). |
 | **Harness** | The official runner for an agent (e.g. the Claude CLI/SDK). käsi shells out to it; it does not reimplement one. |
 | **Handler (route)** | The mapping from an email local part (`pay`, `research`, …) to a task template. |
 | **Task template** | The prompt, skills, and tools that define a category of work. Selected by the route. |

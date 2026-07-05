@@ -32,6 +32,11 @@ outputs. "Manages the inboxes and outboxes of other agent runs" means exactly
 this: laying mail into `in/`, harvesting `out/`, and moving results between the
 worker and the outside world.
 
+The orchestrator is code, and runs silently. Its **conversational face** is the
+*supervisor*: when you want to drive käsi itself — list, inspect, stop, resume, or
+archive tasks and requests — you talk to the supervisor, an agent with tools over
+the data model ([11](./11-supervisor.md)).
+
 ## Task lifecycle
 
 States (held in the model, [01](./01-architecture.md)):
@@ -56,10 +61,14 @@ awaiting-user ◄─ awaiting-agent     │
 
 - **open** — task created from an inbound email; template selected.
 - **awaiting-agent** — a worker agent run is (or should be) executing.
-- **awaiting-user** — the agent finished and asked for more; a reply has been
-  sent and käsi is waiting on the human.
-- **done** — the user clicked the completion link ([04](./04-email.md)); archive
-  and clean up.
+- **awaiting-user** — the agent finished and asked for more (or was **stopped**,
+  below); käsi is waiting on the human. When a reply was sent, it's waiting on
+  that; when stopped, it's waiting for your next instruction.
+- **done** — a participant clicked the completion link ([04](./04-email.md)), or
+  the supervisor archived it ([11](./11-supervisor.md)); archive and clean up.
+
+A run can also be **stopped** mid-flight (from the web UI or the supervisor) — see
+*Stopping a run* below; a stop lands the task back in `awaiting-user`.
 
 Every transition is an imperative runtime message (`route-email`,
 `finish-agent-run`, `mark-email-sent`, `finish-task`) and is therefore logged and
@@ -145,6 +154,36 @@ The transcript is also what lets a later turn *resume* the session: the harness
 resumes from its own session store while it exists in the (not-yet-deleted)
 workspace; once the task is done and the workspace removed, the archived
 transcript remains as the historical record.
+
+**While a run is in flight**, the transcript exists only in the workspace, being
+written by the harness. That in-progress stream is exactly what the web UI reads
+to show a *live* transcript ([08](./08-web-ui.md)); the SQLite archive appears
+once `finish-agent-run` fires. So there are two read sources — the workspace for a
+running run, the archive for a finished one — and the UI picks by run state.
+
+## Stopping a run
+
+If you catch an agent going off track, you can **stop** it — from the web UI
+([08](./08-web-ui.md)) or by asking the supervisor ([11](./11-supervisor.md)).
+Either way it is a message ([01](./01-architecture.md)):
+
+1. A `stop-agent-run` message (complete: task id + run id) is emitted. Its handler
+   marks the run as stopping and returns `[signal-agent-run]`.
+2. `signal-agent-run` — *signals the harness process to terminate* (graceful
+   first, then hard).
+3. The **agent-watch subscription** sees the process exit and emits
+   `finish-agent-run` flagged **stopped** — the same message as a normal exit, so
+   the same machinery runs: the **transcript so far is captured**
+   ([03](./03-persistence.md)).
+4. Because the run was stopped, the handler **assembles no reply** and leaves the
+   task in `awaiting-user`. You decide what's next: reply in the thread (or ask
+   the supervisor) to **resume** the session with a correction, or mark it done /
+   archive it.
+
+Stopping is thus safe and lossless: it halts the process, keeps everything the
+agent had produced, and hands control back to you. Resuming afterwards continues
+the *same* session ([05](./05-agents-and-tasks.md) — *Multi-turn conversations*),
+now steered by your correction.
 
 ## Producing the response
 

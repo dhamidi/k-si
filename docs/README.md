@@ -27,6 +27,7 @@ Start at the top; each doc assumes the ones above it.
 | 08 | [Web UI](./08-web-ui.md) | The htmlc / dispatch / Turbo stack, hosted on exe.dev |
 | 09 | [Code layout](./09-code-layout.md) | Package-by-domain structure and file-naming conventions |
 | 10 | [End-to-end flows](./10-flows.md) | Worked walkthroughs, including the invoice-payment example |
+| 11 | [The supervisor](./11-supervisor.md) | The conversational agent that drives käsi's own data model, and the control interface behind it |
 
 ## The one-paragraph version
 

@@ -73,9 +73,9 @@ Scoped to the fallback role:
 3. **Routes, templates, skills, tools.** Bind local parts to task templates and
    edit the prompt/skills/tools those templates provision
    ([04](./04-email.md), [07](./07-skills-and-tools.md)).
-4. **Tasks (read-mostly).** List and inspect tasks — status, the email thread,
-   archived transcripts and artifacts ([05](./05-agents-and-tasks.md)) — as a
-   fallback to reading the email thread itself.
+4. **Tasks & transcripts.** Browse tasks, drill into one, and watch its agent
+   runs — including the **live transcript** of a running agent — with a button to
+   **stop** an agent that's going off track (below).
 5. **Task completion.** The tokenised page that marks a task `done` and triggers
    archive-then-cleanup ([05](./05-agents-and-tasks.md)). Often the *only* page a
    user visits in normal operation.
@@ -103,6 +103,46 @@ side-door into the model:
 
 So a UI action and an inbound email are the same kind of thing to the core: a
 message. The UI is just another message source.
+
+## Browsing tasks and transcripts
+
+For when you're curious or impatient and want to see what an agent is actually
+doing — not a fallback, a genuine window into the system.
+
+- **Task list.** Tasks grouped by status (`awaiting-agent`, `awaiting-user`,
+  `open`, `done`), newest first, each showing its route, subject, and last
+  activity. Mobile-first: a scannable single column.
+- **Task detail.** One task's email thread, its participants
+  ([04](./04-email.md)), its agent runs, any open UI request
+  ([02](./02-object-model.md)), and its artifacts.
+- **Transcript view.** The agent's session transcript rendered legibly — user
+  turns, assistant turns, tool calls and their results — from the harness's
+  event stream ([05](./05-agents-and-tasks.md)). It reads from two places
+  depending on run state:
+  - a **finished** run renders from the archived transcript in SQLite
+    (`archive`, `kind='transcript'` — [03](./03-persistence.md));
+  - a **running** run renders from the harness's in-progress transcript in the
+    workspace, so you see work as it happens.
+- **Live updates.** For a running agent the transcript view **auto-updates** via
+  Turbo — a refreshing Turbo Frame (or a Turbo Stream over server-sent events)
+  appends new turns as the harness writes them, then settles to static once the
+  run finishes. Without JavaScript it degrades to a manual refresh; nothing is
+  lost.
+
+### Stopping an agent
+
+Each running agent run has a **Stop** button. Pressing it, like every UI write, is
+just a message ([01](./01-architecture.md)):
+
+- The `POST` emits a `stop-agent-run` message ([05](./05-agents-and-tasks.md)).
+- Its effect signals the harness process; the watcher emits `finish-agent-run`
+  flagged *stopped*; the transcript so far is captured; **no reply is assembled**;
+  the task lands in `awaiting-user` for you to redirect or archive
+  ([05](./05-agents-and-tasks.md)).
+
+So catching an agent mid-mistake is one tap, and what it had done up to that point
+is preserved for you to read. The same stop is available to the supervisor
+([11](./11-supervisor.md)).
 
 ## Agent request forms
 

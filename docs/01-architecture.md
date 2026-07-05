@@ -184,6 +184,14 @@ which naturally throttles effect workers. Long-running effects (an agent run
 that takes minutes) do not block the reducer — they run in a worker and emit a
 single `finish-agent-run` message when done, watched by a subscription.
 
+**Edges are message sources.** Subscriptions are not the only things that emit.
+The web UI ([08](./08-web-ui.md)) and any other in-process edge inject messages
+directly onto the same channel. Out-of-process edges — notably the supervisor
+agent's control CLI ([11](./11-supervisor.md)) — reach the runtime through a
+loopback **control interface** that answers reads from the model and injects
+messages for writes. Every edge, without exception, changes state only by putting
+an imperative message on the one channel; there is no other door into the model.
+
 ## Persistence: event-sourced state
 
 The model is never saved directly. Instead:

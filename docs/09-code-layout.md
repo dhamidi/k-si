@@ -18,6 +18,7 @@ domain.
 ```
 kasi/
 ├── cmd/kasi/            # main(): wire runtime + domains, open DBs, start
+├── cmd/kasictl/         # the `kasi` control CLI (supervisor's tool) ([11])
 ├── runtime/             # the Elm-style core (domain-agnostic)
 │   ├── model.go              # Model aggregate; composed of domain slices
 │   ├── message.go            # Msg type, tags, registry
@@ -34,6 +35,7 @@ kasi/
 ├── tools/               # mise integration, tool registry ([07])
 ├── secrets/             # secrets DB, secret:// resolver ([06])
 ├── web/                 # dispatch routes, htmlc components, Turbo ([08])
+├── control/             # loopback control interface: reads + message inject ([11])
 └── store/               # SQLite access shared by domains ([03])
 ```
 
@@ -104,6 +106,25 @@ The form itself is rendered and posted in `web/` (e.g. `view_request.vue` plus t
 token-validated GET/POST routes), which turns a submission into the
 `answer-ui-request` message ([08](./08-web-ui.md)) — request *state and rules*
 live in `requests/`, request *rendering* lives in `web/`.
+
+And the agent-run controls in `agents/` ([05](./05-agents-and-tasks.md)):
+
+```
+agents/
+├── model_agent_run.go             # AgentRun struct + status (running/stopped/…)
+├── command_spawn_agent_run.go     # start or resume a harness in the workspace
+├── message_stop_agent_run.go      # "stop-agent-run" + handler
+├── command_signal_agent_run.go    # signal the harness process to terminate
+├── subscription_agent_watch.go    # watch process -> "finish-agent-run"
+├── harness.go                     # the harness interface (start/resume/…)
+└── harness_claude.go              # default Claude adapter
+```
+
+The web `Stop` button ([08](./08-web-ui.md)) and the supervisor's
+`kasi task stop` ([11](./11-supervisor.md)) both funnel into the one
+`stop-agent-run` message — the browser view (`view_task.vue`,
+`view_transcript.vue`) lives in `web/`, the control CLI in `cmd/kasictl` talking to
+`control/`, and the run lifecycle in `agents/`.
 
 The pattern generalises: a reader can predict the filename for "the thing that
 sends email" (`command_send_email.go`) or "the message that finishes an agent
