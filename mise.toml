@@ -14,7 +14,9 @@ fi
 mkdir -p bin
 go build -o bin/kasi ./cmd/kasi
 ./bin/kasi test t/
+./bin/kasi test --log sqlite t/
 ./bin/kasi test --selftest
+./bin/kasi test --cassettes
 ./bin/kasi test -n 100 t/runtime/hello.test
 ast-grep scan
 echo 'gate: green'

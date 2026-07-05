@@ -325,6 +325,19 @@ func traceEntry(c Cmd) string {
 
 // --- Introspection for edges and the test runner -----------------------------
 
+// View returns a read snapshot of the model for edge reads (docs/08). The
+// slices are values, so the snapshot stays stable while the reducer moves on.
+func (a *App) View() View {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	slices := make(map[string]any, len(a.model))
+	for name, slice := range a.model {
+		slices[name] = slice
+	}
+	return View{slices: slices}
+}
+
 // HasTag reports whether any assembled module handles the message tag.
 func (a *App) HasTag(tag string) bool {
 	_, ok := a.msgOwner[tag]

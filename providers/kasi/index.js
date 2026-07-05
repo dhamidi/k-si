@@ -166,7 +166,7 @@ async function scanRepository(kit) {
 		if (await Bun.file(goFile).exists()) {
 			files.push(goFile)
 			const source = await Bun.file(goFile).text()
-			render = source.includes('RenderFragment(') ? 'fragment' : 'page'
+			render = source.includes('RenderFragment') ? 'fragment' : 'page'
 		}
 
 		scan.views.push({
@@ -1253,7 +1253,7 @@ function viewGoTemplate(spec) {
 	const pascal = pascalCase(spec.name)
 	const snake = snakeCase(spec.name)
 	const camel = camelCase(spec.name)
-	const render = spec.render === 'fragment' ? 'RenderFragment' : 'RenderPage'
+	const render = spec.render === 'fragment' ? 'RenderFragmentContext' : 'RenderPage'
 	const role =
 		spec.render === 'fragment'
 			? 'writes the HTML fragment Turbo swaps in'
@@ -1262,6 +1262,7 @@ function viewGoTemplate(spec) {
 	return `package web
 
 import (
+	"context"
 	"io"
 
 	"github.com/dhamidi/htmlc"
@@ -1274,8 +1275,8 @@ import (
 ${viewStruct(pascal, spec.props)}
 
 // Render${pascal} ${role} (docs/08).
-func Render${pascal}(w io.Writer, engine *htmlc.Engine, view ${pascal}View) error {
-	return engine.${render}(w, "view_${snake}", map[string]any{
+func Render${pascal}(ctx context.Context, w io.Writer, engine *htmlc.Engine, view ${pascal}View) error {
+	return engine.${render}(ctx, w, "view_${snake}", map[string]any{
 		"${camel}": view,
 	})
 }

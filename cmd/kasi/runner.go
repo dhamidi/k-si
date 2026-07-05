@@ -30,6 +30,9 @@ func runTest(args []string) int {
 	flags := flag.NewFlagSet("kasi test", flag.ExitOnError)
 	fleet := flags.Int("n", 1, "run N instances of each script concurrently")
 	ring := flags.String("ring", "sim", "edge set: sim (recorded and live land per BUILDING.md)")
+	logKind := flags.String("log", "memory", "log edge: memory (the twin) or sqlite (a real file per script)")
+	record := flags.Bool("record", false, "on success, save each script's log as a cassette under t/cassettes/logs/")
+	cassettes := flags.Bool("cassettes", false, "replay every committed log cassette against the current build")
 	selftest := flags.Bool("selftest", false, "run the test-language conformance corpus")
 	flags.Parse(args)
 
@@ -40,6 +43,16 @@ func runTest(args []string) int {
 
 	if *selftest {
 		return runSelftest()
+	}
+
+	if *cassettes {
+		return runCassettes()
+	}
+
+	newLog, err := logFactory(*logKind)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kasi test:", err)
+		return 1
 	}
 
 	paths := flags.Args()
@@ -62,7 +75,7 @@ func runTest(args []string) int {
 	start := time.Now()
 
 	for _, script := range scripts {
-		if err := runScriptFleet(script, *fleet); err != nil {
+		if err := runScriptFleet(script, *fleet, newLog, *record); err != nil {
 			failed++
 			fmt.Fprintf(os.Stderr, "FAIL %s\n%s\n", script, indent(err.Error()))
 		} else {
@@ -109,14 +122,21 @@ func collectScripts(paths []string) ([]string, error) {
 	return scripts, nil
 }
 
-func runScriptFleet(path string, n int) error {
+func runScriptFleet(path string, n int, newLog logMaker, record bool) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
 	if n <= 1 {
-		return runScript(string(src), "0")
+		inst, err := runScript(string(src), "0", newLog)
+		if err != nil {
+			return err
+		}
+		if record {
+			return recordCassette(path, inst.log)
+		}
+		return nil
 	}
 
 	errs := make([]error, n)
@@ -126,7 +146,7 @@ func runScriptFleet(path string, n int) error {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = runScript(string(src), strconv.Itoa(i))
+			_, errs[i] = runScript(string(src), strconv.Itoa(i), newLog)
 		}(i)
 	}
 	wg.Wait()
@@ -139,13 +159,43 @@ func runScriptFleet(path string, n int) error {
 	return nil
 }
 
+// logMaker builds one script's log edge: the in-memory twin, or a real
+// SQLite file so the same scenarios also prove the real store (docs/13).
+type logMaker func() (runtime.Log, func(), error)
+
+func logFactory(kind string) (logMaker, error) {
+	switch kind {
+	case "memory":
+		return func() (runtime.Log, func(), error) {
+			return store.NewMemoryLog(), func() {}, nil
+		}, nil
+	case "sqlite":
+		return func() (runtime.Log, func(), error) {
+			dir, err := os.MkdirTemp("", "kasi-test-*")
+			if err != nil {
+				return nil, nil, err
+			}
+			log, err := store.OpenSQLiteLog(filepath.Join(dir, "kasi.db"))
+			if err != nil {
+				os.RemoveAll(dir)
+				return nil, nil, err
+			}
+			return log, func() { log.Close(); os.RemoveAll(dir) }, nil
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown log kind %q (memory, sqlite)", kind)
+	}
+}
+
 // instance is one script's world: a log that survives crashes, an assembly
 // subset, and the current App.
 type instance struct {
-	log   *store.MemoryLog
-	clock *runtime.SimulatedClock
-	app   *runtime.App
-	only  []string // nil = the full assembly
+	log     runtime.Log
+	cleanup func()
+	newLog  logMaker
+	clock   *runtime.SimulatedClock
+	app     *runtime.App
+	only    []string // nil = the full assembly
 }
 
 func (i *instance) full() bool { return i.only == nil }
@@ -180,20 +230,27 @@ func moduleNames(mods []*runtime.Module) []string {
 	return names
 }
 
-func runScript(src, index string) error {
+func runScript(src, index string, newLog logMaker) (*instance, error) {
 	cmds, err := testlang.Parse(src)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	inst := &instance{log: store.NewMemoryLog(), clock: runtime.SimClock()}
+	log, cleanup, err := newLog()
+	if err != nil {
+		return nil, err
+	}
+
+	inst := &instance{log: log, cleanup: cleanup, newLog: newLog, clock: runtime.SimClock()}
 	if err := inst.boot(); err != nil {
-		return err
+		cleanup()
+		return nil, err
 	}
 	defer func() {
 		if inst.app != nil {
 			inst.app.Stop()
 		}
+		inst.cleanup()
 	}()
 
 	in := testlang.New()
@@ -201,10 +258,10 @@ func runScript(src, index string) error {
 	registerVocabulary(in, inst)
 
 	if err := in.Run(cmds); err != nil {
-		return fmt.Errorf("%w\n%s", err, diagnostics(inst))
+		return inst, fmt.Errorf("%w\n%s", err, diagnostics(inst))
 	}
 
-	return standingChecks(inst)
+	return inst, standingChecks(inst)
 }
 
 // standingChecks run after every script, so they can never be forgotten
@@ -254,7 +311,7 @@ func diagnostics(inst *instance) string {
 	var b strings.Builder
 
 	b.WriteString("message log (tail):\n")
-	for _, line := range inst.log.Tail(12) {
+	for _, line := range logTail(inst.log, 12) {
 		b.WriteString("  " + line + "\n")
 	}
 
@@ -275,7 +332,12 @@ func registerVocabulary(in *testlang.Interp, inst *instance) {
 			return "", fmt.Errorf("use needs module names or *")
 		}
 		inst.app.Stop()
-		inst.log = store.NewMemoryLog() // a new world, not a crash
+		inst.cleanup()
+		log, cleanup, err := inst.newLog() // a new world, not a crash
+		if err != nil {
+			return "", err
+		}
+		inst.log, inst.cleanup = log, cleanup
 		if len(args) == 1 && args[0] == "*" {
 			inst.only = nil
 		} else {
@@ -522,6 +584,25 @@ func render(value any) string {
 		raw, _ := json.Marshal(v)
 		return string(raw)
 	}
+}
+
+// logTail renders the last n log entries for failure output.
+func logTail(log runtime.Log, n int) []string {
+	var lines []string
+
+	log.Replay(func(msg runtime.Msg, meta runtime.Meta) error {
+		payload := string(msg.Payload)
+		if payload == "" || payload == "null" {
+			payload = "{}"
+		}
+		lines = append(lines, fmt.Sprintf("%4d %s %s", meta.Offset, msg.Tag, payload))
+		return nil
+	})
+
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
 }
 
 func indent(s string) string {

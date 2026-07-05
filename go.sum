@@ -1,0 +1,10 @@
+github.com/dhamidi/dispatch v0.3.1 h1:ZT1K4xhehW7q1vgoFGZO01mtHDK3zr+WXPK8xTTUUts=
+github.com/dhamidi/dispatch v0.3.1/go.mod h1:041ANfuJdBNx0McxzrMgrqhP9sli1eeI5rrXlOVDG/o=
+github.com/dhamidi/htmlc v1.0.2 h1:Lu7Wo12U8nMqGKu+GRef+hBJpx99ate7AldeaAC+dhc=
+github.com/dhamidi/htmlc v1.0.2/go.mod h1:lc0btTsQZWQwGgs4c45BoKC7vha/wPlB1fEODt5OgbY=
+github.com/dhamidi/uritemplate v0.0.0-20260309212444-dd9522d147b0 h1:VWqgv48bHh/1dmQiEC5Li7gXu3DRsYIjlmX1ugVJDeE=
+github.com/dhamidi/uritemplate v0.0.0-20260309212444-dd9522d147b0/go.mod h1:9mnGMuRlFfRVlStnK/5zyvr/77uEABGYwhkfpsAo+Zk=
+github.com/mattn/go-sqlite3 v1.14.47 h1:jOBI62gS7nKeZv+as1oGEy0+1qISgXwH/QBlR6KbfIo=
+github.com/mattn/go-sqlite3 v1.14.47/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
+golang.org/x/net v0.51.0 h1:94R/GTO7mt3/4wIKpcR5gkGmRLOuE/2hNGeWq/GBIFo=
+golang.org/x/net v0.51.0/go.mod h1:aamm+2QF5ogm02fjy5Bb7CQ0WMt1/WVM7FtyaTLlA9Y=

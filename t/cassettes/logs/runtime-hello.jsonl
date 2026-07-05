@@ -1,0 +1,6 @@
+{"kind":"message-log","recorded_at":"2026-07-05T16:15:42.73217443Z","recorded_by":"kasi test --record","source":"t/runtime/hello.test"}
+{"offset":1,"time":"2020-01-01T00:00:00Z","tag":"increment-counter","payload":{"by":2}}
+{"offset":2,"time":"2020-01-01T00:00:00Z","tag":"increment-counter","payload":{"by":3}}
+{"offset":3,"time":"2020-01-01T00:00:00Z","tag":"reset-counter"}
+{"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"mark-counter-reset","payload":{"previous":5}}
+{"offset":5,"time":"2020-01-01T00:00:00Z","tag":"increment-counter","payload":{"by":7}}

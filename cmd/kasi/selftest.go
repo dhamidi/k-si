@@ -15,13 +15,16 @@ import (
 func runSelftest() int {
 	failed := 0
 
+	memory, _ := logFactory("memory")
+
 	failed += selftestDir("testlang/corpus/pass", func(name, src string) error {
-		return runScript(src, "0")
+		_, err := runScript(src, "0", memory)
+		return err
 	})
 
 	failed += selftestDir("testlang/corpus/fail", func(name, src string) error {
 		want := expectFailDirective(src)
-		err := runScript(src, "0")
+		_, err := runScript(src, "0", memory)
 
 		if err == nil {
 			return fmt.Errorf("expected failure, but the script passed")

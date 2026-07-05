@@ -417,8 +417,8 @@ type TaskView struct {
 }
 
 // RenderTask writes the full page ([08]).
-func RenderTask(w io.Writer, engine *htmlc.Engine, view TaskView) error {
-	return engine.RenderPage(w, "view_task", map[string]any{
+func RenderTask(ctx context.Context, w io.Writer, engine *htmlc.Engine, view TaskView) error {
+	return engine.RenderPage(ctx, w, "view_task", map[string]any{
 		"task": view,
 	})
 }

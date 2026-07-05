@@ -8,13 +8,17 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
+	"github.com/dhamidi/k-si/web"
 )
 
 // assembly is the one module list. serve wires real edges; the test runner
@@ -41,7 +45,7 @@ func main() {
 	case "test":
 		os.Exit(runTest(os.Args[2:]))
 	case "serve":
-		os.Exit(runServe())
+		os.Exit(runServe(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -52,15 +56,29 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `Usage: kasi <command>
 
 Commands:
-  serve   run käsi (stage 1+: real edges land per BUILDING.md)
-  test    run test scripts: kasi test [-n N] [--ring sim] [--selftest] [path ...]`)
+  serve   run käsi: kasi serve [-addr 127.0.0.1:8787] [-state ./data]
+  test    run test scripts: kasi test [-n N] [--log memory|sqlite] [--record] [--cassettes] [--selftest] [path ...]`)
 }
 
-func runServe() int {
-	// TODO(stage 1): open the SQLite log and content stores (docs/03) and
-	// wire real edges here. Until then serve runs the assembly on the
-	// in-memory twin so the skeleton stays runnable.
-	app := runtime.New(assembly(false)...).UseLog(store.NewMemoryLog())
+func runServe(args []string) int {
+	flags := flag.NewFlagSet("kasi serve", flag.ExitOnError)
+	addr := flags.String("addr", "127.0.0.1:8787", "listen address (host-gated deployment, docs/08)")
+	state := flags.String("state", "data", "state directory holding the SQLite databases (docs/03)")
+	flags.Parse(args)
+
+	if err := os.MkdirAll(*state, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "kasi serve:", err)
+		return 1
+	}
+
+	log, err := store.OpenSQLiteLog(filepath.Join(*state, "kasi.db"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kasi serve:", err)
+		return 1
+	}
+	defer log.Close()
+
+	app := runtime.New(assembly(false)...).UseLog(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -69,9 +87,24 @@ func runServe() int {
 		fmt.Fprintln(os.Stderr, "kasi serve:", err)
 		return 1
 	}
+	defer app.Stop()
 
-	fmt.Println("kasi: running (in-memory log until stage 1 — see BUILDING.md); Ctrl-C to stop")
-	<-ctx.Done()
-	app.Stop()
+	server, err := web.NewServer(app)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kasi serve:", err)
+		return 1
+	}
+
+	httpServer := &http.Server{Addr: *addr, Handler: server}
+	go func() {
+		<-ctx.Done()
+		httpServer.Close()
+	}()
+
+	fmt.Printf("kasi: http://%s (state in %s); Ctrl-C to stop\n", *addr, *state)
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Fprintln(os.Stderr, "kasi serve:", err)
+		return 1
+	}
 	return 0
 }

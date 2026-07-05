@@ -1,23 +1,19 @@
 package counter
 
-import "github.com/dhamidi/k-si/runtime"
+import (
+	"github.com/dhamidi/k-si/counter/msg"
+	"github.com/dhamidi/k-si/runtime"
+)
 
-// "increment-counter" — sent by scenarios and edges that count; moves the count by the given amount
-const IncrementCounter = "increment-counter"
-
-type IncrementCounterPayload struct {
-	By int64 `json:"by"`
-}
-
-func NewIncrementCounter(p IncrementCounterPayload) runtime.Msg {
-	return runtime.NewMsg(IncrementCounter, p)
-}
+// "increment-counter" — sent by scenarios, edges, and the web form; moves
+// the count by the given amount. Contract message: the tag lives in msg/
+// because other edges construct it (docs/15).
 
 func registerIncrementCounter(mod *runtime.Module) {
-	runtime.HandleMsg(mod, IncrementCounter, handleIncrementCounter)
+	runtime.HandleMsg(mod, msg.IncrementCounter, handleIncrementCounter)
 }
 
-func handleIncrementCounter(v runtime.View, s Model, p IncrementCounterPayload,
+func handleIncrementCounter(v runtime.View, s Model, p msg.IncrementCounterPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
 	s.Count += p.By

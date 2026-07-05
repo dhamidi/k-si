@@ -72,16 +72,23 @@ until this is done, because everything else stands on it.
 assertions, a `crash`/`restart` — passes; `kasi test -n 100` of it passes;
 `ast-grep scan` is clean.
 
-**Status: the gate is green.** `runtime/` (modules, reducer loop, log +
-full-log replay, `send`, quiescence, subscription diffing), the in-memory
-log twin, `testlang/` + its conformance corpus, the `kasi test` runner with
-the replay-convergence and dead-send standing checks, the `counter` canary
-module (scaffolded by the kit provider), and the mechanical gate as
-`mise run check`. Still open within stage 0's scope, to land alongside the
-stage-1 modules that first need them: the SQLite log (the in-memory twin is
-in), the virtual-clock-driven `advance` beyond bare time, the secret-sentinel
-and reducer-I/O checks (they activate with the first secrets and edges), and
-cassette provenance (ring 2).
+**Status: the gate is green.** In place: `runtime/` (modules, reducer loop,
+log + full-log replay, `send`, quiescence, subscription diffing, blocking
+`Send`), both log edges — the in-memory twin *and* the SQLite `message_log`
+(the whole suite also runs against real files: `kasi test --log sqlite`) —
+`testlang/` + its conformance corpus, the `kasi test` runner with the
+replay-convergence and dead-send standing checks and `-n` fleets, the
+`counter` canary module (scaffolded by the kit provider, with a contract
+message and a `flag.Value` rich type), **cassettes** (the message-log kind:
+`--record` captures a green run's log with provenance, `--cassettes` replays
+every committed one against the current build, hand-written files are
+refused), and the **barebones web edge** — htmlc + dispatch + the full
+form-object loop over the canary (bind → validate → 422 re-render with
+errors, or one message → redirect → new model), served by `kasi serve` on
+SQLite state that survives restarts. Still open, landing with the stage-1/2
+modules that first need them: virtual-clock-driven timers behind `advance`,
+the secret-sentinel and reducer-I/O checks, and the recorded-ring mail and
+harness edges.
 
 ## Stage 1 — the conversation, in memory
 
