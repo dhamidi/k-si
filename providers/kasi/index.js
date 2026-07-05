@@ -9,6 +9,7 @@ import { Glob } from 'bun'
  * - model         model_<name>.go: a model slice / business object
  * - subscription  subscription_<name>.go: state -> set of running sources
  * - view          web/view_<name>.vue + view_<name>.go: an htmlc view and its View struct
+ * - form          web/form_<name>.go: bind + validate + construct the message; re-renders with errors
  *
  * Discovery is structural (ast-grep over Go source); generation emits the
  * canonical shapes from the pattern book, so generated code and documented
@@ -37,6 +38,7 @@ class KasiProvider {
 		yield new ModelType(this.kit)
 		yield new SubscriptionType(this.kit)
 		yield new ViewType(this.kit)
+		yield new FormType(this.kit)
 	}
 
 	async *components() {
@@ -112,6 +114,16 @@ class KasiProvider {
 			})
 		}
 
+		for (const form of scan.forms) {
+			yield new KasiComponent({
+				kind: 'form',
+				id: `form.${form.name}`,
+				description: form.description ?? `Form object ${form.name}`,
+				files: form.files,
+				details: { message: form.message },
+			})
+		}
+
 		for (const scenario of scan.scenarios) {
 			yield new KasiComponent({
 				kind: 'scenario',
@@ -124,14 +136,26 @@ class KasiProvider {
 	}
 
 	async create(spec, env) {
-		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription, view) to generate')
+		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription, view, form) to generate')
 	}
 }
 
 // --- Discovery ---------------------------------------------------------------
 
 async function scanRepository(kit) {
-	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [], views: [] }
+	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [], views: [], forms: [] }
+
+	for await (const path of new Glob('web/form_*.go').scan({ cwd: process.cwd() })) {
+		const snake = path.replace(/^web\/form_([a-z0-9_]+)\.go$/, '$1')
+		const source = await Bun.file(path).text()
+
+		scan.forms.push({
+			name: snake.replaceAll('_', '-'),
+			files: [path],
+			message: source.match(/msg\.New([A-Za-z0-9]+)\(/)?.[1],
+			description: await docComment(path, /\/\/ [A-Za-z0-9]+Form [—-] ?(.+)/),
+		})
+	}
 
 	for await (const path of new Glob('web/view_*.vue').scan({ cwd: process.cwd() })) {
 		const snake = path.replace(/^web\/view_([a-z0-9_]+)\.vue$/, '$1')
@@ -876,6 +900,68 @@ code.`,
 	}
 }
 
+// --- form ------------------------------------------------------------------------
+
+class FormType extends KasiType {
+	id() {
+		return 'form'
+	}
+
+	description() {
+		return 'A form object: bind + validate + construct one runtime message; re-renders with errors (docs/08)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			name: this.tagField('Form name, kebab-case; becomes web/form_<name>.go', ['allow-sender', 'update-route']),
+			module: this.moduleField(),
+			message: this.tagField(
+				'Imperative message tag a valid submission constructs (defaults to the form name); must be in the owning module\'s contract',
+				['allow-sender', 'update-route'],
+			),
+			fields: Type.Optional(
+				Type.Record(Type.String({ pattern: '^[a-z][a-z0-9_]*$' }), Type.String({ description: 'Go type of the field' }), {
+					description: 'Form fields: snake_case name -> Go type; string fields bind from the request automatically',
+					examples: [{ address: 'string' }],
+					cli: false,
+				}),
+			),
+			description: this.descriptionField(['add an address to the initiator allowlist']),
+		})
+	}
+
+	normalize(spec) {
+		const normalized = super.normalize(spec)
+		return { ...normalized, message: normalized.message ?? normalized.name }
+	}
+
+	async *create(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const gomod = await goModulePath(env)
+		const file = `web/form_${snakeCase(spec.name)}.go`
+
+		yield* this.createFresh(env, 'web/form.go', formErrorsTemplate())
+		yield* this.createFresh(env, file, formTemplate(spec, gomod))
+
+		if (spec.intent !== undefined) {
+			yield this.plan(
+				spec,
+				`Implement the ${spec.name} form`,
+				[file],
+				`Intent: ${spec.intent}
+
+Implement ${pascalCase(spec.name)}Form in ${file}: finish Bind for non-string
+fields, write the Validate rules, and map the fields onto the
+"${spec.message}" payload in Message. The handler loop is: bind + validate;
+invalid re-renders the same view with the form (values + errors) in the props
+map; valid sends the message, then redirects so the next GET renders the new
+model (docs/08, docs/15). Do not refactor unrelated code.`,
+			)
+		}
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1207,6 +1293,93 @@ function viewFields(props) {
 
 	const width = Math.max(...entries.map(([name]) => pascalCase(name).length))
 	return entries.map(([name, goType]) => `\t${pascalCase(name).padEnd(width)} ${goType}\n`).join('')
+}
+
+function formErrorsTemplate() {
+	return `package web
+
+// FormErrors maps a field name to its error message. Form objects carry one
+// so an invalid submission re-renders the same view with values and errors
+// intact; templates read it directly: v-if="form.Errors.address" (docs/08).
+type FormErrors map[string]string
+
+// Set records the first error for a field; later errors keep the first, so
+// validation reads top-to-bottom and reports the primary problem per field.
+func (e FormErrors) Set(field, message string) {
+	if _, taken := e[field]; !taken {
+		e[field] = message
+	}
+}
+`
+}
+
+function formTemplate(spec, gomod) {
+	const pascal = pascalCase(spec.name)
+	const msgPascal = pascalCase(spec.message)
+
+	return `package web
+
+import (
+	"net/http"
+${hasStringField(spec.fields) ? '\t"strings"\n\n' : ''}	"${gomod}/runtime"
+	msg "${gomod}/${spec.module}/msg"
+)
+
+// ${pascal}Form — ${spec.description ?? 'TODO: one line on what submitting this means'}
+//
+// A form object carries its own values and errors: bound from the request,
+// validated, re-rendered by the same view when invalid, and turned into
+// exactly one imperative runtime message when valid (docs/08, docs/15). It
+// is passed to htmlc as a struct value in the props map, like any View.
+type ${pascal}Form struct {
+${formStructFields(spec.fields)}}
+
+// Bind${pascal}Form reads the submitted values. Binding never fails — bad
+// input becomes field errors in Validate, not an HTTP error.
+func Bind${pascal}Form(r *http.Request) ${pascal}Form {
+	return ${pascal}Form{
+${formBindFields(spec.fields)}		Errors: FormErrors{},
+	}
+}
+
+// Validate returns the form with any field errors recorded.
+func (f ${pascal}Form) Validate() ${pascal}Form {
+	// TODO: one rule per line, first error per field wins, e.g.:
+	// if f.Address == "" { f.Errors.Set("address", "an address is required") }
+	return f
+}
+
+// Valid reports whether Message may be constructed.
+func (f ${pascal}Form) Valid() bool { return len(f.Errors) == 0 }
+
+// Message constructs the one imperative message a valid submission means
+// (docs/08). Call only when Valid().
+func (f ${pascal}Form) Message() runtime.Msg {
+	return msg.New${msgPascal}(msg.${msgPascal}Payload{
+		// TODO: map the form's fields onto the payload
+	})
+}
+`
+}
+
+function formStructFields(fields) {
+	const entries = [...Object.entries(fields ?? {}).map(([name, goType]) => [pascalCase(name), goType]), ['Errors', 'FormErrors']]
+	const width = Math.max(...entries.map(([name]) => name.length))
+	return entries.map(([name, goType]) => `\t${name.padEnd(width)} ${goType}\n`).join('')
+}
+
+function hasStringField(fields) {
+	return Object.values(fields ?? {}).includes('string')
+}
+
+function formBindFields(fields) {
+	return Object.entries(fields ?? {})
+		.map(([name, goType]) =>
+			goType === 'string'
+				? `\t\t${pascalCase(name)}: strings.TrimSpace(r.FormValue("${name}")),\n`
+				: `\t\t// TODO: parse ${goType} from r.FormValue("${name}") into ${pascalCase(name)}\n`,
+		)
+		.join('')
 }
 
 function wireModule(source, name, gomod) {

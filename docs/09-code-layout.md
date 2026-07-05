@@ -64,6 +64,7 @@ Message and command files are named after their **imperative tag**
 | `subscription_*.go` | one subscription source | `subscription_inbox_poll.go` |
 | `model_*.go` | one business object / model slice | `model_task.go` |
 | `view_*.go` / `*.vue` | one UI view/component ([08]) | `view_task.vue` |
+| `form_*.go` | one form object: bind + validate + construct one message ([08], [15](./15-tactical-patterns.md)) | `form_allow_sender.go` |
 
 Illustrative listing for the `email/` package:
 

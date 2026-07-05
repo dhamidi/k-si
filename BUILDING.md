@@ -142,8 +142,9 @@ recorded suite runs green offline.
 
 Grow the UI on top of the working conversation, per [08](./docs/08-web-ui.md)
 (htmlc + dispatch + Turbo). Each feature lands with a scenario driving the
-web edge, and every view is scaffolded through the provider
-(`kit generate kasi view.<name>`), which keeps the View-struct idiom uniform
+web edge, and every view and form is scaffolded through the provider
+(`kit generate kasi view.<name>` / `form.<module>.<name>`), which keeps the
+View-struct and form-object idioms uniform
 ([15](./docs/15-tactical-patterns.md)). In rough order:
 
 1. Task list and task detail (read-only fallback view).

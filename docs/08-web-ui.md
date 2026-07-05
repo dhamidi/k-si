@@ -105,6 +105,26 @@ side-door into the model:
   replayable ([01](./01-architecture.md), [03](./03-persistence.md)); the UI never
   mutates the model directly.
 
+Every write follows one loop, built on **form objects**
+([15](./15-tactical-patterns.md)): the handler binds the request into a
+`<Name>Form` (binding never fails — bad input becomes field errors), validates
+it, and either **re-renders the same view** with the form carrying its values
+and errors, or lets the form construct **exactly one imperative message**:
+
+```
+browser ──form──► handler: bind + validate
+   │  invalid: same view re-renders; the form (values + errors) is
+   │           just another struct in the props map
+   ▼  valid
+form.Message() ──► reducer ──► model updated
+   ▼
+redirect → GET → views render the new model ──► browser
+```
+
+The web edge's send blocks until the reducer has applied the message, so the
+redirected `GET` always shows the new state — POST/redirect/GET with no stale
+page and no client-side state.
+
 So a UI action and an inbound email are the same kind of thing to the core: a
 message. The UI is just another message source.
 

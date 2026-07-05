@@ -41,6 +41,10 @@ Every rule in this document, compressed:
 8. **Views render View structs.** htmlc receives `map[string]any`, and every
    value in it is a named `<Name>View` struct built by the route handler —
    never a raw model object, never an ad-hoc map.
+9. **Forms are objects that become one message.** A form object binds the
+   request (binding never fails), validates itself, re-renders the same view
+   carrying its values and errors when invalid — and constructs exactly one
+   imperative runtime message when valid.
 
 ## Messages: `message_*.go`
 
@@ -438,6 +442,87 @@ func RenderTask(w io.Writer, engine *htmlc.Engine, view TaskView) error {
   imperative runtime messages ([08](./08-web-ui.md)) — the same front door
   as everything else.
 
+## Forms: `form_*.go`
+
+Views read; **form objects** write. Every UI write follows one loop
+([08](./08-web-ui.md)):
+
+```
+browser ──form──► handler: bind + validate
+   │  invalid: re-render the same view — the form, carrying its
+   │           values and errors, is one of the props-map structs
+   ▼  valid
+construct one imperative message ──► reducer ──► model updated
+   ▼
+redirect → GET → View structs from the new model ──► htmlc ──► browser
+```
+
+```go
+// web/form_allow_sender.go
+
+// AllowSenderForm — add an address to the initiator allowlist ([04]).
+type AllowSenderForm struct {
+	Address string
+	Errors  FormErrors
+}
+
+// Binding never fails — bad input becomes field errors, not an HTTP error.
+func BindAllowSenderForm(r *http.Request) AllowSenderForm {
+	return AllowSenderForm{
+		Address: strings.TrimSpace(r.FormValue("address")),
+		Errors:  FormErrors{},
+	}
+}
+
+func (f AllowSenderForm) Validate() AllowSenderForm {
+	if f.Address == "" {
+		f.Errors.Set("address", "an email address is required")
+	}
+	return f
+}
+
+func (f AllowSenderForm) Valid() bool { return len(f.Errors) == 0 }
+
+// Message constructs the one imperative message a valid submission means.
+func (f AllowSenderForm) Message() runtime.Msg {
+	return msg.NewAllowSender(msg.AllowSenderPayload{Address: f.Address})
+}
+```
+
+And the handler, which is now almost policy-free:
+
+```go
+form := BindAllowSenderForm(r).Validate()
+if !form.Valid() {
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	return RenderSettings(w, engine, SettingsView{AllowSender: form /* … */})
+}
+app.Send(form.Message())
+http.Redirect(w, r, routes.Path("settings"), http.StatusSeeOther)
+```
+
+The rules:
+
+- **A form object is a View struct with a memory of what went wrong.** It
+  goes into the props map like any other struct, so re-rendering with errors
+  is the *same* render path as the first render — no separate error page,
+  no flash-message machinery. `FormErrors` is a flat `field → message` map
+  templates read directly (`v-if="form.Errors.address"`).
+- **Bind, validate, and message-construction are three separate steps** on
+  one value, so the scenario suite can drive a form through the web edge and
+  assert each: bad input re-renders with the right error; good input emits
+  exactly the right message ([14](./14-test-language.md)).
+- **One valid submission, one message.** The form is the last stop before
+  the front door; whatever the submission *means* is said as a single
+  imperative message the owning domain handles. A form needing to emit two
+  messages is two forms — or the domain is missing a message.
+- **Messages the web emits are contract messages.** The web edge is another
+  domain boundary: a tag it constructs belongs in the owning domain's
+  `msg/` package, like any cross-domain send.
+- **POST/redirect/GET closes the loop.** The web edge's `Send` blocks until
+  the reducer has applied the message, so the redirected `GET` renders the
+  new model — the browser never sees a stale page after a successful write.
+
 ## Where each fact may live — a checklist
 
 When writing a new capability, place each ingredient by this table; if
@@ -454,3 +539,4 @@ something has no row, it probably belongs to an edge:
 | A cross-domain instruction | `runtime.Send` of the other domain's `msg/` constructor | A direct call, a shared slice write |
 | A secret | `secret://` URL until inside an effect ([06](./06-secrets.md)) | Payloads, the model, logs |
 | Data a template renders | A `<Name>View` struct in `web/`, one per view | Raw model objects or ad-hoc maps in the props map |
+| A UI write | A `<Name>Form` object: bind → validate → one message | Handlers parsing/validating inline, or emitting several messages |
