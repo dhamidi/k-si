@@ -88,7 +88,7 @@ For a new capability, work usually flows in this order:
    live probe exercises it for real, and its recording joins the deterministic
    suite ([13](./13-testing.md)).
 
-## The seam rule
+## The twin rule
 
 The one rule that keeps the in-memory story true forever:
 
@@ -100,7 +100,7 @@ The one rule that keeps the in-memory story true forever:
 Edges are the *only* places käsi touches the world, and each is defined by a
 small interface with (at least) two implementations, living side by side per
 the naming conventions of [09](./09-code-layout.md) (e.g. `harness_claude.go`
-beside `harness_sim.go`) and shipped together in the domain's module, so
+beside `harness_sim.go`) and shipped together in the domain's module — so
 assembling an instance is choosing which implementation of each edge to wire
 ([01](./01-architecture.md)):
 
@@ -120,10 +120,10 @@ exists now or later. The discipline is cheap at the moment an edge is written
 (the sim twin is usually a few dozen lines) and unaffordable to retrofit once a
 body of logic depends on an unsimulatable edge.
 
-The runtime's own design enforces the other half of the seam: handlers cannot
-need simulation because they do no I/O at all. If you find yourself wanting to
-simulate something *inside* a handler, the I/O is on the wrong side of the seam
-— move it to an edge and deliver its result as a message
+The runtime's own design enforces the other half of the boundary: handlers
+cannot need simulation because they do no I/O at all. If you find yourself
+wanting to simulate something *inside* a handler, the I/O is on the wrong side
+of the boundary — move it to an edge and deliver its result as a message
 ([01](./01-architecture.md)).
 
 ## Build order: stage zero comes first
@@ -158,9 +158,9 @@ the guarantees below quietly stop being checked.
 
 Only then do domains proceed — in parallel if desired, against nothing but
 agreed message tags and payloads, which the `send` boundary makes sufficient
-([01](./01-architecture.md)). Concretely, agreeing a seam means committing
+([01](./01-architecture.md)). Concretely, agreeing a contract means committing
 the receiving domain's `msg/` package first ([15](./15-tactical-patterns.md));
-the contract is then compiler-checked on both sides. Each domain is built against the flow scripts
+from then on it is compiler-checked on both sides. Each domain is built against the flow scripts
 written from [10](./10-flows.md), and those scripts are **written before
 their domains and are not edited by whoever (or whatever) makes them pass**:
 changing a flow script is changing the design, and goes through the same

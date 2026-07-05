@@ -30,7 +30,7 @@ Every rule in this document, compressed:
 3. **Handlers receive typed payloads and their own slice; they return their
    own slice.** Write-ownership is in the function signature, not in a
    convention.
-4. **Seam contracts live in leaf `msg/` packages** so cross-domain
+4. **Contracts live in leaf `msg/` packages** so cross-domain
    construction is type-checked and import cycles are impossible.
 5. **Effects see edges and payload, never the model.** Results leave an
    effect only as emitted messages, built with constructors.
@@ -101,13 +101,13 @@ into anything mutable. If a handler seems to need one of these, the fact it
 wants is missing from the message — produce it at the edge and carry it in
 ([01](./01-architecture.md)).
 
-## Seams: the `msg/` leaf packages
+## Contracts: the `msg/` leaf packages
 
 `email` constructs `create-task` for `tasks`; `tasks` returns `assemble-reply`
 to be interpreted by `email`. If those constructors lived in the domain
 packages, the two would import each other — a cycle Go rejects. So:
 
-> **A domain's seam — the messages others may send it, and the commands
+> **A domain's contract — the messages others may send it, and the commands
 > others may return for it — lives in `<domain>/msg`, a leaf package that
 > imports nothing but `runtime/`.**
 
@@ -137,7 +137,7 @@ impossible because `msg/` packages import only `runtime/`. Tags and payloads
 that are *internal* to a domain (nobody else sends them) stay in the domain
 package itself.
 
-The seam packages are also the unit of agreement for parallel work
+The contract packages are also the unit of agreement for parallel work
 ([12](./12-development-process.md)): committing `tasks/msg` *is* agreeing the
 contract, and `email/` can be built and tested against it — `use email` plus
 the `dropped` read ([14](./14-test-language.md)) — before `tasks/` exists.
@@ -331,7 +331,7 @@ func Module(e Edges) runtime.Module {
 }
 
 // SimEdges is the full simulated set — what `kasi test` assembles by
-// default, and the twin the seam rule demands ([12]).
+// default, and the simulated twin the twin rule demands ([12]).
 func SimEdges() Edges { /* … */ }
 ```
 

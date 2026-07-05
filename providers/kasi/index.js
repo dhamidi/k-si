@@ -3,7 +3,7 @@ import { Glob } from 'bun'
 /**
  * Kit provider for käsi's domain primitives (docs/15-tactical-patterns.md):
  *
- * - module        a domain package: module.go + model slice + msg/ seam
+ * - module        a domain package: module.go + model slice + msg/ contract
  * - message       message_<tag>.go: tag const + payload + handler + registration
  * - command       command_<tag>.go: tag const + payload + constructor + effect
  * - model         model_<name>.go: a model slice / business object
@@ -56,7 +56,7 @@ class KasiProvider {
 				details: {
 					module: message.module,
 					tag: message.tag,
-					seam: message.seam,
+					contract: message.contract,
 					handler: message.handler,
 				},
 			})
@@ -71,7 +71,7 @@ class KasiProvider {
 				details: {
 					module: command.module,
 					tag: command.tag,
-					seam: command.seam,
+					contract: command.contract,
 					effect: command.handler,
 				},
 			})
@@ -184,7 +184,7 @@ async function registrations(kit, method, constants) {
 		found.push({
 			module,
 			tag: resolved.tag,
-			seam: resolved.file.includes('/msg/'),
+			contract: resolved.file.includes('/msg/'),
 			handler: meta(match, 'HANDLER'),
 			files,
 			description: await docComment(match.file, /\/\/ "([^"]+)" [—-] ?(.+)/, 2),
@@ -412,7 +412,7 @@ class ModuleType extends KasiType {
 	}
 
 	description() {
-		return 'A käsi domain module: module.go + model slice + msg/ seam package (docs/15)'
+		return 'A käsi domain module: module.go + model slice + msg/ contract package (docs/15)'
 	}
 
 	schema() {
@@ -445,7 +445,7 @@ class ModuleType extends KasiType {
 
 		yield await env.createFile(`${spec.name}/module.go`, moduleTemplate(spec.name, what, gomod))
 		yield await env.createFile(`${spec.name}/model_${spec.name}.go`, modelSliceTemplate(spec.name))
-		yield await env.createFile(`${spec.name}/msg/doc.go`, seamDocTemplate(spec.name))
+		yield await env.createFile(`${spec.name}/msg/doc.go`, contractDocTemplate(spec.name))
 
 		if (spec.intent !== undefined) {
 			yield this.plan(
@@ -479,7 +479,7 @@ class MessageType extends KasiType {
 		return Type.Object({
 			module: this.moduleField(),
 			tag: this.tagField('Imperative, kebab-case message tag', ['create-task', 'finish-agent-run']),
-			seam: Type.Optional(
+			contract: Type.Optional(
 				Type.Boolean({
 					description: 'Other domains send this: payload + constructor go into <module>/msg (docs/15)',
 					examples: [true],
@@ -497,11 +497,11 @@ class MessageType extends KasiType {
 		const messageFile = `${spec.module}/message_${snake}.go`
 		const files = [messageFile]
 
-		if (spec.seam) {
-			const seamFile = `${spec.module}/msg/${snake}.go`
-			yield await env.createFile(seamFile, seamMessageTemplate(spec, gomod))
-			yield await env.createFile(messageFile, seamHandlerTemplate(spec, gomod))
-			files.push(seamFile)
+		if (spec.contract) {
+			const contractFile = `${spec.module}/msg/${snake}.go`
+			yield await env.createFile(contractFile, contractMessageTemplate(spec, gomod))
+			yield await env.createFile(messageFile, contractHandlerTemplate(spec, gomod))
+			files.push(contractFile)
 		} else {
 			yield await env.createFile(messageFile, messageTemplate(spec, gomod))
 		}
@@ -540,7 +540,7 @@ class CommandType extends KasiType {
 		return Type.Object({
 			module: this.moduleField(),
 			tag: this.tagField('Imperative, kebab-case command tag', ['send-email', 'spawn-agent-run']),
-			seam: Type.Optional(
+			contract: Type.Optional(
 				Type.Boolean({
 					description: 'Other domains return this command: constructor goes into <module>/msg (docs/15)',
 					examples: [true],
@@ -559,11 +559,11 @@ class CommandType extends KasiType {
 		const commandFile = `${spec.module}/command_${snake}.go`
 		const files = [commandFile]
 
-		if (spec.seam) {
-			const seamFile = `${spec.module}/msg/${snake}.go`
-			yield await env.createFile(seamFile, seamCommandTemplate(spec, gomod))
-			yield await env.createFile(commandFile, seamEffectTemplate(spec, gomod))
-			files.push(seamFile)
+		if (spec.contract) {
+			const contractFile = `${spec.module}/msg/${snake}.go`
+			yield await env.createFile(contractFile, contractCommandTemplate(spec, gomod))
+			yield await env.createFile(commandFile, contractEffectTemplate(spec, gomod))
+			files.push(contractFile)
 		} else {
 			yield await env.createFile(commandFile, commandTemplate(spec, gomod))
 		}
@@ -728,7 +728,7 @@ func Module(e Edges) runtime.Module {
 }
 
 // SimEdges is the full simulated set — what \`kasi test\` assembles by
-// default, and the twin the seam rule demands (docs/12).
+// default, and the simulated twin the twin rule demands (docs/12).
 func SimEdges() Edges {
 	return Edges{
 		Clock: runtime.SimClock(),
@@ -745,8 +745,8 @@ type Model struct{}
 `
 }
 
-function seamDocTemplate(name) {
-	return `// Package msg is ${name}'s seam: the tags, payloads, and constructors other
+function contractDocTemplate(name) {
+	return `// Package msg is ${name}'s contract: the tags, payloads, and constructors other
 // domains use to reach ${name}. It imports nothing but runtime (docs/15).
 package msg
 `
@@ -779,7 +779,7 @@ func handle${pascal}(v runtime.View, s Model, p ${pascal}Payload,
 `
 }
 
-function seamMessageTemplate(spec, gomod) {
+function contractMessageTemplate(spec, gomod) {
 	const pascal = pascalCase(spec.name)
 	return `package msg
 
@@ -796,7 +796,7 @@ func New${pascal}(p ${pascal}Payload) runtime.Msg {
 `
 }
 
-function seamHandlerTemplate(spec, gomod) {
+function contractHandlerTemplate(spec, gomod) {
 	const pascal = pascalCase(spec.name)
 	return `package ${spec.module}
 
@@ -848,7 +848,7 @@ ${effectBody(spec)}}
 `
 }
 
-function seamCommandTemplate(spec, gomod) {
+function contractCommandTemplate(spec, gomod) {
 	const pascal = pascalCase(spec.name)
 	return `package msg
 
@@ -865,7 +865,7 @@ func New${pascal}(p ${pascal}Payload) runtime.Cmd {
 `
 }
 
-function seamEffectTemplate(spec, gomod) {
+function contractEffectTemplate(spec, gomod) {
 	const pascal = pascalCase(spec.name)
 	return `package ${spec.module}
 

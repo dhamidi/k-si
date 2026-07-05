@@ -5,7 +5,7 @@ constantly) to outermost (slow, real, run rarely). All three rings run the
 *same scenario scripts* ([14](./14-test-language.md)) against the *same
 application code*; the only thing that changes between rings is which
 implementation of each edge is wired in ([12](./12-development-process.md),
-*The seam rule*).
+*The twin rule*).
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -38,7 +38,8 @@ the same modules `main.go` assembles ([01](./01-architecture.md)) — every
 handler, effect, and subscription — but wired to simulated edges: an
 in-memory mailbox, a scripted harness, a virtual clock, in-memory SQLite, a
 throwaway workspace tree, sentinel-valued secrets
-([12](./12-development-process.md)). Nothing is stubbed *inside* the seam; an
+([12](./12-development-process.md)). Nothing *inside* the application is
+stubbed — only the edges are swapped; an
 instance routes mail, creates tasks, "runs" agents, assembles MIME replies,
 archives, and replays its log exactly as production does. A script may also
 assemble a **partial** application (`use email tasks`) when it wants to drive

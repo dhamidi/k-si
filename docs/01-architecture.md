@@ -205,7 +205,7 @@ Why a command rather than a function call or a shared write:
 - **Boundaries stay real under parallel development.** The message is the
   entire interface between two domains: two people (or two agents) can build
   `email/` and `tasks/` against nothing but an agreed tag and payload —
-  concretely, the receiving domain's seam package
+  concretely, the receiving domain's contract package
   ([15](./15-tactical-patterns.md)).
 - **Drift gets a choke point.** `send` is the one place that knows a message
   is being *aimed at* a handler. In live mode an unhandled tag is dropped and
@@ -214,8 +214,8 @@ Why a command rather than a function call or a shared write:
   surfaces the same drop instead of swallowing it: in a full assembly it
   fails the scenario, in a deliberately partial assembly it is recorded and
   assertable ([13](./13-testing.md), [14](./14-test-language.md)). A mistyped
-  or mismatched tag is caught the first time any scenario crosses the seam,
-  not three integration steps later.
+  or mismatched tag is caught the first time any scenario crosses the
+  boundary, not three integration steps later.
 
 ## Subscriptions
 

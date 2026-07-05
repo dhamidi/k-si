@@ -1,5 +1,5 @@
 # Bootstrap the tasks domain (docs/05, docs/15) — module first, then its
-# seams, commands, objects, and sources. Apply with:
+# contracts, commands, objects, and sources. Apply with:
 #
 #   kit manifest apply providers/kasi/example.kit
 #
@@ -14,7 +14,7 @@ kasi module {
 kasi message {
 	module tasks
 	tag create-task
-	seam true
+	contract true
 	fields {
 		inbox_id int64
 		route string
