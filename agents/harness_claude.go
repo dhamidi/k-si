@@ -37,6 +37,7 @@ type Claude struct {
 	workdir string
 
 	mu   sync.Mutex
+	cond *sync.Cond
 	runs map[int64]*claudeRun // keyed by taskID
 }
 
@@ -57,7 +58,9 @@ var _ Harness = (*Claude)(nil)
 // API key would be resolved into the env here; the CLI's own auth is used when
 // present).
 func NewClaude(workdir string) *Claude {
-	return &Claude{bin: "claude", workdir: workdir, runs: map[int64]*claudeRun{}}
+	c := &Claude{bin: "claude", workdir: workdir, runs: map[int64]*claudeRun{}}
+	c.cond = sync.NewCond(&c.mu)
+	return c
 }
 
 // Start opens a new session for a task's first turn (docs/05).
@@ -138,6 +141,7 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle
 
 	c.mu.Lock()
 	c.runs[taskID] = run
+	c.cond.Broadcast() // wake any Wait that raced ahead of this Start
 	c.mu.Unlock()
 	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
 }
@@ -146,9 +150,10 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle
 // returns the Result — exit code, transcript path, out/ manifest, and whether it
 // was stopped (docs/05).
 func (c *Claude) Wait(ctx context.Context, h Handle) Result {
-	c.mu.Lock()
-	run := c.runs[h.TaskID]
-	c.mu.Unlock()
+	// The agent-watch subscription can start (and call Wait) before the
+	// start-agent-run effect has registered the run; wait for Start rather than
+	// treating that race as a stop.
+	run := c.awaitRun(ctx, h)
 	if run == nil {
 		return Result{Stopped: true, TranscriptPath: fmt.Sprintf("transcript-%d.jsonl", h.RunID)}
 	}
@@ -160,6 +165,35 @@ func (c *Claude) Wait(ctx context.Context, h Handle) Result {
 		return Result{Exit: exitCode(err), TranscriptPath: run.transcriptRel, OutManifest: c.manifest(run), Stopped: true}
 	case err := <-run.done:
 		return Result{Exit: exitCode(err), TranscriptPath: run.transcriptRel, OutManifest: c.manifest(run), Stopped: run.stopped}
+	}
+}
+
+// awaitRun returns the live run matching the handle, blocking until Start
+// registers it if Wait raced ahead — or nil if ctx is cancelled first (a stop or
+// crash before the process even started).
+func (c *Claude) awaitRun(ctx context.Context, h Handle) *claudeRun {
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			c.mu.Lock()
+			c.cond.Broadcast()
+			c.mu.Unlock()
+		case <-stop:
+		}
+	}()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for {
+		if run := c.runs[h.TaskID]; run != nil && run.runID == h.RunID {
+			return run
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		c.cond.Wait()
 	}
 }
 
