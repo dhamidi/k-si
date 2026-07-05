@@ -1298,6 +1298,8 @@ function viewFields(props) {
 function formErrorsTemplate() {
 	return `package web
 
+import "flag"
+
 // FormErrors maps a field name to its error message. Form objects carry one
 // so an invalid submission re-renders the same view with values and errors
 // intact; templates read it directly: v-if="form.Errors.address" (docs/08).
@@ -1310,20 +1312,31 @@ func (e FormErrors) Set(field, message string) {
 		e[field] = message
 	}
 }
+
+// Parse binds a raw submitted string into a rich value through the stdlib
+// flag.Value interface — one string-to-value contract for forms and CLI
+// flags alike (docs/15). A Set error becomes the field's error message.
+func (e FormErrors) Parse(field, raw string, into flag.Value) {
+	if err := into.Set(raw); err != nil {
+		e.Set(field, err.Error())
+	}
+}
 `
 }
 
 function formTemplate(spec, gomod) {
 	const pascal = pascalCase(spec.name)
 	const msgPascal = pascalCase(spec.message)
+	const fields = formFieldList(spec)
+	const rich = fields.filter((f) => f.rich)
 
 	return `package web
 
 import (
 	"net/http"
-${hasStringField(spec.fields) ? '\t"strings"\n\n' : ''}	"${gomod}/runtime"
+${fields.length > 0 ? '\t"strings"\n\n' : ''}	"${gomod}/runtime"
 	msg "${gomod}/${spec.module}/msg"
-)
+${richImports(rich, gomod)})
 
 // ${pascal}Form — ${spec.description ?? 'TODO: one line on what submitting this means'}
 //
@@ -1331,22 +1344,24 @@ ${hasStringField(spec.fields) ? '\t"strings"\n\n' : ''}	"${gomod}/runtime"
 // validated, re-rendered by the same view when invalid, and turned into
 // exactly one imperative runtime message when valid (docs/08, docs/15). It
 // is passed to htmlc as a struct value in the props map, like any View.
+//
+// Fields are raw strings — what the browser sent — so a re-render always
+// echoes exactly what was typed. Rich values parse in Validate through the
+// stdlib flag.Value contract (docs/15).
 type ${pascal}Form struct {
-${formStructFields(spec.fields)}}
+${formStructFields(fields)}}
 
 // Bind${pascal}Form reads the submitted values. Binding never fails — bad
 // input becomes field errors in Validate, not an HTTP error.
 func Bind${pascal}Form(r *http.Request) ${pascal}Form {
 	return ${pascal}Form{
-${formBindFields(spec.fields)}		Errors: FormErrors{},
+${formBindFields(fields)}		Errors: FormErrors{},
 	}
 }
 
 // Validate returns the form with any field errors recorded.
 func (f ${pascal}Form) Validate() ${pascal}Form {
-	// TODO: one rule per line, first error per field wins, e.g.:
-	// if f.Address == "" { f.Errors.Set("address", "an address is required") }
-	return f
+${formValidateBody(rich)}	return f
 }
 
 // Valid reports whether Message may be constructed.
@@ -1355,31 +1370,61 @@ func (f ${pascal}Form) Valid() bool { return len(f.Errors) == 0 }
 // Message constructs the one imperative message a valid submission means
 // (docs/08). Call only when Valid().
 func (f ${pascal}Form) Message() runtime.Msg {
-	return msg.New${msgPascal}(msg.${msgPascal}Payload{
-		// TODO: map the form's fields onto the payload
+${formMessageParse(rich)}	return msg.New${msgPascal}(msg.${msgPascal}Payload{
+		// TODO: map the form's fields${rich.length > 0 ? ' (and parsed values)' : ''} onto the payload
 	})
 }
 `
 }
 
-function formStructFields(fields) {
-	const entries = [...Object.entries(fields ?? {}).map(([name, goType]) => [pascalCase(name), goType]), ['Errors', 'FormErrors']]
-	const width = Math.max(...entries.map(([name]) => name.length))
-	return entries.map(([name, goType]) => `\t${name.padEnd(width)} ${goType}\n`).join('')
+/**
+ * A form field is always bound as a raw string; a non-string declared type
+ * is a rich value that must implement the stdlib flag.Value interface
+ * (docs/15). Unqualified rich types are assumed to live in the owning module.
+ */
+function formFieldList(spec) {
+	return Object.entries(spec.fields ?? {}).map(([name, goType]) => {
+		const rich = goType !== 'string'
+		const qualified = rich && !goType.includes('.') ? `${spec.module}.${goType}` : goType
+		return { name, goType: qualified, rich, pascal: pascalCase(name), camel: camelCase(name) }
+	})
 }
 
-function hasStringField(fields) {
-	return Object.values(fields ?? {}).includes('string')
+function richImports(rich, gomod) {
+	const packages = [...new Set(rich.map((f) => f.goType.split('.')[0]))]
+	return packages.map((pkg) => `\t"${gomod}/${pkg}"\n`).join('')
+}
+
+function formStructFields(fields) {
+	const entries = [
+		...fields.map((f) => [f.pascal, 'string', f.rich ? ` // parsed into ${f.goType} by Validate` : '']),
+		['Errors', 'FormErrors', ''],
+	]
+	const width = Math.max(...entries.map(([name]) => name.length))
+	return entries.map(([name, goType, note]) => `\t${name.padEnd(width)} ${goType}${note}\n`).join('')
 }
 
 function formBindFields(fields) {
-	return Object.entries(fields ?? {})
-		.map(([name, goType]) =>
-			goType === 'string'
-				? `\t\t${pascalCase(name)}: strings.TrimSpace(r.FormValue("${name}")),\n`
-				: `\t\t// TODO: parse ${goType} from r.FormValue("${name}") into ${pascalCase(name)}\n`,
-		)
+	return fields.map((f) => `\t\t${f.pascal}: strings.TrimSpace(r.FormValue("${f.name}")),\n`).join('')
+}
+
+function formValidateBody(rich) {
+	const parses = rich
+		.map((f) => `\tvar ${f.camel} ${f.goType}\n\tf.Errors.Parse("${f.name}", f.${f.pascal}, &${f.camel})\n`)
 		.join('')
+
+	return `${parses}\t// TODO: rules the types don't already enforce, first error per field wins:
+	// if f.Address == "" { f.Errors.Set("address", "an address is required") }
+`
+}
+
+function formMessageParse(rich) {
+	if (rich.length === 0) return ''
+	return (
+		rich
+			.map((f) => `\tvar ${f.camel} ${f.goType}\n\t_ = ${f.camel}.Set(f.${f.pascal}) // Valid() guarantees this parses\n`)
+			.join('') + '\n'
+	)
 }
 
 function wireModule(source, name, gomod) {

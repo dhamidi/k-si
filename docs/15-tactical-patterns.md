@@ -503,6 +503,45 @@ http.Redirect(w, r, routes.Path("settings"), http.StatusSeeOther)
 
 The rules:
 
+- **Form fields are raw strings; rich values parse through `flag.Value`.**
+  A form's own fields hold exactly what the browser sent, so a re-render
+  always echoes what was typed — even when it didn't parse. A field that
+  *means* more than a string is a **named domain type implementing the
+  stdlib `flag` package's `Value` interface**: `Set(string) error` parses
+  and validates (its error text *is* the field's error message), `String()`
+  renders the value back. `FormErrors.Parse(field, raw, &v)` binds one.
+  The payoff for playing nice with the stdlib contract: the same types
+  parse real CLI flags in the `kasi` control subcommands via `flag.Var`
+  ([11](./11-supervisor.md)), and "what is a valid X" lives in exactly one
+  place — the type — not scattered across handlers.
+
+  ```go
+  // email/model_route.go — the owning domain defines the rich value.
+
+  // MaxTurns — how many agent turns a route allows per task.
+  type MaxTurns int
+
+  func (t *MaxTurns) Set(raw string) error {
+  	n, err := strconv.Atoi(raw)
+  	if err != nil || n < 1 {
+  		return fmt.Errorf("must be a whole number of turns, at least 1")
+  	}
+  	*t = MaxTurns(n)
+  	return nil
+  }
+
+  func (t MaxTurns) String() string { return strconv.Itoa(int(t)) }
+  ```
+
+  ```go
+  // web/form_update_route.go — the form parses it in Validate.
+  func (f UpdateRouteForm) Validate() UpdateRouteForm {
+  	var turns email.MaxTurns
+  	f.Errors.Parse("max_turns", f.MaxTurns, &turns)
+  	return f
+  }
+  ```
+
 - **A form object is a View struct with a memory of what went wrong.** It
   goes into the props map like any other struct, so re-rendering with errors
   is the *same* render path as the first render — no separate error page,
@@ -540,3 +579,4 @@ something has no row, it probably belongs to an edge:
 | A secret | `secret://` URL until inside an effect ([06](./06-secrets.md)) | Payloads, the model, logs |
 | Data a template renders | A `<Name>View` struct in `web/`, one per view | Raw model objects or ad-hoc maps in the props map |
 | A UI write | A `<Name>Form` object: bind → validate → one message | Handlers parsing/validating inline, or emitting several messages |
+| A string that means more | A named type implementing `flag.Value` (`Set` validates, `String` renders) | `strconv` calls scattered across forms and handlers |
