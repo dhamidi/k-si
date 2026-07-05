@@ -31,14 +31,24 @@ subject, message_id, in_reply_to: null}`
 The message is **complete** — it carries the routing facts inline — and is logged
 before it is applied ([01](./01-architecture.md)).
 
-### 2. Route → authorise → new task
+### 2. Route → authorise → hand off to tasks
 
-The **`route-email`** handler, purely from the message and model:
+The **`route-email`** handler (email domain), purely from the message and model:
 
 - no `in_reply_to` match → this is a **new task**, so the sender must be on the
   **initiator allowlist** ([04](./04-email.md)) — they are;
 - reads local part `pay` → route `pay` → template `invoice-payment`
-  ([04](./04-email.md), [07](./07-skills-and-tools.md));
+  ([04](./04-email.md), [07](./07-skills-and-tools.md)).
+
+Routing is email's whole competence; the task itself is `tasks/`' business, so
+the handler crosses the domain boundary the only sanctioned way
+([01](./01-architecture.md)):
+
+→ returns `[send]` carrying **`create-task`** `{inbox_id, route: pay, template:
+invoice-payment, sender, cc, subject, thread keys}` — logged like any message.
+
+The **`create-task`** handler (tasks domain):
+
 - seeds the task's **participants** from sender + `cc` → you and Alice
   ([04](./04-email.md)); Alice may now reply into this thread, but is not added to
   the initiator allowlist.
@@ -110,6 +120,11 @@ Alice replies "yes, pay it" in the same thread. Steps 1–2 repeat, but now the
 **`route-email`** handler matches the thread key → **reply within the existing
 task**, and Alice is a **participant**, so she is authorised
 ([04](./04-email.md), [05](./05-agents-and-tasks.md)):
+
+→ returns `[send]` carrying **`append-to-task`** `{task_id, inbox_id, sender,
+cc, …}` — the same cross-domain hand-off as step 2.
+
+The **`append-to-task`** handler (tasks domain):
 
 → returns `[lay-in-inputs (new text into in/), spawn-agent-run (resume session)]`
 → `Task.status = awaiting-agent`
@@ -220,7 +235,8 @@ On restart ([01](./01-architecture.md), [03](./03-persistence.md)):
 
 1. Start from the zero model and replay the **entire** `message_log` with
    **effects suppressed** — there are no snapshots ([01](./01-architecture.md)).
-   Replaying **`route-email`**, **`finish-agent-run`**, **`mark-reply-queued`**,
+   Replaying **`route-email`**, **`create-task`**, **`finish-agent-run`**,
+   **`mark-reply-queued`**,
    **`mark-email-sent`** rebuilds the exact model: this task in `awaiting-user`,
    participants intact. No email is re-sent, no agent re-spawned — those were
    effects, and replay performs none.

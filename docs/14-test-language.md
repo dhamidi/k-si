@@ -121,10 +121,14 @@ send route-email {
     message_id  <m1@example.test>
 }
 
-commands are {create-workspace lay-in-inputs provision-workspace spawn-agent-run}
+commands are {send:create-task create-workspace lay-in-inputs provision-workspace spawn-agent-run}
 task 1 route is pay
 task 1 participants are {owner@example.test alice@example.test}
 ```
+
+A `send` command ([01](./01-architecture.md)) appears in the trace as
+`send:<tag>` of the message it carries — the cross-domain hop is part of the
+observable story, not plumbing hidden from it.
 
 - In a `send` block, each line is `field value…`; the payload is serialised
   to JSON on the log as always ([03](./03-persistence.md)). A braced value is
@@ -176,11 +180,18 @@ use *                     # the full main.go assembly — the default
 A script with no `use` line gets the whole application, which is right for
 journeys. Naming modules gives a **partial assembly**, right for driving a
 few domains' handlers directly — messages for absent domains drop, exactly as
-the open-set rule promises ([01](./01-architecture.md)). Because instances
-are values with no global registration, `use` is nothing more than
-construction — and `kasi test -n 100` is that construction performed a
-hundred times concurrently, which is also what makes any hidden shared state
-fail loudly ([13](./13-testing.md)).
+the open-set rule promises ([01](./01-architecture.md)), and the `dropped`
+read returns them, so the boundary itself is assertable: assemble only
+`email`, route a mail, and `dropped is create-task` states the hand-off
+without needing `tasks/` to exist yet. That is how a domain gets built and
+tested against nothing but its agreed tags ([12](./12-development-process.md)).
+In a **full** assembly the same drop *fails* the script ([13](./13-testing.md)):
+a complete build aiming a message at nothing is always a bug.
+
+Because instances are values with no global registration, `use` is nothing
+more than construction — and `kasi test -n 100` is that construction
+performed a hundred times concurrently, which is also what makes any hidden
+shared state fail loudly ([13](./13-testing.md)).
 
 Modules bring their **test vocabulary** with them: the email module
 contributes `deliver` and `outbound`, the agents module contributes `agent`,
@@ -212,7 +223,8 @@ inside `[ … ]` otherwise:
 | `task <id> <field…>`, `tasks <field…>` | The model's tasks |
 | `outbox <last\|N> <field>`, `archive <…>`, `skills <…>` | The model and content tables |
 | `outbound <last\|N\|count> [<field>]` | Mail the sim edge has sent: `to`, `subject`, `body`, `attachments`, `completion-link`, … |
-| `commands`, `command <tag> <field>` | The drained command trace |
+| `commands`, `command <tag> <field>` | The drained command trace (`send` renders as `send:<tag>`) |
+| `dropped` | Messages sent but unhandled in this assembly — expected at a partial assembly's boundary, fatal in a full one ([13](./13-testing.md)) |
 
 **Setup**: `use <module…>` assembles the instance; `fixture <path>` reads
 bytes from `t/fixtures/`; `set` assigns a variable; `ring sim|live` pins a

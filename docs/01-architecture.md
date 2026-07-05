@@ -166,11 +166,54 @@ unknown message (dropped, recorded), never a panic.
 ## Handlers return many commands
 
 `update` returns a *slice* of commands. A single message can fan out: e.g.
-`route-email` for a `pay@` address might return `[create-workspace,
-lay-in-inputs, provision-workspace, spawn-agent-run]`. The runtime runs them;
-each may emit its own follow-up messages, which drive the next step. This keeps
-each handler small and the workflow expressed as message → commands → messages,
-not as one long imperative function.
+`create-task` returns `[create-workspace, lay-in-inputs, provision-workspace,
+spawn-agent-run]`. The runtime runs them; each may emit its own follow-up
+messages, which drive the next step. This keeps each handler small and the
+workflow expressed as message → commands → messages, not as one long
+imperative function.
+
+## The `send` command: how domains talk
+
+Exactly one command is built into the runtime rather than owned by a domain:
+**`send`**. Its payload is a runtime message; its effect is to put that
+message on the inbound channel, stamped with the causing message's id.
+
+This is the only sanctioned way for one domain to make another act. The
+ownership rules it completes:
+
+- **A domain owns its tags.** No domain registers a handler for another
+  domain's message.
+- **A domain writes only its own model slice.** Handlers receive the whole
+  model and may *read* any of it — it is one value — but a domain's slice is
+  changed only by that domain's handlers.
+- **Cross-domain writes are a `send`.** When a handler needs another domain
+  to act, it returns `send` carrying a message the other domain owns.
+
+The worked example: `email`'s `route-email` handler authorises the sender and
+resolves the route — email's competence — then returns `[send]` carrying
+`create-task` (or `append-to-task` for a reply in an existing thread).
+Creating the task, seeding its participants, choosing its status — that is
+`tasks`' business, done by `tasks`' own handler ([10](./10-flows.md)).
+
+Why a command rather than a function call or a shared write:
+
+- **The hop is logged.** The sent message enters the reducer like any other —
+  appended to the log before it is applied — so cross-domain interactions are
+  visible in the log and replay exactly. During replay the `send` effect is
+  suppressed like every effect, and the message it would have delivered is
+  already in the log; nothing is double-applied.
+- **Boundaries stay real under parallel development.** The message is the
+  entire interface between two domains: two people (or two agents) can build
+  `email/` and `tasks/` against nothing but an agreed tag and payload.
+- **Drift gets a choke point.** `send` is the one place that knows a message
+  is being *aimed at* a handler. In live mode an unhandled tag is dropped and
+  recorded — the open-set rule, which exists so old logs replay
+  ([above](#the-twist-open-message-and-command-sets)). The test runner
+  surfaces the same drop instead of swallowing it: in a full assembly it
+  fails the scenario, in a deliberately partial assembly it is recorded and
+  assertable ([13](./13-testing.md), [14](./14-test-language.md)). A mistyped
+  or mismatched tag is caught the first time any scenario crosses the seam,
+  not three integration steps later.
 
 ## Subscriptions
 

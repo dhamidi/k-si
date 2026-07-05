@@ -112,6 +112,16 @@ scenario, rather than being individual tests — so they can never be forgotten:
 - **Archive before delete.** The simulated workspace refuses deletion while
   any file in it lacks a matching archive row, enforcing the invariant of
   [05](./05-agents-and-tasks.md).
+- **No dead sends.** Every message aimed at a handler — by a script's `send`
+  or by the runtime's `send` command ([01](./01-architecture.md)) — whose tag
+  has no handler in the assembled instance is recorded as dropped. In a full
+  assembly a drop **fails the scenario**: a complete build has no business
+  aiming messages at nothing, and this is where a mistyped or mismatched tag
+  — the known cost of the open-set design — dies immediately instead of
+  surfacing three integration steps later. In a deliberately partial
+  assembly (`use email`), drops at the boundary are expected — and readable,
+  so a script can assert exactly what crossed it
+  ([14](./14-test-language.md)).
 
 ## Ring 2 — Recorded
 
@@ -131,6 +141,14 @@ Kinds of recordings, each captured at its edge's interface:
 
 Cassettes live under `t/cassettes/`, named by scenario. They are committed:
 the deterministic suite must run with no network and no credentials.
+
+**Cassettes are captured, never authored.** Every recording carries
+provenance — which live probe produced it, against what, when — written by
+the ring-3 tooling, and the runner refuses a cassette without it. A
+hand-written "recording" would poison the ring's entire premise (that its
+bytes are what reality actually said), so the convenient shortcut is
+mechanically closed: if a scenario needs a cassette, the way to get one is to
+run the probe.
 
 **Staleness is explicit, never silent.** When replaying a harness cassette,
 the recorded edge compares the inputs the system lays into `in/` against what

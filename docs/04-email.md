@@ -48,8 +48,9 @@ The pipeline:
    without re-opening the stored mail ([01](./01-architecture.md)). This is the
    point where durable content becomes a logged event.
 4. **Route.** The `route-email` handler inspects the recipient's **local part**,
-   checks authorisation (below), and either threads the mail onto an existing
-   task or creates a new one.
+   checks authorisation (below), and hands off to the tasks domain via the
+   built-in `send` command ([01](./01-architecture.md)): `append-to-task` to
+   thread the mail onto an existing task, `create-task` to start a new one.
 
 Storing to SQLite *before* emitting the runtime message means a crash between
 "Fastmail has the mail" and "käsi processed it" cannot lose the mail: on restart
@@ -117,12 +118,13 @@ participant of the task.**
 - Replies käsi sends go to the task's participants (reply-all across the thread),
   so the conversation stays shared.
 
-Concretely, the `route-email` handler updates `Task.participants`
-([02](./02-object-model.md)) from the message's `Cc` list (emitting/using an
-`add-collaborator` state change), gated by the sender already being authorised
-for the task. The allowlist itself is edited via `allow-sender` / `revoke-sender`
-messages from the UI. All of this is pure model state over complete messages
-([01](./01-architecture.md)).
+Concretely, `route-email` carries the `Cc` list along on the messages it
+sends: `create-task` seeds `Task.participants` ([02](./02-object-model.md))
+and `append-to-task` / `add-collaborator` extend them — all handled in the
+tasks domain, gated by the sender already being authorised for the task. The
+allowlist itself is email-domain state, edited via `allow-sender` /
+`revoke-sender` messages from the UI. All of this is pure model state over
+complete messages ([01](./01-architecture.md)).
 
 ## Outbound: from agent to reply
 

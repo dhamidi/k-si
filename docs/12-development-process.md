@@ -124,6 +124,45 @@ simulate something *inside* a handler, the I/O is on the wrong side of the seam
 — move it to an edge and deliver its result as a message
 ([01](./01-architecture.md)).
 
+## Build order: stage zero comes first
+
+Everything in this process leans on shared machinery, so the machinery is
+built first — sequentially, and finished — before any domain work fans out.
+This matters double when the "developers" are agents working in parallel:
+without stage zero in place, each one will improvise its own scaffolding and
+the guarantees below quietly stop being checked.
+
+**Stage zero** is:
+
+1. **The runtime**: module assembly, the reducer loop, the log and full-log
+   replay, and the built-in `send` command ([01](./01-architecture.md)) —
+   including quiescence detection, which is the subtlest concurrency in the
+   project and deserves the most careful hands, not the fastest.
+2. **The test-script interpreter** (`testlang/`), with its own small
+   conformance corpus — scripts with expected pass/fail outcomes. The runner
+   cannot be tested by scripts it interprets, so this corpus is the one
+   deliberate exception to "the scripts are the tests." Tcl's quoting rules
+   are exactly the kind of thing that is 95% easy; the corpus exists for the
+   other 5%, because a subtly wrong interpreter makes application bugs
+   indistinguishable from parser bugs.
+3. **The simulated edge skeletons and the standing invariant checks**
+   ([13](./13-testing.md)) — replay convergence, sentinel-secret scanning,
+   reducer-I/O detection, dead-send detection — so that violations of the
+   architecture fail from the very first domain scenario ever written, not
+   in a retrofit.
+4. **The mechanical gates**: the build rejects `*_test.go` files (the
+   no-unit-tests rule is enforced, not requested), and the runner refuses
+   cassettes without recorded provenance ([13](./13-testing.md)).
+
+Only then do domains proceed — in parallel if desired, against nothing but
+agreed message tags and payloads, which the `send` boundary makes sufficient
+([01](./01-architecture.md)). Each domain is built against the flow scripts
+written from [10](./10-flows.md), and those scripts are **written before
+their domains and are not edited by whoever (or whatever) makes them pass**:
+changing a flow script is changing the design, and goes through the same
+review as a docs change. This is what keeps "make the test green" meaning
+"make the system right" rather than the reverse.
+
 ## The scale envelope
 
 käsi is small on purpose, and the numbers are part of the design

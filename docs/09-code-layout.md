@@ -25,6 +25,7 @@ kasi/
 │   ├── model.go              # Model aggregate; composed of domain slices
 │   ├── message.go            # Msg type, tags, registry
 │   ├── command.go            # Cmd type, interpreter, replay vs live mode
+│   ├── command_send.go       # the one built-in command: deliver a message ([01])
 │   ├── subscription.go       # Sub type, diffing, lifecycle
 │   ├── loop.go               # the reducer goroutine + inbound channel
 │   └── log.go                # append + full-log replay against message_log
@@ -70,7 +71,7 @@ Illustrative listing for the `email/` package:
 email/
 ├── module.go                      # the email module: handlers, effects, subs, edges ([01])
 ├── model_route.go                 # Route table + initiator allowlist (model slice)
-├── message_route_email.go         # "route-email" + handler (auth, route, thread)
+├── message_route_email.go         # "route-email" + handler (auth, route → send create-task / append-to-task)
 ├── message_add_collaborator.go    # "add-collaborator" + handler (CC -> participant)
 ├── message_allow_sender.go        # "allow-sender" / "revoke-sender" + handlers
 ├── message_mark_reply_queued.go   # "mark-reply-queued" + handler
@@ -87,6 +88,8 @@ And `tasks/`:
 ```
 tasks/
 ├── model_task.go                  # Task struct + state machine + participants
+├── message_create_task.go         # "create-task" + handler (new task; returns workspace+spawn cmds)
+├── message_append_to_task.go      # "append-to-task" + handler (reply in thread; resume session)
 ├── message_finish_agent_run.go    # "finish-agent-run" + handler (harvest/reply/skill)
 ├── message_finish_task.go         # "finish-task" + handler (archive+cleanup)
 ├── command_create_workspace.go    # make $WORKDIR/task-$ID, in/, out/
@@ -156,8 +159,12 @@ are imperative, the filename reads as the instruction it carries.
 - **`runtime/` is domain-agnostic.** It knows about `Msg`, `Cmd`, `Sub`, the log,
   and the loop — never about tasks or email. Domains depend on `runtime`, not the
   reverse.
-- **Cross-domain interaction is by message, not by call.** `email/` doesn't call
-  into `tasks/`; it emits `route-email` and `tasks/` handles it. This keeps the
-  open-set, replayable design intact ([01](./01-architecture.md)).
+- **Cross-domain interaction is a `send`, never a call.** `email/` doesn't call
+  into `tasks/` or write its slice; its `route-email` handler returns the
+  built-in `send` command carrying `create-task`, and `tasks/` owns that tag
+  ([01](./01-architecture.md)). A domain owns its tags and its model slice;
+  everything else reaches it by message. This keeps the open-set, replayable
+  design intact — and lets domains be built in parallel against nothing but
+  agreed tags and payloads.
 - **Keep files small and single-purpose.** If a file needs an "and" to describe
   it, it is probably two files.
