@@ -16,18 +16,97 @@ nothing else, because the loop it exists to express is small:
 > **assemble an instance from modules → send runtime messages → assert on
 > model fields and emitted commands.**
 
-That is the runtime's own shape — `update(model, msg) -> (model, cmds)`
-([01](./01-architecture.md)) — so the language needs a handful of commands and
-no abstraction facilities at all. There are no unit tests; these scripts are
-the tests ([12](./12-development-process.md)).
+There are no unit tests; these scripts are the tests
+([12](./12-development-process.md)). And a script is written to read as a
+**user journey**: a chronological story — mail arrives, the agent works, a
+reply goes out, someone clicks done — in which every line is either something
+that *happens* or something that *should now be true*.
+
+## A script is a journey
+
+Flow A of [10](./10-flows.md), as its executable counterpart:
+
+```tcl
+# t/pay/invoice-confirmation.test — Flow A: confirm, then pay
+
+# You forward an invoice to pay@, CCing your accountant.
+deliver {
+    from    owner@example.test
+    to      pay@kasi.test
+    cc      alice@example.test
+    subject "Invoice from Vendor X"
+    attach  invoice.pdf [fixture pay/invoice.pdf]
+}
+
+task 1 status is awaiting-agent
+
+# The agent sees the amount is large and asks before paying.
+agent {
+    out reply.txt "Large amount - please confirm before I pay."
+}
+
+task 1 status is awaiting-user
+outbound last to is {owner@example.test alice@example.test}
+outbound last body matches "*confirm*"
+
+# Alice confirms, in the same thread.
+deliver {
+    from alice@example.test
+    reply-to-last
+    body "yes, pay it"
+}
+
+# The agent resumes its session, pays, and attaches the receipt.
+agent {
+    out reply.txt   "Paid. Receipt attached."
+    out receipt.pdf [fixture pay/receipt.pdf]
+}
+
+outbound last attachments is receipt.pdf
+
+# A participant clicks the completion link.
+click [outbound last completion-link]
+
+task 1 status is done
+archive count task 1 transcript is 2
+```
+
+Three rules produce this shape:
+
+1. **Stimuli settle themselves.** Every command that puts something in motion
+   (`deliver`, `send`, `agent`, `click`, `restart`, `advance`) runs the
+   instance to **quiescence** before returning — inbound channel empty, no
+   effect in flight, no virtual timer due ([13](./13-testing.md)). There is
+   no `settle` command and no sleeping: when the next line runs, the world
+   has finished reacting to the previous one. An agent run waiting for its
+   `agent` block is a *stable* state, not pending work — so "the agent is
+   still working" is a perfectly good place for a script to stand.
+
+2. **Every read is also an assertion.** `task 1 status` is a read; add a verb
+   and a value and it asserts: `task 1 status is awaiting-user`. The verbs
+   are `is` (string equality; `are` is a synonym that reads better for
+   lists) and `matches` (glob, for wording the test doesn't own). Each
+   expectation is its own sentence at the moment in the story where it should
+   hold — there is no `expect` block bundling them up after the fact.
+
+3. **The agent's turn happens where it happens in the story.** `agent { … }`
+   completes the currently running (or next spawned) simulated agent run:
+   the files it leaves in `out/`, and optionally `exit <code>` (default 0).
+   It is written *after* the mail that triggers the run, in chronological
+   order — the script never has to pre-program the future.
+
+Narration is comments. The runner treats the nearest comment above a failing
+line as the step name in its report, so the story structure is also the
+failure structure — no `step`/`scenario` scaffolding needed.
 
 ## Blocks carry the structure
 
 Tcl's one deep idea is that `{ … }` is an **unevaluated block** handed to a
-command, and the command decides what the text inside means. The test language
-leans on that everywhere: every command that takes structured input takes a
-block and evaluates it line by line in its own small vocabulary — no JSON in
-strings, no `-flags`, no escaping. A whole handler test is two blocks:
+command, and the command decides what the text inside means. Every command
+that takes structured input takes a block and evaluates it line by line in
+its own small vocabulary — no JSON in strings, no `-flags`, no escaping.
+`deliver` and `agent` above are this; so is `send`, the bottom-most stimulus,
+which builds a runtime message payload field by field:
 
 ```tcl
 # t/email/route-new-task.test — routing a fresh mail creates a task
@@ -42,26 +121,19 @@ send route-email {
     message_id  <m1@example.test>
 }
 
-expect {
-    commands            {create-workspace lay-in-inputs provision-workspace spawn-agent-run}
-    task 1 route        pay
-    task 1 participants {owner@example.test alice@example.test}
-}
+commands are {create-workspace lay-in-inputs provision-workspace spawn-agent-run}
+task 1 route is pay
+task 1 participants are {owner@example.test alice@example.test}
 ```
 
-- In a **`send` block**, each line is `field value…` and the block builds the
-  message's payload (serialised to JSON on the log, as always —
-  [03](./03-persistence.md)). A braced value is a list; an omitted field is
-  absent. The message then enters through the front of the runtime — logged,
-  applied by the reducer — exactly as in production. Because messages are
-  imperative and complete ([01](./01-architecture.md)), a script can hand-feed
-  *any* sequence the real edges could produce, including the awkward ones
-  they rarely do.
-- In an **`expect` block**, each line is a **read followed by the expected
-  value**: everything up to the last word is evaluated as a read, the last
-  word is the want. A `~` before the want makes it a glob match for wording
-  the test doesn't own: `outbound last body ~ "*confirm*"`.
-- **`commands`** is a read like any other: it drains the trace of commands
+- In a `send` block, each line is `field value…`; the payload is serialised
+  to JSON on the log as always ([03](./03-persistence.md)). A braced value is
+  a list; an omitted field is absent. The message enters through the front of
+  the runtime — logged, applied by the reducer — exactly as in production.
+  Because messages are imperative and complete ([01](./01-architecture.md)),
+  a script can hand-feed *any* sequence the real edges could produce,
+  including the awkward ones they rarely do.
+- `commands` is a read like any other: it drains the trace of commands
   handlers have returned since it was last read, as a list of tags in order.
   The interpreter records every command before deciding whether to perform
   it, so the trace is assertable in every ring ([13](./13-testing.md)).
@@ -82,14 +154,13 @@ until its tag's handler decodes it ([01](./01-architecture.md)).
 - `{ … }` quotes a block literally — no substitution until (and unless) the
   receiving command evaluates it, in its own vocabulary, where `[ … ]` and
   `$` work again. `" … "` quotes with substitution.
-- `#` starts a comment.
+- `#` starts a comment — and doubles as the story's narration.
 
 That is the complete grammar. There are **no procedures, no loops, no
-conditionals, no includes**. A test is a straight line: stimulus, assertion,
-stimulus, assertion. If a script seems to need abstraction, it is testing too
-much — write two scripts. Repetition *across* scripts is accepted on purpose:
-every script must read standalone, top to bottom, with no definitions to
-chase.
+conditionals, no includes**. A test is a straight line: things happen, truths
+are stated. If a script seems to need abstraction, it is testing too much —
+write two scripts. Repetition *across* scripts is accepted on purpose: every
+script must read standalone, top to bottom, like the journey it describes.
 
 ## `use` — assembling the instance
 
@@ -103,17 +174,16 @@ use *                     # the full main.go assembly — the default
 ```
 
 A script with no `use` line gets the whole application, which is right for
-end-to-end scenarios. Naming modules gives a **partial assembly**, which is
-right for driving a few domains' handlers directly — messages for absent
-domains drop, exactly as the open-set rule promises
-([01](./01-architecture.md)). Because instances are values with no global
-registration, `use` is nothing more than construction — and `kasi test -n 100`
-is just that construction performed a hundred times concurrently, which is
-also what makes any hidden shared state fail loudly
-([13](./13-testing.md)).
+journeys. Naming modules gives a **partial assembly**, right for driving a
+few domains' handlers directly — messages for absent domains drop, exactly as
+the open-set rule promises ([01](./01-architecture.md)). Because instances
+are values with no global registration, `use` is nothing more than
+construction — and `kasi test -n 100` is that construction performed a
+hundred times concurrently, which is also what makes any hidden shared state
+fail loudly ([13](./13-testing.md)).
 
 Modules bring their **test vocabulary** with them: the email module
-contributes `deliver` and `outbound`, the agents module contributes `harness`,
+contributes `deliver` and `outbound`, the agents module contributes `agent`,
 and so on. Using a command from a module the script didn't assemble is an
 error — a script states the world it lives in, then lives in it.
 
@@ -121,100 +191,61 @@ error — a script states the world it lives in, then lives in it.
 
 Small enough to list; the authoritative, current version is `kasi test help`.
 
+**Things that happen** (each settles the instance before returning):
+
 | Command | Does |
 |---------|------|
-| `use <module…>` | Assemble the instance from these modules (default `*`) |
-| `send <tag> { field value… }` | Feed one runtime message; the block builds the payload |
-| `expect { <read…> <want> }` | Assert, one read per line; `~ <glob>` to pattern-match |
-| `task`, `tasks`, `outbox`, `archive`, `skills`, `commands`, `command` | Reads over the model and the command trace |
-| `settle` | Run until quiescent: channel empty, no effect in flight, no due timer ([13](./13-testing.md)) |
-| `advance <duration>` | Move the virtual clock |
-| `deliver { from … to … }` | Sim mail edge: store an inbox row, emit `route-email` — a delivery as production sees it ([04](./04-email.md)) |
-| `outbound <last\|N> <field>` | Read mail the sim edge has sent: `to`, `subject`, `body`, `attachments`, `completion-link`, … |
-| `click <url>` | Follow a capability link through the web edge ([04](./04-email.md)) |
-| `harness { out <file> <content>… exit <code> }` | Queue the sim harness's next run ([05](./05-agents-and-tasks.md)) |
-| `crash` / `restart` | Drop the model and goroutines, keeping only the log and content tables; replay and reconcile ([01](./01-architecture.md)) |
-| `fail <edge> <op> [N]` | Make a simulated edge fail its next N operations (default 1) |
-| `fixture <path>` | The bytes of a file under `t/fixtures/` |
+| `deliver { from … to … }` | Mail arrives: the sim mail edge stores an inbox row and emits `route-email`, as production would ([04](./04-email.md)) |
+| `agent { out <file> <content>… [exit <code>] }` | The running agent turn completes with these outputs ([05](./05-agents-and-tasks.md)) |
+| `send <tag> { field value… }` | One runtime message enters the reducer; the block builds the payload |
+| `click <url>` | A capability link is followed through the web edge ([04](./04-email.md)) |
+| `advance <duration>` | The virtual clock moves |
+| `crash` / `restart` | The process dies (model and goroutines gone; log and content tables kept) / comes back: full replay, then reconciliation ([01](./01-architecture.md)) |
+| `fail <edge> <op> [N]` | The next N operations on a simulated edge will fail (default 1) |
 
-`harness` is a queue, not a callback: each block queues one run, and each
-`spawn-agent-run` pops one. A sim harness with an empty queue stays running
-until signalled — which is exactly what a hung agent looks like, so the stop
-path ([05](./05-agents-and-tasks.md)) needs no special support.
+**Things that should be true** — reads, which assert when given a verb
+(`is`/`are` for equality, `matches` for a glob), and substitute their value
+inside `[ … ]` otherwise:
 
-## Flow A, end to end
+| Read | Over |
+|------|------|
+| `task <id> <field…>`, `tasks <field…>` | The model's tasks |
+| `outbox <last\|N> <field>`, `archive <…>`, `skills <…>` | The model and content tables |
+| `outbound <last\|N\|count> [<field>]` | Mail the sim edge has sent: `to`, `subject`, `body`, `attachments`, `completion-link`, … |
+| `commands`, `command <tag> <field>` | The drained command trace |
 
-The full loop through the simulated edges — the executable counterpart of
-Flow A in [10](./10-flows.md):
+**Setup**: `use <module…>` assembles the instance; `fixture <path>` reads
+bytes from `t/fixtures/`; `set` assigns a variable; `ring sim|live` pins a
+script to one ring.
 
-```tcl
-# t/pay/invoice-confirmation.test — Flow A: confirm, then pay
+An agent run whose `agent` block hasn't arrived yet simply keeps "running" —
+which is exactly what a hung agent looks like, so the stop path
+([05](./05-agents-and-tasks.md)) is tested by sending `stop-agent-run` while
+the script stands in that state, no special support needed.
 
-harness {
-    out reply.txt "Large amount - please confirm before I pay."
-    exit 0
-}
+## Durability, as a journey
 
-deliver {
-    from    owner@example.test
-    to      pay@kasi.test
-    cc      alice@example.test
-    subject "Invoice from Vendor X"
-    attach  invoice.pdf [fixture pay/invoice.pdf]
-}
-settle
-
-expect {
-    task 1 status       awaiting-user
-    outbound last to    {owner@example.test alice@example.test}
-    outbound last body  ~ "*confirm*"
-}
-
-harness {
-    out reply.txt   "Paid. Receipt attached."
-    out receipt.pdf [fixture pay/receipt.pdf]
-    exit 0
-}
-
-deliver {
-    from  alice@example.test
-    reply-to-last
-    body  "yes, pay it"
-}
-settle
-
-expect { outbound last attachments  receipt.pdf }
-
-click [outbound last completion-link]
-settle
-
-expect {
-    task 1 status                    done
-    archive count task 1 transcript  2
-}
-```
-
-Durability at an adversarial moment (Flow E of [10](./10-flows.md)):
+Flow E of [10](./10-flows.md) — a crash at the worst moment:
 
 ```tcl
-# t/runtime/crash-before-send.test — pending outbox survives a crash
-
-harness { out reply.txt "done" ; exit 0 }
-fail mail send
+# t/runtime/crash-before-send.test — a pending reply survives a crash
 
 deliver { from owner@example.test ; to research@kasi.test ; subject "q" }
-settle
-expect { outbox last status  pending }
 
+# The send will fail on its first attempt...
+fail mail send
+
+# ...so when the agent finishes, the reply gets queued but not sent.
+agent { out reply.txt "done" }
+outbox last status is pending
+
+# The process dies and comes back: full-log replay, then reconciliation.
 crash
 restart
-settle
 
-expect {
-    task 1 status       awaiting-user   # replay rebuilt the model
-    outbox last status  sent            # reconciliation re-sent, exactly once
-    outbound count      1
-}
+task 1 status is awaiting-user      # replay rebuilt the model
+outbox last status is sent          # reconciliation re-sent it
+outbound count is 1                 # exactly once
 ```
 
 ## The same script, ring by ring
@@ -223,24 +254,27 @@ expect {
 ([13](./13-testing.md)); the script does not change:
 
 - **sim** (default) — everything above, in memory, deterministic.
-- **recorded** — the harness and mail edges replay the scenario's cassettes;
-  `harness` blocks are ignored (the cassette *is* the agent's behaviour).
-  Portable scripts assert outcomes and use `~` for wording reality owns.
-- **live** — real edges; `harness` blocks are ignored; the run records,
-  refreshing cassettes on success ([13](./13-testing.md)).
-
-A script meant for one ring only declares it (`ring sim`, `ring live`) on its
-first line.
+- **recorded** — the harness and mail edges replay the scenario's cassettes.
+  An `agent` block's *contents* are ignored (the cassette is the agent's
+  behaviour), but the command still marks where the turn completes, so the
+  journey's rhythm is preserved. Portable scripts assert outcomes and use
+  `matches` for wording reality owns.
+- **live** — real edges. `agent` becomes "wait for the real agent's turn to
+  finish"; the run records, refreshing cassettes on success
+  ([13](./13-testing.md)).
 
 ## When a script fails
 
-The runner's job on failure is to make the log tell the story:
+The runner's job on failure is to make the story tell itself:
 
-- the failing `expect` line, with substitutions applied, *got*, and *want*;
-- the tail of the instance's **message log** — tags and payloads, the complete
-  record of what actually happened ([01](./01-architecture.md));
-- any messages or commands **dropped as unhandled** — where a mistyped tag, or
-  a module missing from `use`, surfaces;
+- the failing sentence, with substitutions applied, *got*, and *want* — under
+  the **narration comment** it falls under, so the report reads "in 'Alice
+  confirms, in the same thread': `task 1 status` is `awaiting-agent`, wanted
+  `awaiting-user`";
+- the tail of the instance's **message log** — tags and payloads, the
+  complete record of what actually happened ([01](./01-architecture.md));
+- any messages or commands **dropped as unhandled** — where a mistyped tag,
+  or a module missing from `use`, surfaces;
 - on recorded/live rings, the paths of the recordings involved.
 
 Because the log plus the script reproduce the run exactly, "attach the failure
@@ -261,8 +295,9 @@ t/cassettes/         # ring-2 recordings, refreshed by ring-3 probes
 
 `testlang/` knows nothing about käsi — it parses words, blocks, and
 substitutions, and hands commands to a vocabulary, mirroring how `runtime/`
-knows nothing about email. The core vocabulary (`use`, `send`, `expect`,
-`settle`, …) is registered by `kasi test`; each module contributes its own
-edge commands alongside its simulated twins, which live in their domain
-packages (`agents/harness_sim.go`, `email/…_sim.go`, …) beside their real
-counterparts ([01](./01-architecture.md), [12](./12-development-process.md)).
+knows nothing about email. The core vocabulary (`use`, `send`, the reads and
+verbs) is registered by `kasi test`; each module contributes its own
+commands (`deliver`, `agent`, …) alongside its simulated twins, which live in
+their domain packages (`agents/harness_sim.go`, `email/…_sim.go`, …) beside
+their real counterparts ([01](./01-architecture.md),
+[12](./12-development-process.md)).

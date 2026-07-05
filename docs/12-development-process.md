@@ -182,9 +182,9 @@ If you feel the urge to unit-test something, treat it as a design signal:
   the edge; lift it into a handler or a pure helper the handlers use, where
   scenarios reach it naturally.
 - *A tricky pure algorithm (MIME part mapping, threading keys) needs many
-  cases* → write them as a straight-line script, one send/expect pair per
-  case; real captured MIME from live probes makes better cases than
-  hand-built ones ([13](./13-testing.md)).
+  cases* → write them as a straight-line script, one `send` and its
+  assertions per case; real captured MIME from live probes makes better
+  cases than hand-built ones ([13](./13-testing.md)).
 
 ## Harness-agnostic by construction
 

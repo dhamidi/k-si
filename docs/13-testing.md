@@ -56,19 +56,22 @@ Because an instance is just goroutines and RAM, they are cheap:
   incidentally proving instances share no hidden global state (a package-level
   variable shows up as fleet cross-talk immediately).
 
-### Virtual time and `settle`
+### Virtual time and quiescence
 
 Two rules make simulation deterministic:
 
 - **Time is virtual.** The clock edge only moves when the scenario says
-  `clock advance 5m`. Timers, polling intervals, and timeout logic all key off
+  `advance 5m`. Timers, polling intervals, and timeout logic all key off
   messages carrying virtual time, per the determinism principle of
   [01](./01-architecture.md). No test ever sleeps.
-- **Synchronisation is quiescence, not delay.** The `settle` command runs an
-  instance until it is quiescent: the inbound channel is empty, no effect
-  worker is mid-flight, and no virtual timer is due. After `settle`, the model
-  is in a stable state and assertions are race-free. There is no "wait 100ms
-  and hope" anywhere in the suite.
+- **Synchronisation is quiescence, not delay.** Every stimulus command runs
+  the instance to quiescence before returning: the inbound channel is empty,
+  no effect worker is mid-flight, and no virtual timer is due. (An agent run
+  waiting for the script to complete its turn is a *stable* state, not
+  pending work — [14](./14-test-language.md).) So by the time the next script
+  line executes, the model is stable and assertions are race-free. There is
+  no "wait 100ms and hope" — and no wait command at all — anywhere in the
+  suite.
 
 ### Fault injection
 
@@ -200,7 +203,8 @@ restatements of the architecture's own principles ([01](./01-architecture.md)),
 which is not a coincidence:
 
 1. **Virtual time.** The clock is an edge; scenarios advance it explicitly.
-2. **No sleeps.** Synchronisation is `settle` (quiescence), never delay.
+2. **No sleeps.** Synchronisation is quiescence — every stimulus settles the
+   instance before the next line runs — never delay.
 3. **Deterministic ids.** Ids derive from log offsets; anything genuinely
    random is generated at an edge and enters as a recorded message value.
 4. **One channel, one reducer.** Message application is totally ordered;
