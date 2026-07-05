@@ -39,7 +39,7 @@ func assembly(sim bool) []*runtime.Module {
 	clock := runtime.RealClock{}
 	return []*runtime.Module{
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock}),
+		email.Module(email.Edges{Clock: clock, BaseURL: "https://kasi.test"}),
 		tasks.Module(tasks.Edges{Clock: clock}),
 		agents.Module(agents.Edges{Clock: clock}),
 	}

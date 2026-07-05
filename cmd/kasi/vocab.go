@@ -17,6 +17,7 @@ import (
 
 	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/email"
+	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/mime"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/testlang"
@@ -461,7 +462,7 @@ func archiveRead(inst *instance, args []string) (string, error) {
 // --- click -------------------------------------------------------------------
 
 func click(inst *instance, url string) error {
-	id, token, err := parseCompletionURL(url)
+	id, token, err := link.ParseCompletion(url)
 	if err != nil {
 		return err
 	}
@@ -503,38 +504,6 @@ func taskByID(inst *instance, id int64) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("no task with id %d", id)
-}
-
-func parseCompletionURL(url string) (int64, string, error) {
-	// https://kasi.test/tasks/<id>/done?token=<tok>
-	rest := url
-	if i := strings.Index(rest, "/tasks/"); i >= 0 {
-		rest = rest[i+len("/tasks/"):]
-	} else {
-		return 0, "", fmt.Errorf("click: not a task capability URL: %q", url)
-	}
-	idStr, rest, ok := strings.Cut(rest, "/")
-	if !ok {
-		return 0, "", fmt.Errorf("click: malformed URL: %q", url)
-	}
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		return 0, "", fmt.Errorf("click: bad task id in %q", url)
-	}
-	_, query, ok := strings.Cut(rest, "?")
-	if !ok {
-		return 0, "", fmt.Errorf("click: URL has no token: %q", url)
-	}
-	token := ""
-	for _, kv := range strings.Split(query, "&") {
-		if k, val, ok := strings.Cut(kv, "="); ok && k == "token" {
-			token = val
-		}
-	}
-	if token == "" {
-		return 0, "", fmt.Errorf("click: URL has no token: %q", url)
-	}
-	return id, token, nil
 }
 
 // --- shared helpers ----------------------------------------------------------

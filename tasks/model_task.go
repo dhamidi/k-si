@@ -93,11 +93,6 @@ func IsParticipant(t Task, addr string) bool {
 // tokens are a Stage-2 concern, docs/05).
 func token(id TaskID) string { return fmt.Sprintf("tok-%d", id) }
 
-// completionURL is the completion link the reply carries (docs/05).
-func completionURL(id TaskID) string {
-	return fmt.Sprintf("https://kasi.test/tasks/%d/done?token=%s", id, token(id))
-}
-
 // routeAddr is the from-address a route replies as (Stage-1 sim domain; real
 // domains are Stage 2).
 func routeAddr(route string) string { return route + "@kasi.test" }

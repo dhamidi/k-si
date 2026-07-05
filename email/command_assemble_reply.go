@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dhamidi/k-si/email/msg"
+	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
@@ -40,7 +41,11 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		}
 		attachments = append(attachments, part)
 	}
-	body += "\n\n— mark this task done: " + p.CompletionURL + "\n"
+	completionURL, err := link.Completion(e.BaseURL, p.TaskID, p.CompletionToken)
+	if err != nil {
+		return fmt.Errorf("email: assemble-reply: completion link: %w", err)
+	}
+	body += "\n\n— mark this task done: " + completionURL + "\n"
 
 	messageID := msg.ReplyMessageID(p.TaskID, p.RunID)
 	hdr := map[string][]string{

@@ -7,7 +7,6 @@ package web
 import (
 	"crypto/subtle"
 	"embed"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"github.com/dhamidi/htmlc"
 
 	"github.com/dhamidi/k-si/counter"
+	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
@@ -50,7 +50,7 @@ func NewServer(app *runtime.App) (*Server, error) {
 	}
 	// The completion link — the one routine interaction that leaves email for the
 	// web (docs/04). A capability URL: the unguessable token IS the authorisation.
-	if err := s.router.GET("tasks.done", "/tasks/{id}/done", http.HandlerFunc(s.finishTask)); err != nil {
+	if err := s.router.GET(link.CompletionRoute, link.CompletionPattern, http.HandlerFunc(s.finishTask)); err != nil {
 		return nil, err
 	}
 
@@ -68,7 +68,7 @@ func (s *Server) finishTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	token := r.URL.Query().Get("token")
+	token := r.URL.Query().Get(link.TokenParam)
 
 	task, ok := tasks.Get(s.app.View(), tasks.TaskID(id))
 	if !ok || task.CompletionToken == "" ||
@@ -85,10 +85,9 @@ func (s *Server) finishTask(w http.ResponseWriter, r *http.Request) {
 
 	// Minimal confirmation — the real task views land in stage 3 (BUILDING).
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8">`+
-		`<meta name="viewport" content="width=device-width,initial-scale=1"><title>Task done</title></head>`+
-		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">`+
-		`<h1>Done ✓</h1><p>This task has been marked complete. You can close this page.</p></body></html>`)
+	if err := RenderCompletion(r.Context(), w, s.engine, CompletionView{}); err != nil {
+		log.Printf("web: render completion: %v", err)
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

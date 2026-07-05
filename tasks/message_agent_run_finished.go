@@ -48,15 +48,15 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	s.Tasks = tasks
 
 	assemble := emailmsg.NewAssembleReply(emailmsg.AssembleReplyPayload{
-		TaskID:        p.TaskID,
-		RunID:         p.RunID,
-		From:          routeAddr(t.Route),
-		To:            t.Participants,
-		Subject:       mime.ReplySubject(t.Subject),
-		InReplyTo:     t.LastMessageID,
-		References:    t.References,
-		CompletionURL: completionURL(TaskID(p.TaskID)),
-		OutManifest:   p.OutManifest,
+		TaskID:          p.TaskID,
+		RunID:           p.RunID,
+		From:            routeAddr(t.Route),
+		To:              t.Participants,
+		Subject:         mime.ReplySubject(t.Subject),
+		InReplyTo:       t.LastMessageID,
+		References:      t.References,
+		CompletionToken: t.CompletionToken,
+		OutManifest:     p.OutManifest,
 	})
 
 	return s, []runtime.Cmd{capture, assemble}

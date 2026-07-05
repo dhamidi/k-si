@@ -48,7 +48,7 @@ func newSimWorld() *simWorld {
 func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 	return []*runtime.Module{
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: w.mail, Content: w.content, Work: w.work}),
+		email.Module(email.Edges{Clock: clock, Mail: w.mail, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
 		agents.Module(agents.Edges{Clock: clock, Harness: w.harness, Work: w.work}),
 	}
