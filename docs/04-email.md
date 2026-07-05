@@ -167,3 +167,19 @@ transitions the task to `done`, which triggers archival and workspace cleanup
 ([05](./05-agents-and-tasks.md)). This is the one routine interaction that leaves
 email for the web, and it is a single click. The token makes the link
 capability-bearing so it works without in-app auth.
+
+## Capability links, generally
+
+The completion link is one of two kinds of **capability link** käsi puts in email
+replies — a tokenised URL that grants a specific one-off action without any login:
+
+- the **completion link**, which marks the task done (above);
+- a **request link**, which opens an agent-raised web form to collect files,
+  structured fields, or secrets ([05](./05-agents-and-tasks.md),
+  [08](./08-web-ui.md)) — the way an agent asks for input that doesn't belong in
+  an email body.
+
+Both carry an unguessable per-action token so they work as one tap from a phone
+while the deployment stays private ([08](./08-web-ui.md)). A request link is how
+the user avoids pasting a secret into email: the agent asks, the reply carries the
+link, and the answer is provided on the web instead.

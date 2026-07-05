@@ -97,6 +97,26 @@ A CLI program an agent run may use, provisioned via mise (see
 [07](./07-skills-and-tools.md)). A tool is a registry entry (name, version,
 mise spec); it is not MIME — it is a capability, not content.
 
+### UI request
+
+When an agent needs structured input, file uploads, or a **secret** that
+shouldn't be pasted into email, it raises a **UI request** instead of asking in
+the reply body ([05](./05-agents-and-tasks.md), [08](./08-web-ui.md)). A UI
+request references:
+
+- its **task** and the **agent run** that raised it,
+- a **form spec** — the fields to collect, each with a name, label, type
+  (`text` / `longtext` / `choice` / `file` / `secret`), and required flag,
+- an unguessable **token** for its capability link ([04](./04-email.md)),
+- its **status** (`pending`, `answered`, `expired`),
+- once answered, references to the collected inputs: file archive ids for
+  uploads, and `secret://` URLs for secret fields — **never plaintext**
+  ([06](./06-secrets.md)).
+
+The form spec is content the agent authored; the request record is a model entry
+plus a durable row ([03](./03-persistence.md)). It is the object behind the
+"prep a request → get a link → answer on the web" loop.
+
 ### Route / task template
 
 The mapping from an email local part to a task template, and the template

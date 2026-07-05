@@ -157,7 +157,40 @@ Each turn: one **agent run**, one continuous **session**, one exchange in one
 **email thread** — the anchoring equivalence ([05](./05-agents-and-tasks.md)),
 sustained for as many rounds as the work needs, until **`finish-task`**.
 
-## Flow C — Agent authors a reusable skill
+## Flow C — Agent requests a secret via the web
+
+Mid-task, the pay agent needs a credential it doesn't hold — say a one-time bank
+login — and must not ask for it in email. It raises a **UI request** instead
+([05](./05-agents-and-tasks.md), [08](./08-web-ui.md)).
+
+- The agent writes `out/request.json` (fields: `bank-login` type `secret`,
+  `authorization` type `file`) and `out/reply.txt` ("I need your bank login to
+  proceed — please use the secure link below."). It exits.
+- **`finish-agent-run`** `{…, out_manifest: ["reply.txt", "request.json"]}` → the
+  handler returns `[capture-transcript, mint-ui-request]`.
+- `mint-ui-request` — *generates an unguessable token, writes a `pending`
+  `ui_request` row ([03](./03-persistence.md)), builds the request link* →
+  emits **`register-ui-request`** `{request_id, token, form_spec, link}`.
+- **`register-ui-request`** handler adds the request to the model, sets
+  `Task.status = awaiting-user`, and drives `assemble-reply` so the emailed reply
+  contains the agent's message **and the link** → **`mark-reply-queued`** →
+  **`mark-email-sent`**.
+- The user taps the link. `GET` renders the form from `form_spec` with htmlc
+  ([08](./08-web-ui.md)); the user types the login into a masked field and
+  attaches the authorization file, then submits.
+- The web edge stores the upload in `archive`, writes the login to the secrets
+  database → `secret://task/$ID/bank-login` ([06](./06-secrets.md)), and emits
+  **`answer-ui-request`** `{request_id, file_refs:[…], secret_refs:["secret://…"]}`
+  — **complete, and reference-only: no plaintext** ([05](./05-agents-and-tasks.md)).
+- **`answer-ui-request`** handler marks the request `answered` and returns
+  `[lay-in-answers, spawn-agent-run]`. `lay-in-answers` writes the file into `in/`;
+  `spawn-agent-run` resolves `secret://task/$ID/bank-login` into the harness
+  environment at the edge ([06](./06-secrets.md)) and **resumes the session**.
+  `Task.status = awaiting-agent`.
+- The agent continues with the credential it needed — which never appeared in an
+  email, the log, the model, or a workspace file as plaintext.
+
+## Flow D — Agent authors a reusable skill
 
 During a task, the agent works out how to reconcile a vendor's odd invoice format
 and writes the know-how down for next time ([05](./05-agents-and-tasks.md),
@@ -178,7 +211,7 @@ into the workspace — the **next turn of this task immediately**, and other tas
 once they reference it. Because it lives in SQLite, it **survives this task's
 workspace deletion**: a skill learned once is available to future agent runs.
 
-## Flow D — Crash and restart (durability)
+## Flow E — Crash and restart (durability)
 
 Suppose käsi is killed right after step 6 emits **`mark-email-sent`** but before
 Alice replies.
@@ -211,10 +244,14 @@ described-then-interpreted and outbound sending is a durable, idempotent queue.
   one reducer with no I/O in handlers ([01](./01-architecture.md)).
 - **MIME at every boundary** — inbox, `in/`, `out/`, outbox, archive
   ([02](./02-object-model.md)).
-- **Secrets resolved only at the edge** ([06](./06-secrets.md)).
+- **Secrets resolved only at the edge**, and collected on the web — never in
+  email or the log — when an agent requests one ([06](./06-secrets.md),
+  [08](./08-web-ui.md)).
 - **Durability by full-log replay, not effect-replay and not snapshots**
   ([01](./01-architecture.md), [03](./03-persistence.md)).
 - **Capabilities that grow** — participants added by CC, skills authored by
-  agents and kept in SQLite ([04](./04-email.md), [05](./05-agents-and-tasks.md)).
+  agents and kept in SQLite, input gathered on demand through agent-raised web
+  requests ([04](./04-email.md), [05](./05-agents-and-tasks.md),
+  [08](./08-web-ui.md)).
 - **One task ⇔ one thread ⇔ one session**, from first email to completion
   ([05](./05-agents-and-tasks.md)).

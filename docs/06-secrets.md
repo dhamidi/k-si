@@ -84,12 +84,27 @@ never contain it. Resolved secrets must not be written into `in/` or `out/`.
 
 ## Managing secrets
 
-Secrets are created and updated through the **web UI** ([08](./08-web-ui.md)),
-which is the one place a human types a plaintext credential. The UI writes to the
-secrets database (encrypting on write) and otherwise only ever displays that a
-secret *exists*, never its value. Because the UI has no in-app auth, this depends
-entirely on the host keeping the deployment private ([08](./08-web-ui.md)) — a
-deliberate trade recorded here so it is not forgotten.
+A human types a plaintext credential in exactly two places, both on the web,
+never in email:
+
+- the **settings UI** ([08](./08-web-ui.md)), for standing credentials (the
+  Fastmail token, agent keys, per-route provider keys);
+- an agent-raised **UI request** form ([05](./05-agents-and-tasks.md),
+  [08](./08-web-ui.md)), when an agent needs a secret mid-task — the user provides
+  it on the request page rather than pasting it into a reply.
+
+Both write to the secrets database (encrypting on write) and hand back a
+`secret://` URL. From that point the two paths are identical: the value is a
+reference everywhere, resolved only at the edge. In particular, a secret provided
+through a request never enters the `answer-ui-request` message, the log, the
+model, or a workspace file as plaintext — the web edge stores it and passes on
+only its `secret://` URL ([05](./05-agents-and-tasks.md),
+[03](./03-persistence.md)). The UI otherwise only ever displays that a secret
+*exists*, never its value.
+
+Because the UI has no in-app auth, this depends entirely on the host keeping the
+deployment private ([08](./08-web-ui.md)) — a deliberate trade recorded here so it
+is not forgotten.
 
 ## Invariants
 

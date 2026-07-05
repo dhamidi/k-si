@@ -79,6 +79,9 @@ Scoped to the fallback role:
 5. **Task completion.** The tokenised page that marks a task `done` and triggers
    archive-then-cleanup ([05](./05-agents-and-tasks.md)). Often the *only* page a
    user visits in normal operation.
+6. **Agent requests.** The tokenised form page an agent raises to collect files,
+   structured fields, or secrets mid-task (below). Not a fallback — this is a
+   first-class, agent-driven interaction surface.
 
 Skills shown here include both UI-authored ones and those an **agent wrote during
 a task** ([05](./05-agents-and-tasks.md), [07](./07-skills-and-tools.md)); the UI
@@ -100,6 +103,41 @@ side-door into the model:
 
 So a UI action and an inbound email are the same kind of thing to the core: a
 message. The UI is just another message source.
+
+## Agent request forms
+
+The one part of the UI the *agent* drives. When a run needs input that doesn't
+belong in email — a file, several structured fields, or a secret the user
+shouldn't paste into a reply — it raises a **UI request**
+([02](./02-object-model.md), [05](./05-agents-and-tasks.md)). The reply email
+carries a **request link**; tapping it opens a form on the web. This is faster
+than an email round-trip for anything structured, and it is how secrets are
+collected without ever touching email.
+
+It is hypermedia-driven like the rest of the UI:
+
+- **Render.** The `GET` request-link route (a dispatch named route,
+  token-validated) loads the `ui_request` ([03](./03-persistence.md)) and renders
+  its **form spec** with htmlc — one field per spec entry, typed as `text`,
+  `longtext`, `choice`, `file` (a file input), or `secret` (a masked input). The
+  agent describes *what* it needs; the page is generated from that description, so
+  no bespoke page per request.
+- **Submit.** A normal HTML form `POST` (progressively enhanced by Turbo). The web
+  edge does all the I/O: it stores uploaded files in `archive`, writes each
+  `secret` field to the secrets database and gets back a `secret://` URL
+  ([06](./06-secrets.md)), and then emits a **complete** `answer-ui-request`
+  message carrying only references — file archive ids and `secret://` URLs, never
+  plaintext ([05](./05-agents-and-tasks.md)). The core lays the answers into `in/`
+  and resumes the agent ([05](./05-agents-and-tasks.md)).
+- **Once, then closed.** After a successful answer the request is `answered` and
+  the link stops accepting input; re-tapping it shows the answered state. The
+  token makes the link capability-bearing so it works from an email client with no
+  login — the same trust model as the completion link ([04](./04-email.md)),
+  which matters more here because a request may collect secrets.
+
+Because the form is data (the spec) rendered by htmlc and posted back as a
+message, the whole mechanism stays inside the hypermedia, message-sourced design —
+no client app, no bespoke endpoint per request type.
 
 ## Design principles
 

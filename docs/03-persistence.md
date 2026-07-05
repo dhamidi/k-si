@@ -157,6 +157,32 @@ referencing it; and every subsequent `provision-workspace` can lay the skill's
 ephemeral workspace — is exactly what lets a skill created in one run survive
 into the next.
 
+### `ui_request` — agent-raised web requests
+
+When an agent asks for input through the web ([05](./05-agents-and-tasks.md),
+[08](./08-web-ui.md)), the request is durable so its capability link keeps working
+across restarts.
+
+```sql
+CREATE TABLE ui_request (
+  id          INTEGER PRIMARY KEY,
+  task_id     INTEGER NOT NULL,
+  agent_run   INTEGER NOT NULL,   -- run that raised it
+  token       TEXT    NOT NULL UNIQUE,  -- unguessable; in the capability link
+  form_spec   BLOB    NOT NULL,   -- fields to collect (JSON)
+  status      TEXT    NOT NULL,   -- 'pending' | 'answered' | 'expired'
+  answer      BLOB,               -- references only: file archive ids, secret:// URLs
+  created_at  TEXT    NOT NULL,
+  answered_at TEXT
+);
+```
+
+The crucial invariant: the `answer` column holds **references, never
+plaintext** — uploaded files are stored in `archive` and referenced by id, and
+secret fields are written to the secrets database and referenced by `secret://`
+URL ([06](./06-secrets.md)). A secret provided through a request never lands in
+this table, the message log, or a workspace file as plaintext.
+
 ## Secrets database (separate file)
 
 Credentials live in their **own** SQLite database file, never mixed with the

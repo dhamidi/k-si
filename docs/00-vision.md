@@ -97,6 +97,7 @@ always qualify it.
 | **Harness** | The official runner for an agent (e.g. the Claude CLI/SDK). käsi shells out to it; it does not reimplement one. |
 | **Handler (route)** | The mapping from an email local part (`pay`, `research`, …) to a task template. |
 | **Task template** | The prompt, skills, and tools that define a category of work. Selected by the route. |
+| **UI request** | An agent-raised web form (files / fields / secrets) delivered as a tokenised link in an email reply and answered on the web. |
 | **Skill** | A reusable instruction/prompt bundle made available to agent runs. |
 | **Tool** | A CLI program provisioned into a workspace via mise. |
 | **Initiator allowlist** | The set of email addresses permitted to *start* a new task. A global gate on new conversations. |

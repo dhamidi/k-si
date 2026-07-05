@@ -28,6 +28,7 @@ kasi/
 ├── email/               # Fastmail JMAP, inbox/outbox, routing ([04])
 ├── agents/              # harness invocation, agent runs, transcripts ([05])
 ├── tasks/               # task lifecycle, workspaces ([05])
+├── requests/            # agent-raised UI requests: model, messages, form spec ([08])
 ├── mime/                # MIME parse/build, part<->file mapping ([02])
 ├── skills/              # skill registry + provisioning ([07])
 ├── tools/               # mise integration, tool registry ([07])
@@ -87,6 +88,22 @@ tasks/
 ├── command_archive_task.go        # archive-then-delete ([05])
 └── workspace.go                   # workspace path helpers
 ```
+
+And `requests/` (the agent-raised UI request, [08](./08-web-ui.md)):
+
+```
+requests/
+├── model_ui_request.go            # UIRequest struct + form spec + status
+├── command_mint_ui_request.go     # "mint-ui-request": token, row, link  ([03])
+├── message_register_ui_request.go # "register-ui-request" + handler (drives reply)
+├── message_answer_ui_request.go   # "answer-ui-request" + handler (lay-in + resume)
+└── command_lay_in_answers.go      # write answers/uploads into in/  ([05])
+```
+
+The form itself is rendered and posted in `web/` (e.g. `view_request.vue` plus the
+token-validated GET/POST routes), which turns a submission into the
+`answer-ui-request` message ([08](./08-web-ui.md)) — request *state and rules*
+live in `requests/`, request *rendering* lives in `web/`.
 
 The pattern generalises: a reader can predict the filename for "the thing that
 sends email" (`command_send_email.go`) or "the message that finishes an agent

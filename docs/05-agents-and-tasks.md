@@ -183,6 +183,51 @@ turn of this task, and any other task whose provisioning includes it
 this task's workspace deletion — the whole point of storing it durably rather
 than leaving it in the ephemeral `out/`.
 
+## Agents that request input via the web
+
+Sometimes email is the wrong channel for the agent's ask: it needs a **file**, a
+set of **structured fields**, or a **secret** the user shouldn't paste into an
+email. For these the agent raises a **UI request** ([02](./02-object-model.md),
+[08](./08-web-ui.md)) — it preps the request, käsi turns it into a link, the user
+taps the link and answers on a web page, and the answer flows back into the task.
+
+The agent chooses the channel: a plain question goes in `out/reply.txt` and is
+answered by email reply ([04](./04-email.md)); a request needing files, structure,
+or secrets goes as a UI request. Both can coexist — the reply body can explain
+*why* while the link collects the input.
+
+The loop, edge-does-I/O and model-stays-pure:
+
+1. **Prep.** The agent writes a form spec to `out/request.json` (fields, each with
+   a type — `text` / `longtext` / `choice` / `file` / `secret` — and a required
+   flag), alongside an optional `out/reply.txt` explaining the ask. The file-based
+   contract mirrors the reply and skill contracts.
+2. **Mint.** The `finish-agent-run` manifest flags the request; the handler emits
+   a `mint-ui-request` command. Its effect generates an unguessable **token**,
+   writes a `pending` `ui_request` row ([03](./03-persistence.md)), builds the
+   capability link, and emits `register-ui-request` — a complete message carrying
+   the request id, token, form spec, and link.
+3. **Deliver.** `register-ui-request` adds the request to the model, sets the task
+   to `awaiting-user`, and drives `assemble-reply` so the email reply contains the
+   agent's message **and the link** ([04](./04-email.md)). The user gets a normal
+   email; tapping the link opens the form.
+4. **Answer.** On the web ([08](./08-web-ui.md)) the user fills fields, attaches
+   files, and provides secrets. The web edge does all the I/O: it stores uploads
+   in `archive`, writes secret fields to the secrets database (getting `secret://`
+   URLs back), and emits `answer-ui-request` — a complete message carrying only
+   **references** (file archive ids, `secret://` URLs), never plaintext
+   ([06](./06-secrets.md)).
+5. **Resume.** The `answer-ui-request` handler marks the request `answered` and
+   returns `[lay-in-answers, spawn-agent-run]`. `lay-in-answers` writes the text
+   answers and uploaded files into `in/`; `spawn-agent-run` resolves any
+   `secret://` references into the harness environment at the edge
+   ([06](./06-secrets.md)) and **resumes the same session**. The task returns to
+   `awaiting-agent` and the agent continues with what it asked for.
+
+This is faster than an email round-trip for anything structured, and it keeps
+secrets out of email and out of the log entirely — the whole point of the
+mechanism.
+
 ## Completion, archival, and cleanup
 
 The user ends a task by clicking the **completion link** in any reply
