@@ -1,9 +1,6 @@
 package agents
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 // Handle identifies a live worker-agent run to the harness edge: the task it
 // serves, the run (turn) id, and the resumable session (docs/05).
@@ -42,32 +39,3 @@ type Harness interface {
 	// Signal asks the harness process to stop (graceful, then hard).
 	Signal(ctx context.Context, h Handle) error
 }
-
-// errStage2 marks the real harness operations that land with the serve path.
-var errStage2 = errors.New("agents: real harness not implemented (stage 2)")
-
-// Claude is the on-disk twin of SimHarness: the default adapter that shells out
-// to the Claude CLI/SDK in the task workspace (docs/05). Stage 1 wires only the
-// sim ring, so the methods are stage-2 stubs — enough shape to compile and be
-// held in a module's Edges, filled in when the serve path lands.
-type Claude struct{}
-
-var _ Harness = (*Claude)(nil)
-
-// NewClaude builds the real (stage-2) harness adapter.
-func NewClaude() *Claude { return &Claude{} }
-
-func (c *Claude) Start(ctx context.Context, taskID, runID int64) (Handle, error) {
-	return Handle{}, errStage2
-}
-
-func (c *Claude) Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error) {
-	return Handle{}, errStage2
-}
-
-func (c *Claude) Wait(ctx context.Context, h Handle) Result {
-	<-ctx.Done()
-	return Result{Stopped: true}
-}
-
-func (c *Claude) Signal(ctx context.Context, h Handle) error { return errStage2 }

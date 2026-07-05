@@ -197,9 +197,11 @@ func manifestOf(parts []mime.Part) []string {
 }
 
 // sessionFor is the deterministic session id for a task's continuous
-// conversation (docs/05: one task ⇔ one session).
+// conversation (docs/05: one task ⇔ one session). It is a valid UUID so the real
+// Claude adapter can pass it to `--session-id`; the sim harness treats it as an
+// opaque string. (Task ids are small log offsets, so the 12-digit field holds.)
 func sessionFor(taskID int64) string {
-	return fmt.Sprintf("session-%d", taskID)
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", taskID)
 }
 
 // transcriptPath is the deterministic workspace-relative transcript location for
