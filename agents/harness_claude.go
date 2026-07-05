@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,7 +102,17 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle
 
 	cmd := exec.Command(c.bin, args...) // not CommandContext: Wait/Signal own the lifetime
 	cmd.Dir = dir
-	cmd.Stdout = transcript
+	// Stream stdout through a pipe we copy to the file, rather than pointing
+	// cmd.Stdout straight at the *os.File. A child's stdio block-buffers a
+	// redirected file, so the transcript would only update in chunks (or at
+	// exit). io.Copy issues a real write syscall per chunk it reads, so the
+	// file grows as events are generated — a crash keeps what was produced, and
+	// a future web UI can tail the in-progress stream (docs/05).
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		transcript.Close()
+		return Handle{}, fmt.Errorf("agents: claude stdout pipe: %w", err)
+	}
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // its own group, so Signal reaches children
 
@@ -119,7 +130,8 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle
 		done:          make(chan error, 1),
 	}
 	go func() {
-		err := cmd.Wait()
+		_, _ = io.Copy(transcript, pipe) // streams events to disk as they arrive
+		err := cmd.Wait()                // safe: pipe hit EOF, so all reads are done (StdoutPipe ordering)
 		transcript.Close()
 		run.done <- err
 	}()
