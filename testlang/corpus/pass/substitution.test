@@ -1,0 +1,6 @@
+# Variables and [ ] substitution compose; a read's bare form returns its value.
+set amount 4
+send increment-counter { by $amount }
+set observed [model counter count]
+model counter count is $observed
+model counter count is 4

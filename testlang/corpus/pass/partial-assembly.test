@@ -1,0 +1,4 @@
+# `use` narrows the assembly; the full name list is still the one in main.go.
+use counter
+send increment-counter { by 1 }
+model counter count is 1

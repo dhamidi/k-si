@@ -321,7 +321,7 @@ type Edges struct {
     Clock     runtime.Clock
 }
 
-func Module(e Edges) runtime.Module {
+func Module(e Edges) *runtime.Module {
     mod := runtime.NewModule("tasks", Model{}, e)
 
     registerCreateTask(mod)

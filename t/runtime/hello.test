@@ -1,0 +1,30 @@
+# t/runtime/hello.test — the stage-zero canary: send, assert, cross the send
+# boundary, crash, and come back (BUILDING stage 0 gate).
+
+# Counting starts at zero.
+model counter count is 0
+
+# One increment moves the count; a pure handler returns no commands.
+send increment-counter { by 2 }
+model counter count is 2
+commands are {}
+
+# Increments accumulate — the model is a fold of the log.
+send increment-counter { by 3 }
+model counter count is 5
+
+# A reset crosses the send boundary: the handler returns the built-in send
+# command carrying mark-counter-reset, which zeroes the count.
+send reset-counter
+commands are {send:mark-counter-reset}
+model counter count is 0
+
+# History still counts: one more increment lands on the reset state.
+send increment-counter { by 7 }
+model counter count is 7
+
+# The process dies and comes back: full-log replay rebuilds the model
+# with effects suppressed — nothing double-applies.
+crash
+restart
+model counter count is 7

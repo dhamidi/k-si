@@ -1,0 +1,4 @@
+#! expect-fail no module in this assembly
+
+# A script sends to the thing it is testing; an unregistered tag is an error.
+send increment-clicks { by 2 }

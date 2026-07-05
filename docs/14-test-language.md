@@ -224,6 +224,7 @@ inside `[ … ]` otherwise:
 
 | Read | Over |
 |------|------|
+| `model <module> <field…>` | The generic read: any module's slice, by field path — every other model read is a module-contributed sugar over it |
 | `task <id> <field…>`, `tasks <field…>` | The model's tasks |
 | `outbox <last\|N> <field>`, `archive <…>`, `skills <…>` | The model and content tables |
 | `outbound <last\|N\|count> [<field>]` | Mail the sim edge has sent: `to`, `subject`, `body`, `attachments`, `completion-link`, … |

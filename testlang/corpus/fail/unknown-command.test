@@ -1,0 +1,4 @@
+#! expect-fail unknown command
+
+# The vocabulary is closed; a typo'd command name fails, never no-ops.
+increment the counter by 2

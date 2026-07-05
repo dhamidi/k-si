@@ -1,0 +1,5 @@
+# Braces quote literally, quotes interpolate, matches globs.
+set who counter
+model $who count is 0
+model counter count matches "*0*"
+commands are {}

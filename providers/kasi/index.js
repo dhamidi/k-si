@@ -193,6 +193,7 @@ async function scanRepository(kit) {
 
 	for await (const path of new Glob('*/module.go').scan({ cwd: process.cwd() })) {
 		const name = path.split('/')[0]
+		if (RESERVED_DIRS.has(name)) continue // runtime/module.go is machinery, not a domain
 		scan.modules.push({
 			name,
 			files: [path],
@@ -1009,7 +1010,7 @@ type Edges struct {
 }
 
 // Module bundles ${what} (docs/01).
-func Module(e Edges) runtime.Module {
+func Module(e Edges) *runtime.Module {
 	mod := runtime.NewModule("${name}", Model{}, e)
 
 	return mod

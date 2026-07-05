@@ -1,0 +1,5 @@
+#! expect-fail want "3"
+
+# The failure report carries this narration line.
+send increment-counter { by 2 }
+model counter count is 3

@@ -72,6 +72,17 @@ until this is done, because everything else stands on it.
 assertions, a `crash`/`restart` — passes; `kasi test -n 100` of it passes;
 `ast-grep scan` is clean.
 
+**Status: the gate is green.** `runtime/` (modules, reducer loop, log +
+full-log replay, `send`, quiescence, subscription diffing), the in-memory
+log twin, `testlang/` + its conformance corpus, the `kasi test` runner with
+the replay-convergence and dead-send standing checks, the `counter` canary
+module (scaffolded by the kit provider), and the mechanical gate as
+`mise run check`. Still open within stage 0's scope, to land alongside the
+stage-1 modules that first need them: the SQLite log (the in-memory twin is
+in), the virtual-clock-driven `advance` beyond bare time, the secret-sentinel
+and reducer-I/O checks (they activate with the first secrets and edges), and
+cassette provenance (ring 2).
+
 ## Stage 1 — the conversation, in memory
 
 **Goal:** Flows A, B, and E of [10](./docs/10-flows.md) pass in the

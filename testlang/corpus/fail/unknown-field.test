@@ -1,0 +1,4 @@
+#! expect-fail unknown field
+
+# Script sends strict-decode against the registered payload struct (docs/14).
+send increment-counter { byy 2 }

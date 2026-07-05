@@ -1,3 +1,22 @@
 [tools]
 "github:dhamidi/kit" = "latest"
 ast-grep = "latest"
+go = "1.24"
+
+# The mechanical gate (docs/12, BUILDING.md): run before merging, always.
+[tasks.check]
+description = "build + scenario suite + conformance corpus + structural scan + no *_test.go"
+run = """
+set -e
+if find . -name '*_test.go' -not -path './vendor/*' | grep -q .; then
+  echo 'no *_test.go allowed — the scripts are the tests (docs/12)'; exit 1
+fi
+mkdir -p bin
+go build -o bin/kasi ./cmd/kasi
+./bin/kasi test t/
+./bin/kasi test --selftest
+./bin/kasi test -n 100 t/runtime/hello.test
+ast-grep scan
+echo 'gate: green'
+"""
+
