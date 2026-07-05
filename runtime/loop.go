@@ -309,8 +309,18 @@ func (a *App) diffSubscriptions(ctx context.Context) {
 		done := make(chan struct{})
 		a.running[id] = runningSub{cancel: cancel, done: done}
 
+		// An Await source is pending work until its Run returns (docs/13), so a
+		// reconciliation that emits then finishes is drained before Settle. We
+		// hold a.mu here, so this bump is safe; settleOne takes the lock itself.
+		if d.sub.Await {
+			a.pending++
+		}
+
 		go func(d declared) {
 			defer close(done)
+			if d.sub.Await {
+				defer a.settleOne()
+			}
 			d.sub.Run(subCtx, d.edges, func(m Msg) { a.enqueue(envelope{msg: m, cause: 0}) })
 		}(d)
 	}

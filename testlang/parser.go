@@ -113,7 +113,12 @@ func (p *parser) command(until terminator) (Command, error) {
 			return cmd, nil
 		case c == ']' && until == bracketEnds:
 			return cmd, nil
-		case c == '#' && len(cmd.Words) == 0:
+		case c == '#':
+			// A '#' at a word boundary starts a comment to end of line — whether
+			// the command is empty (a narration line) or trailing an assertion
+			// (docs/14 shows `task 1 status is done   # ...`). The outer loop
+			// consumes the comment text; a '#' *inside* a word (a URL, say) has no
+			// preceding space and is handled by word() as a literal.
 			return cmd, nil
 		default:
 			w, err := p.word(until)
