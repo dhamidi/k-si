@@ -1,0 +1,44 @@
+# t/research/ui-request.test — Flow C (docs/05, decision-003/004): the UI-request
+# loop driven offline. An agent needs a secret it must not ask for over email, so
+# it raises a UI request; the user answers "on the web" (a secret that becomes a
+# secret:// reference, never plaintext in a message or the log, plus a text note);
+# the session resumes and finishes. Mirrors clarification.test, but the answer
+# arrives through the request link, not the mail thread.
+
+send allow-sender { address a@b.test }
+
+deliver {
+    from    a@b.test
+    to      research@kasi.test
+    subject "pay invoice"
+    body    "pay the E.ON invoice"
+}
+
+task 1 status is awaiting-agent
+
+# Turn 1: the agent can't ask for a bank login over email → it raises a UI request.
+agent {
+    out request.json [fixture ui-request/bank-login.json]
+    out reply.txt "I need your bank login to proceed — please use the secure link."
+}
+
+task 1 status is awaiting-user
+outbound last body matches "*secure link*"
+outbound last body matches "*provide the requested input*"   # the request link is in the reply
+
+# Answer on the "web": a secret (never emailed/logged) + a text note.
+set url [task 1 request-link]
+answer $url {
+    secret bank-login "s3cr3t-plaintext-must-not-leak"
+    text   note       "please hurry"
+}
+
+task 1 status is awaiting-agent                              # the agent resumed
+task 1 request-secret bank-login matches "secret://task/*/bank-login" # reference-only: a secret:// URL, not plaintext
+task 1 input answers.json matches "*please hurry*"           # the text answer was laid into in/
+
+# Turn 2: resumed, the agent finishes.
+agent { out reply.txt "Paid. Thank you." }
+
+task 1 status is awaiting-user
+outbound last body matches "*Paid*"

@@ -8,6 +8,7 @@ package main
 // returning, so the next script line sees a stable model (docs/13).
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,6 +23,8 @@ import (
 	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/mime"
+	"github.com/dhamidi/k-si/secrets"
+	"github.com/dhamidi/k-si/store"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/testlang"
 )
@@ -91,6 +94,13 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 			return "", fmt.Errorf("click needs a capability URL")
 		}
 		return "", click(inst, args[0])
+	}
+
+	v["answer"] = func(in *testlang.Interp, args []string) (string, error) {
+		if len(args) != 2 {
+			return "", fmt.Errorf("answer needs a request URL and a block { text|secret|file … }")
+		}
+		return "", answer(in, inst, args[0], args[1])
 	}
 
 	v["fail"] = func(in *testlang.Interp, args []string) (string, error) {
@@ -536,6 +546,24 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", err
 			}
 			return finishRead("task "+strings.Join(read, " "), string(body), verb)
+		case "request-link":
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d request-link: takes no argument", n)
+			}
+			req, err := taskRequest(inst, n)
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), req.Link, verb)
+		case "request-secret":
+			if len(read) != 3 {
+				return "", fmt.Errorf("task %d request-secret: needs a field, e.g. `task %d request-secret bank-login`", n, n)
+			}
+			req, err := taskRequest(inst, n)
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), req.SecretRefs[read[2]], verb)
 		}
 	}
 
@@ -638,6 +666,32 @@ func nthTaskID(inst *instance, n int) (int64, error) {
 	return t.ID, nil
 }
 
+// taskRequest returns the UI request the nth task raised — the model's
+// Model.Requests entry whose TaskID matches, the record `answer` acts on and the
+// request-link / request-secret reads expose (Flow C, decision-003).
+func taskRequest(inst *instance, n int) (uiRequest, error) {
+	id, err := nthTaskID(inst, n)
+	if err != nil {
+		return uiRequest{}, err
+	}
+	raw, err := inst.app.ModelJSON("tasks")
+	if err != nil {
+		return uiRequest{}, err
+	}
+	var m struct {
+		Requests []uiRequest `json:"requests"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return uiRequest{}, err
+	}
+	for _, r := range m.Requests {
+		if r.TaskID == id {
+			return r, nil
+		}
+	}
+	return uiRequest{}, fmt.Errorf("task %d has no UI request", n)
+}
+
 // --- archive -----------------------------------------------------------------
 
 // archive count task <n> <kind> — how many archive rows of a kind a task has.
@@ -706,6 +760,131 @@ func taskByID(inst *instance, id int64) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("no task with id %d", id)
+}
+
+// --- answer (the web edge's UI-request submission) ---------------------------
+
+// uiRequest is the sliver of the tasks Model.Requests entry the answer vocab
+// needs: enough to locate the pending request by run id, capability-check the
+// token, and read back its link / secret references for assertions.
+type uiRequest struct {
+	RunID      int64             `json:"run_id"`
+	TaskID     int64             `json:"task_id"`
+	Token      string            `json:"token"`
+	Link       string            `json:"link"`
+	Status     string            `json:"status"`
+	SecretRefs map[string]string `json:"secret_refs"`
+}
+
+// requestByRunID reads the pending UIRequest keyed by run id from the tasks
+// model — the record the web edge locates from a request link (decision-003).
+func requestByRunID(inst *instance, runID int64) (uiRequest, error) {
+	raw, err := inst.app.ModelJSON("tasks")
+	if err != nil {
+		return uiRequest{}, err
+	}
+	var m struct {
+		Requests []uiRequest `json:"requests"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return uiRequest{}, err
+	}
+	for _, r := range m.Requests {
+		if r.RunID == runID {
+			return r, nil
+		}
+	}
+	return uiRequest{}, fmt.Errorf("no UI request for run %d", runID)
+}
+
+// answer performs the web edge's UI-request submission offline, mirroring click
+// (decision-003): parse the request link, locate the pending request by run id,
+// constant-time token-check, do the web edge's I/O (write secrets and files to
+// their stores as references), then emit answer-ui-request carrying ONLY those
+// references plus the plaintext text values. Secret plaintext goes to
+// SimSecrets.Set and nowhere else — never into the message, the log, or a file.
+func answer(in *testlang.Interp, inst *instance, url, block string) error {
+	runID, token, err := link.ParseRequest(url)
+	if err != nil {
+		return err
+	}
+
+	req, err := requestByRunID(inst, runID)
+	if err != nil {
+		return err
+	}
+	if req.Status != "pending" {
+		return fmt.Errorf("answer: request for run %d is %q, not pending", runID, req.Status)
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(token)) != 1 {
+		return fmt.Errorf("answer: token %q does not authorise the request for run %d", token, runID)
+	}
+	taskID := req.TaskID
+
+	lines, err := blockLines(in, block)
+	if err != nil {
+		return err
+	}
+
+	values := map[string]string{}
+	fileRefs := map[string]int64{}
+	secretRefs := map[string]string{}
+
+	for _, words := range lines {
+		switch words[0] {
+		case "text":
+			if len(words) < 3 {
+				return fmt.Errorf("answer: text needs a field and a value")
+			}
+			values[words[1]] = strings.Join(words[2:], " ")
+		case "secret":
+			if len(words) < 3 {
+				return fmt.Errorf("answer: secret needs a field and a value")
+			}
+			field := words[1]
+			plaintext := strings.Join(words[2:], " ")
+			// Write at the web edge (decision-004): the plaintext goes ONLY to the
+			// secrets store; the message carries a secret:// reference.
+			u := secrets.URL(fmt.Sprintf("task/%d", taskID), field)
+			if err := inst.world.secrets.Set(u, plaintext); err != nil {
+				return fmt.Errorf("answer: secret %s: %w", field, err)
+			}
+			secretRefs[field] = u
+		case "file":
+			if len(words) != 3 {
+				return fmt.Errorf("answer: file needs a field and a path")
+			}
+			field := words[1]
+			path := words[2]
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("answer: file %s: %w", field, err)
+			}
+			id, err := inst.world.content.AddArchive(store.ArchiveRow{
+				TaskID:      taskID,
+				Kind:        "attachment",
+				Filename:    filepath.Base(path),
+				ContentType: "application/octet-stream",
+				Bytes:       b,
+			})
+			if err != nil {
+				return fmt.Errorf("answer: file %s: %w", field, err)
+			}
+			fileRefs[field] = id
+		default:
+			return fmt.Errorf("answer: unknown field %q (text|secret|file)", words[0])
+		}
+	}
+
+	inst.app.Send(taskmsg.NewAnswerUIRequest(taskmsg.AnswerUIRequestPayload{
+		TaskID:     taskID,
+		RunID:      runID,
+		Values:     values,
+		FileRefs:   fileRefs,
+		SecretRefs: secretRefs,
+	}))
+	inst.app.Settle()
+	return nil
 }
 
 // --- shared helpers ----------------------------------------------------------

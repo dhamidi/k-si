@@ -20,6 +20,9 @@ type Content interface {
 
 	AddArchive(ArchiveRow) (int64, error)
 	ArchiveByTask(taskID int64) ([]ArchiveRow, error)
+	// ArchiveByID returns a single archive row by id, backing lay-in-answers
+	// resolving an uploaded file from its reference (Flow C).
+	ArchiveByID(id int64) (ArchiveRow, error)
 	// ArchiveCount counts archive rows for a task of a given kind, backing
 	// `archive count task N transcript`.
 	ArchiveCount(taskID int64, kind string) (int, error)

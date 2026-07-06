@@ -16,6 +16,9 @@ type AssembleReplyPayload struct {
 	CompletionToken string   `json:"completion_token"`
 	OutManifest     []string `json:"out_manifest"`
 	CauseMessageID  string   `json:"cause_message_id"`
+	// RequestLink, when set, is a UI-request capability link the effect appends to
+	// the reply body (Flow C). Empty for a normal reply.
+	RequestLink string `json:"request_link"`
 }
 
 func NewAssembleReply(p AssembleReplyPayload) runtime.Cmd {

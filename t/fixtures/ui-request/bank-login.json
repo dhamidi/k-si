@@ -1,0 +1,1 @@
+[{"name":"bank-login","label":"Bank login","type":"secret","required":true},{"name":"note","label":"Note","type":"text","required":false}]

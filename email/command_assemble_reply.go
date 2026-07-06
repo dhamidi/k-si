@@ -39,6 +39,12 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 			body = string(part.Bytes)
 			continue
 		}
+		// request.json is the internal form spec for a UI request (Flow C, docs/05),
+		// not an attachment for the recipient — the reply carries the link, never the
+		// spec.
+		if part.Filename == "request.json" {
+			continue
+		}
 		attachments = append(attachments, part)
 	}
 	completionURL, err := link.Completion(e.BaseURL, p.TaskID, p.CompletionToken)
@@ -46,6 +52,9 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		return fmt.Errorf("email: assemble-reply: completion link: %w", err)
 	}
 	body += "\n\n— mark this task done: " + completionURL + "\n"
+	if p.RequestLink != "" {
+		body += "\n— provide the requested input: " + p.RequestLink + "\n"
+	}
 
 	// Same domain tasks used when it pre-recorded this into References — derived
 	// from the reply-from address on both sides — or threading breaks.

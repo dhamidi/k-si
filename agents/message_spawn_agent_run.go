@@ -22,6 +22,6 @@ func handleSpawnAgentRun(v runtime.View, s Model, p msg.SpawnAgentRunPayload,
 		Session: sessionFor(p.TaskID),
 	})
 	return s, []runtime.Cmd{
-		NewStartAgentRun(StartAgentRunPayload{TaskID: p.TaskID, RunID: runID, Resume: p.Resume}),
+		NewStartAgentRun(StartAgentRunPayload{TaskID: p.TaskID, RunID: runID, Resume: p.Resume, SecretRefs: p.SecretRefs}),
 	}
 }

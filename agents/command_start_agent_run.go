@@ -13,6 +13,9 @@ type StartAgentRunPayload struct {
 	TaskID int64 `json:"task_id"`
 	RunID  int64 `json:"run_id"`
 	Resume bool  `json:"resume"`
+	// SecretRefs maps an env-var name to a secret:// URL, resolved into the run
+	// environment at the harness edge (Flow C, docs/06). Carry-through only here.
+	SecretRefs map[string]string `json:"secret_refs"`
 }
 
 func NewStartAgentRun(p StartAgentRunPayload) runtime.Cmd {

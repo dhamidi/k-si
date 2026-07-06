@@ -128,6 +128,18 @@ func (c *MemoryContent) ArchiveByTask(taskID int64) ([]ArchiveRow, error) {
 	return out, nil
 }
 
+func (c *MemoryContent) ArchiveByID(id int64) (ArchiveRow, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, r := range c.archive {
+		if r.ID == id {
+			return r, nil
+		}
+	}
+	return ArchiveRow{}, fmt.Errorf("archive %d: not found", id)
+}
+
 func (c *MemoryContent) ArchiveCount(taskID int64, kind string) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

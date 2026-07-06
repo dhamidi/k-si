@@ -31,6 +31,7 @@ type simWorld struct {
 	ring    string
 	content *store.MemoryContent
 	mail    *email.SimMail
+	secrets *secrets.SimSecrets // the sim credential edge the web vocab writes to (Flow C)
 	work    workspace.Workspace // the workspace wired into Edges (memory or OS)
 	harness agents.Harness      // the harness wired into Edges
 
@@ -62,6 +63,7 @@ func newSimWorld() *simWorld {
 		ring:     "sim",
 		content:  content,
 		mail:     mail,
+		secrets:  secrets.NewSim(),
 		outbound: mail,
 		work:     work,
 		harness:  sim,
@@ -84,6 +86,7 @@ func newRecordedWorld(c cassette.HarnessCassette, mc cassette.MailCassette, hasM
 		ring:     "recorded",
 		content:  content,
 		mail:     mail,
+		secrets:  secrets.NewSim(),
 		work:     work,
 		harness:  recorded,
 		recorded: recorded,
@@ -111,6 +114,7 @@ func newLiveWorld(workdir string, sec secrets.Secrets) *simWorld {
 		ring:          "live",
 		content:       content,
 		mail:          email.NewSimMail(content),
+		secrets:       secrets.NewSim(),
 		outbound:      recordingMail,
 		recordingMail: recordingMail,
 		work:          work,

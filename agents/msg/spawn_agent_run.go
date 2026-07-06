@@ -8,6 +8,9 @@ const SpawnAgentRun = "spawn-agent-run"
 type SpawnAgentRunPayload struct {
 	TaskID int64 `json:"task_id"`
 	Resume bool  `json:"resume"`
+	// SecretRefs maps an env-var name to a secret:// URL, carried through to the
+	// harness edge which resolves each into the run environment (Flow C, docs/06).
+	SecretRefs map[string]string `json:"secret_refs"`
 }
 
 func NewSpawnAgentRun(p SpawnAgentRunPayload) runtime.Msg {

@@ -32,11 +32,34 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		TranscriptPath: p.TranscriptPath,
 	})
 
-	// A reply goes out only when the run actually succeeded and produced one. A
-	// stopped run, a non-zero exit (the agent crashed or timed out), or a run that
-	// wrote no reply.txt must NOT email the user an empty or broken message — keep
-	// the transcript and hand the task back to the human (docs/05).
-	if p.Stopped || p.Exit != 0 || !hasReply(p.OutManifest) {
+	// A stopped or failed run (crash/timeout) yields nothing to send — keep the
+	// transcript and hand the task back to the human (docs/05). This gate runs
+	// before the request and reply branches, so a crash never mints a request nor
+	// emails a reply, whatever half-written files it left in out/.
+	if p.Stopped || p.Exit != 0 {
+		tasks[i] = t
+		s.Tasks = tasks
+		return s, []runtime.Cmd{capture}
+	}
+
+	// A raised UI request takes precedence over reply.txt (Flow C): the run wrote
+	// out/request.json to ask the human for input via the web. reply.txt is
+	// OPTIONAL here (docs/05), so this must precede the no-reply gate below or a
+	// request-only run would be dropped. Hand off to email's mint-ui-request, which
+	// mints the token and link and emits register-ui-request — that handler drives
+	// the reply carrying the link. No normal reply here.
+	if hasRequest(p.OutManifest) {
+		tasks[i] = t
+		s.Tasks = tasks
+		return s, []runtime.Cmd{capture, emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
+			TaskID: p.TaskID,
+			RunID:  p.RunID,
+		})}
+	}
+
+	// A successful run that wrote no reply.txt produced nothing to send — no empty
+	// email; keep the transcript and hand the task back (docs/05).
+	if !hasReply(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
 		return s, []runtime.Cmd{capture}
@@ -78,6 +101,17 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 func hasReply(manifest []string) bool {
 	for _, name := range manifest {
 		if name == "reply.txt" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRequest reports whether the run raised a UI request — it wrote
+// out/request.json, the spec the web edge renders a form from (Flow C, docs/05).
+func hasRequest(manifest []string) bool {
+	for _, name := range manifest {
+		if name == "request.json" {
 			return true
 		}
 	}

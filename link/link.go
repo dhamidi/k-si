@@ -19,6 +19,12 @@ const (
 	CompletionRoute = "tasks.done"
 	// CompletionPattern is the URI template of the completion link path.
 	CompletionPattern = "/tasks/{id}/done"
+	// RequestRoute is the named route the web edge registers for the UI-request
+	// link and this package reverse-routes against (Flow C, decision-003).
+	RequestRoute = "requests.show"
+	// RequestPattern is the URI template of the request link path; {id} is the
+	// raising agent run's id (meta.Offset), which keys the request record.
+	RequestPattern = "/requests/{id}"
 	// TokenParam is the query parameter carrying the capability token.
 	TokenParam = "token"
 )
@@ -74,4 +80,58 @@ func ParseCompletion(raw string) (taskID int64, token string, err error) {
 		return 0, "", fmt.Errorf("link: %q carries no token", raw)
 	}
 	return taskID, token, nil
+}
+
+// requestRouter is a private router, for reverse-routing the request path from
+// its named route.
+var requestRouter = mustRequestRouter()
+
+func mustRequestRouter() *dispatch.Router {
+	r := dispatch.New()
+	// a no-op handler: this router is only ever used to build paths, never served
+	if err := r.GET(RequestRoute, RequestPattern, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})); err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// Request builds the full UI-request link: base ("https://host") + the
+// reverse-routed request path (keyed by the raising run id) + the token query.
+// It mirrors Completion exactly (decision-003).
+func Request(base string, runID int64, token string) (string, error) {
+	path, err := requestRouter.Path(RequestRoute, dispatch.Params{"id": strconv.FormatInt(runID, 10)})
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	u.Path = path
+	q := u.Query()
+	q.Set(TokenParam, token)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+// ParseRequest extracts the run id and token from a UI-request link.
+func ParseRequest(raw string) (runID int64, token string, err error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0, "", err
+	}
+	// path is /requests/<id>
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "requests" {
+		return 0, "", fmt.Errorf("link: %q is not a request link", raw)
+	}
+	runID, err = strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("link: bad run id in %q", raw)
+	}
+	token = u.Query().Get(TokenParam)
+	if token == "" {
+		return 0, "", fmt.Errorf("link: %q carries no token", raw)
+	}
+	return runID, token, nil
 }

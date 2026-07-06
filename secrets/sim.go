@@ -23,6 +23,26 @@ func NewSim() *SimSecrets {
 	return &SimSecrets{issued: map[string]string{}}
 }
 
+// Set records that a secret exists at url and DISCARDS the plaintext — the sim
+// edge never holds a real value (docs/06). It mirrors *SQLiteSecrets.Set so the
+// web edge can call either; the plaintext argument is deliberately dropped, so
+// nothing the log or a message can reach ever sees it. After Set, Resolve(url)
+// returns the url's sentinel and Issued() lists it, exactly as if it had been
+// resolved — enough for a scenario to assert a reference was stored.
+func (s *SimSecrets) Set(url, plaintext string) error {
+	ns, key, err := parseURL(url)
+	if err != nil {
+		return err
+	}
+	_ = plaintext // discarded: the sim edge never stores a real value
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.issued[url] = fmt.Sprintf("SENTINEL-SECRET(%s/%s)", ns, key)
+	return nil
+}
+
 // Resolve returns a deterministic sentinel for a valid secret:// URL and records
 // it as issued. Deterministic so replay converges; recorded so leaks are found.
 func (s *SimSecrets) Resolve(ctx context.Context, url string) (string, error) {

@@ -28,6 +28,7 @@ func Module(e Edges) *runtime.Module {
 	registerMarkReplyQueued(mod)
 	registerMarkEmailSent(mod)
 	registerAssembleReply(mod)
+	registerMintUIRequest(mod)
 	registerSendEmail(mod)
 	runtime.Subscribe(mod, outboxReconcileSubs)
 	registerSendOutbox(mod)

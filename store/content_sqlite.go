@@ -236,6 +236,29 @@ func (c *SQLiteContent) ArchiveByTask(taskID int64) ([]ArchiveRow, error) {
 	return out, rows.Err()
 }
 
+func (c *SQLiteContent) ArchiveByID(id int64) (ArchiveRow, error) {
+	var (
+		row         ArchiveRow
+		agentRun    sql.NullInt64
+		filename    sql.NullString
+		contentType sql.NullString
+		created     string
+	)
+	err := c.db.QueryRow(
+		`SELECT id, task_id, kind, agent_run, filename, content_type, sha256, bytes, created_at FROM archive WHERE id = ?`, id,
+	).Scan(&row.ID, &row.TaskID, &row.Kind, &agentRun, &filename, &contentType, &row.SHA256, &row.Bytes, &created)
+	if err != nil {
+		return ArchiveRow{}, fmt.Errorf("archive %d: %w", id, err)
+	}
+	row.AgentRun = agentRun.Int64
+	row.Filename = filename.String
+	row.ContentType = contentType.String
+	if row.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
+		return ArchiveRow{}, fmt.Errorf("archive %d: bad created_at: %w", id, err)
+	}
+	return row, nil
+}
+
 func (c *SQLiteContent) ArchiveCount(taskID int64, kind string) (int, error) {
 	var n int
 	err := c.db.QueryRow(
