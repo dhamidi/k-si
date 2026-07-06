@@ -22,6 +22,18 @@ func slice(v runtime.View) Model {
 	return runtime.Slice[Model](v, "tasks")
 }
 
+// All returns a copy of the model's tasks in model order — the list read the
+// browse UI groups and sorts (docs/08). It mirrors Get: a typed read funnelled
+// through the tasks slice, never a raw model reach. The copy keeps the caller
+// from aliasing model-owned memory; grouping/newest-first ordering is the
+// view's job, not the model's.
+func All(v runtime.View) []Task {
+	m := slice(v)
+	out := make([]Task, len(m.Tasks))
+	copy(out, m.Tasks)
+	return out
+}
+
 // find returns the index of the task with id in the slice, or -1.
 func (m Model) find(id TaskID) int {
 	for i := range m.Tasks {

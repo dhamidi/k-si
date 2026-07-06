@@ -23,6 +23,7 @@ import (
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
+	"github.com/dhamidi/k-si/workspace"
 )
 
 //go:embed *.vue
@@ -47,19 +48,23 @@ type Server struct {
 	router  *dispatch.Router
 	secrets SecretWriter
 	content store.Content
+	// work is the filesystem edge for reading a running run's in-progress
+	// transcript; a finished run reads from content instead (decision-007).
+	work workspace.Workspace
 }
 
-// NewServer wires the running App plus the two edge-I/O capabilities a UI
-// request needs when answered (Flow C, decision-004): secrets writes a secret
-// field's plaintext and hands back a reference; content stores an uploaded file
-// in the archive and hands back its id. The supervisor owns the one call site.
-func NewServer(app *runtime.App, secrets SecretWriter, content store.Content) (*Server, error) {
+// NewServer wires the running App plus the edge-I/O capabilities the pages need:
+// secrets writes a UI-request secret field's plaintext and hands back a reference;
+// content stores uploaded files and reads archived transcripts/artifacts; work
+// reads a running run's in-progress transcript from its workspace (decision-007).
+// The supervisor owns the one call site.
+func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace) (*Server, error) {
 	engine, err := htmlc.New(htmlc.Options{FS: templates, ComponentDir: "."})
 	if err != nil {
 		return nil, err
 	}
 
-	s := &Server{app: app, engine: engine, router: dispatch.New(), secrets: secrets, content: content}
+	s := &Server{app: app, engine: engine, router: dispatch.New(), secrets: secrets, content: content, work: work}
 
 	if err := s.router.GET("counter.show", "/", http.HandlerFunc(s.showCounter)); err != nil {
 		return nil, err
@@ -78,6 +83,22 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content) (*
 		return nil, err
 	}
 	if err := s.router.POST("requests.answer", link.RequestPattern, http.HandlerFunc(s.answerRequest)); err != nil {
+		return nil, err
+	}
+	// The browse UI (docs/08): the operator's window into the system. These
+	// routes carry NO token — they are host-gated (decision-006), not
+	// capability-linked. tasks.index lists, tasks.show details one task,
+	// runs.transcript renders a run's session, runs.stop halts a running agent.
+	if err := s.router.GET("tasks.index", "/tasks", http.HandlerFunc(s.showTasks)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("tasks.show", "/tasks/{id}", http.HandlerFunc(s.showTask)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("runs.transcript", "/tasks/{id}/runs/{run}/transcript", http.HandlerFunc(s.showTranscript)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("runs.stop", "/tasks/{id}/runs/{run}/stop", http.HandlerFunc(s.stopRun)); err != nil {
 		return nil, err
 	}
 

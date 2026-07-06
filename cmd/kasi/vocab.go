@@ -11,6 +11,8 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +29,7 @@ import (
 	"github.com/dhamidi/k-si/store"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/testlang"
+	"github.com/dhamidi/k-si/web"
 )
 
 func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
@@ -101,6 +104,42 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 			return "", fmt.Errorf("answer needs a request URL and a block { text|secret|file … }")
 		}
 		return "", answer(in, inst, args[0], args[1])
+	}
+
+	// visit / post drive the REAL web.Server in-process (decision-008): visit
+	// GETs a page and returns the rendered HTML for matches/is assertions; post
+	// issues the Stop action's POST and returns the redirect Location, settling
+	// the app so the emitted stop-agent-run has taken effect before the next line.
+	v["visit"] = func(in *testlang.Interp, args []string) (string, error) {
+		read, verb := splitVerb(args)
+		if len(read) != 1 {
+			return "", fmt.Errorf("visit needs a single path, e.g. `visit /tasks matches \"*awaiting-user*\"`")
+		}
+		body, err := inst.webGET(read[0])
+		if err != nil {
+			return "", err
+		}
+		return finishRead("visit "+read[0], body, verb)
+	}
+
+	v["post"] = func(in *testlang.Interp, args []string) (string, error) {
+		read, verb := splitVerb(args)
+		if len(read) != 1 {
+			return "", fmt.Errorf("post needs a single path, e.g. `post /tasks/1/runs/2/stop`")
+		}
+		result, err := inst.webPOST(read[0])
+		if err != nil {
+			return "", err
+		}
+		return finishRead("post "+read[0], result, verb)
+	}
+
+	// seed-transcript seats a fixture transcript as a given task+run's in-progress
+	// bytes so the transcript-render page has something to parse (decision-007/008).
+	// A finished run's transcript is archived and read archive-first, so this is
+	// used on a RUNNING run, whose bytes the view sources from the workspace.
+	v["seed-transcript"] = func(in *testlang.Interp, args []string) (string, error) {
+		return "", seedTranscript(inst, args)
 	}
 
 	v["fail"] = func(in *testlang.Interp, args []string) (string, error) {
@@ -564,6 +603,24 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", err
 			}
 			return finishRead("task "+strings.Join(read, " "), req.SecretRefs[read[2]], verb)
+		case "running-run":
+			// The id of the task's currently-running agent run — the run id the
+			// browse UI's transcript/stop routes carry for a live run. A running run
+			// is NOT yet in the task model's Runs slice (that holds finished runs),
+			// so it is read from the agents model, the same place RunningRuns looks.
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d running-run: takes no argument", n)
+			}
+			id, err := nthTaskID(inst, n)
+			if err != nil {
+				return "", err
+			}
+			for _, r := range agents.RunningRuns(inst.app.View()) {
+				if r.TaskID == id {
+					return finishRead("task "+strings.Join(read, " "), strconv.FormatInt(int64(r.ID), 10), verb)
+				}
+			}
+			return "", fmt.Errorf("task %d has no running run", n)
 		case "run-env":
 			// The resolved run environment the (sim) harness was handed — proves a
 			// Flow C secret was Resolve'd into the agent's env at the edge (M1.5).
@@ -730,6 +787,93 @@ func archiveRead(inst *instance, args []string) (string, error) {
 		return "", err
 	}
 	return finishRead("archive "+strings.Join(read, " "), strconv.Itoa(count), verb)
+}
+
+// --- visit / post / seed-transcript (the real web edge, driven offline) ------
+
+// webServer lazily builds ONE web.Server per App over the world's live edges
+// (decision-008): SimSecrets satisfies web.SecretWriter, MemoryContent satisfies
+// store.Content. The server reads the live model each request, so caching it
+// across visits is safe; boot() nils it so a fresh App rebinds.
+func (inst *instance) webServer() (*web.Server, error) {
+	if inst.server == nil {
+		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work)
+		if err != nil {
+			return nil, fmt.Errorf("visit: build server: %w", err)
+		}
+		inst.server = s
+	}
+	return inst.server, nil
+}
+
+// webGET renders a page through the real router+handlers and returns the body.
+// A non-2xx status is a loud failure (a broken route must fail the scenario, not
+// silently return an empty body) — the body is included for diagnosis.
+func (inst *instance) webGET(path string) (string, error) {
+	s, err := inst.webServer()
+	if err != nil {
+		return "", err
+	}
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	body := rec.Body.String()
+	if rec.Code >= 400 {
+		return "", fmt.Errorf("visit %s: status %d\n%s", path, rec.Code, body)
+	}
+	return body, nil
+}
+
+// webPOST issues a form POST (the Stop action) through the real router, settles
+// the app so the handler's emitted stop-agent-run has fully applied, and returns
+// the redirect Location (a 303 See Other) or, absent one, the status code.
+func (inst *instance) webPOST(path string) (string, error) {
+	s, err := inst.webServer()
+	if err != nil {
+		return "", err
+	}
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+	inst.app.Settle()
+	if loc := rec.Header().Get("Location"); loc != "" {
+		return loc, nil
+	}
+	if rec.Code >= 400 {
+		return "", fmt.Errorf("post %s: status %d", path, rec.Code)
+	}
+	return strconv.Itoa(rec.Code), nil
+}
+
+// seedTranscript writes a fixture transcript into a run's workspace slot so the
+// transcript-render page has bytes to parse. The task id resolves via nthTaskID;
+// the fixture defaults to transcript/sample.jsonl under t/fixtures/.
+func seedTranscript(inst *instance, args []string) error {
+	if len(args) < 2 || len(args) > 3 {
+		return fmt.Errorf("seed-transcript needs `<task-ordinal> <run> [fixture-path]`")
+	}
+	n, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("seed-transcript: task ordinal must be a number, got %q", args[0])
+	}
+	runID, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return fmt.Errorf("seed-transcript: run id must be a number, got %q", args[1])
+	}
+	id, err := nthTaskID(inst, n)
+	if err != nil {
+		return err
+	}
+	fixture := filepath.Join("transcript", "sample.jsonl")
+	if len(args) == 3 {
+		fixture = args[2]
+	}
+	b, err := os.ReadFile(filepath.Join("t", "fixtures", fixture))
+	if err != nil {
+		return fmt.Errorf("seed-transcript: fixture %s: %w", fixture, err)
+	}
+	if err := inst.world.work.WriteTranscript(id, runID, b); err != nil {
+		return fmt.Errorf("seed-transcript: %w", err)
+	}
+	return nil
 }
 
 // --- click -------------------------------------------------------------------

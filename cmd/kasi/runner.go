@@ -26,6 +26,7 @@ import (
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/testlang"
+	"github.com/dhamidi/k-si/web"
 )
 
 func runTest(args []string) int {
@@ -212,6 +213,12 @@ type instance struct {
 	world   *simWorld
 	app     *runtime.App
 	only    []string // nil = the full assembly
+
+	// server is the real web.Server the `visit`/`post` vocab drives in-process,
+	// built lazily over the current App and the world's edges (decision-008). It
+	// is reset on every boot so a fresh App (restart, `use`) rebinds — the server
+	// caches the compiled templates, not the model, so reuse across visits is safe.
+	server *web.Server
 }
 
 func (i *instance) full() bool { return i.only == nil }
@@ -235,6 +242,7 @@ func (i *instance) boot() error {
 	}
 
 	i.app = runtime.New(mods...).UseLog(i.log).UseClock(i.clock)
+	i.server = nil // rebind the web server to the fresh App on next visit (decision-008)
 	return i.app.Start(context.Background())
 }
 

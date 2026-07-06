@@ -122,7 +122,7 @@ func runServe(args []string) int {
 		go pollInbox(ctx, app, jmap, content)
 	}
 
-	server, err := web.NewServer(app, sec, content)
+	server, err := web.NewServer(app, sec, content, work)
 	if err != nil {
 		return fail("kasi serve:", err)
 	}

@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","cwd":"/work/task-1","session_id":"00000000-0000-4000-8000-000000000001","tools":["Bash","Read","Write"],"model":"claude-opus-4-8","permissionMode":"bypassPermissions"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"five_hour","resetsAt":1783354200},"uuid":"11111111-1111-4111-8111-111111111111","session_id":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"thinking","thinking":"I should list the files and count them with wc."},{"type":"tool_use","id":"toolu_01example0000000000001","name":"Bash","input":{"command":"ls -1 | wc -l","description":"Count the files in the working directory"}}]},"session_id":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01example0000000000001","type":"tool_result","content":"3 files","is_error":false}]},"session_id":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"There are 3 files in the directory."}]},"session_id":"00000000-0000-4000-8000-000000000001"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"num_turns":2,"session_id":"00000000-0000-4000-8000-000000000001"}

@@ -1,0 +1,81 @@
+# t/web/browse.test — the browse UI's GET/render path and the Stop POST, driven
+# through the REAL web.Server in-process (decision-006/007/008). `visit` GETs a
+# page and asserts on the rendered HTML; `post` drives the Stop action. These
+# routes are host-gated, no token (decision-006). We assert on real rendered
+# markers — status-group labels, subjects, reverse-routed hrefs, parsed turns —
+# never on internals.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "count the files"
+    body    "How many files are in the working directory?"
+}
+
+# The task exists and its first run is live (not yet in the model's Runs slice).
+task 1 status is awaiting-agent
+set id  [task 1 id]
+set run [task 1 running-run]
+
+# The list renders the awaiting-agent group, the subject, and a link to detail.
+visit /tasks matches "*Awaiting agent*"
+visit /tasks matches "*count the files*"
+visit /tasks matches "*/tasks/$id*"
+
+# --- transcript render (decision-007): parse a fixture stream-json into turns ---
+# A running run's transcript is sourced from the workspace, so seat the fixture
+# there. It carries a system/init line and a rate_limit_event (BOTH unknown types
+# the parser must skip), a thinking + Bash tool_use, a tool_result, assistant
+# prose, and a success result — the page must render every turn and skip the rest
+# without crashing.
+seed-transcript 1 $run
+
+# One ordered match proves the turns render, in order, and that the two skipped
+# lines did not derail the parse (the page returned 200 and matched).
+visit /tasks/$id/runs/$run/transcript matches "*Thinking*list the files*Tool: Bash*ls -1 | wc -l*Result*3 files*Assistant*There are 3 files*Run finished*success*"
+
+# Focused checks for the load-bearing markers.
+visit /tasks/$id/runs/$run/transcript matches "*Tool: Bash*"
+visit /tasks/$id/runs/$run/transcript matches "*ls -1 | wc -l*"
+visit /tasks/$id/runs/$run/transcript matches "*3 files*"
+visit /tasks/$id/runs/$run/transcript matches "*There are 3 files in the directory.*"
+visit /tasks/$id/runs/$run/transcript matches "*Run finished:*success*"
+
+# --- the run finishes: detail shows the run, no Stop form while awaiting-user ---
+agent {
+    out reply.txt "There are 3 files."
+}
+task 1 status is awaiting-user
+
+visit /tasks matches "*Awaiting user*"
+
+# Detail: status, the participant, and a run row linking to its transcript.
+visit /tasks/$id matches "*awaiting-user*"
+visit /tasks/$id matches "*kasi@decode.ee*"
+visit /tasks/$id matches "*Run 1*"
+visit /tasks/$id matches "*/tasks/$id/runs/$run/transcript*"
+
+# --- an active run: the reply threads a new turn; the Stop form appears ---
+deliver {
+    from kasi@decode.ee
+    reply-to-last
+    body "And how many directories?"
+}
+task 1 status is awaiting-agent
+
+# The reply threaded a NEW active run — which lives in the agents model, not
+# task.Runs. The detail page's Stop form must target THIS running run: a finished
+# run cannot be stopped, so pointing Stop at task.Runs' last id (as it once did)
+# was a no-op. The finished first run gets a transcript link but no Stop form.
+set live [task 1 running-run]
+visit /tasks/$id matches "*/tasks/$id/runs/$live/stop*"
+visit /tasks/$id matches "*/tasks/$id/runs/$run/transcript*"
+
+# --- drive the Stop POST and assert it took effect ---
+# Stop the live run through the real POST route; the handler emits stop-agent-run
+# and redirects back to the task. After settling, the task has left the running
+# state (a stopped run sends no reply, hands back to the human).
+post /tasks/$id/runs/$live/stop matches "*/tasks/$id*"
+task 1 status is awaiting-user
