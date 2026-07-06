@@ -324,6 +324,17 @@ func (a *App) diffSubscriptions(ctx context.Context) {
 	for id, running := range a.running {
 		if _, still := desired[id]; !still {
 			running.cancel()
+			// A cancelled source may still emit a final message as its Run unwinds:
+			// agent-watch emits finish-agent-run when a stop (or crash) cancels its
+			// Wait, and in the live ring that emit trails the real process's death by
+			// however long it takes to die. Hold quiescence until the Run returns so
+			// Settle covers that trailing emit instead of racing it (docs/13). A
+			// source that already finished has its done closed, so this is a no-op.
+			a.pending++
+			go func(done chan struct{}) {
+				<-done
+				a.settleOne()
+			}(running.done)
 			delete(a.running, id)
 		}
 	}
