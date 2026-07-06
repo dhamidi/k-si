@@ -435,6 +435,8 @@ func outboundField(msg mime.Message, field string) (string, error) {
 	switch field {
 	case "", "raw":
 		return string(msg.Raw), nil
+	case "from":
+		return strings.Join(mime.CcList(msg.Header.Get("From")), " "), nil
 	case "to":
 		return strings.Join(mime.CcList(msg.Header.Get("To")), " "), nil
 	case "cc":

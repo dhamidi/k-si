@@ -9,6 +9,10 @@
 
 send allow-sender { address kasi@decode.ee }
 
+# Replies go out as a deliverable identity (SPF/DKIM/MX on decode.ee), not the
+# <route>@kasi.test placeholder, so real recipients actually receive them.
+send set-reply-from { address kasi@decode.ee }
+
 deliver {
     from    kasi@decode.ee
     to      kasi@decode.ee
@@ -24,5 +28,6 @@ agent {
 }
 
 task 1 status is awaiting-user
+outbound last from is kasi@decode.ee
 outbound last to is kasi@decode.ee
 outbound last body matches "*DONE*"

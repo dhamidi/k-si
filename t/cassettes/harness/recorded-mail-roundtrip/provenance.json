@@ -1,10 +1,10 @@
 {
   "kind": "harness-run",
-  "recorded_at": "2026-07-06T09:05:39.788771303Z",
+  "recorded_at": "2026-07-06T11:05:14.270704789Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/mail-roundtrip.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "e5e4c69"
+    "git": "50207af"
   }
 }
