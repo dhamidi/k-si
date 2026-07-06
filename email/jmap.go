@@ -48,15 +48,42 @@ type Inbound struct {
 	Recipient string
 }
 
+// JMAPOption tunes the edge at construction. Options exist so the recorded ring
+// can swap the transport (record real traffic, or replay it offline) and point
+// session discovery at a stand-in URL, without the send path knowing (docs/13).
+type JMAPOption func(*JMAP)
+
+// WithTransport swaps the http RoundTripper — a recording transport captures
+// real Fastmail traffic to a cassette, a replaying one serves it back offline.
+// The 30s timeout is preserved.
+func WithTransport(rt http.RoundTripper) JMAPOption {
+	return func(c *JMAP) {
+		c.http = &http.Client{Timeout: 30 * time.Second, Transport: rt}
+	}
+}
+
+// WithSessionURL overrides the session-discovery URL (for replay/tests).
+func WithSessionURL(u string) JMAPOption {
+	return func(c *JMAP) {
+		c.sessionURL = u
+	}
+}
+
 // NewJMAP builds the Fastmail edge. tokenURL is the secret:// reference to the
 // API token (secret://fastmail/api-token), resolved through sec at each use.
-func NewJMAP(sec secrets.Secrets, tokenURL string) *JMAP {
-	return &JMAP{
+// Options are applied after the defaults, so the plain two-argument call still
+// yields the live client.
+func NewJMAP(sec secrets.Secrets, tokenURL string, opts ...JMAPOption) *JMAP {
+	c := &JMAP{
 		http:       &http.Client{Timeout: 30 * time.Second},
 		sessionURL: defaultSessionURL,
 		secrets:    sec,
 		tokenURL:   tokenURL,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // --- session ------------------------------------------------------------------
