@@ -1,0 +1,10 @@
+id: no-inplace-model-mutation
+language: go
+severity: error
+message: Handlers are copy-on-write — copy the slice (next := append([]T(nil), s.X...)) and mutate the copy; never mutate s.X[i] in place. The model snapshot must stay immutable for lock-free readers, the guarantee Elm gets from the language (docs/01, docs/15).
+files:
+  - '**/message_*.go'
+rule:
+  any:
+    - pattern: s.$F[$I].$X = $V
+    - pattern: s.$F[$I] = $V
