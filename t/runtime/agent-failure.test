@@ -1,0 +1,25 @@
+# t/runtime/agent-failure.test — a failed agent run must not email a broken reply.
+#
+# The worker prompt (docs/05) tells the agent to always write out/reply.txt, even
+# to ask a question — so a run that exits non-zero with no reply.txt has crashed
+# or errored. käsi must NOT send the user an empty-body message with a completion
+# link; it keeps the transcript and hands the task back. (This class of failure
+# was invisible while every test scenario succeeded with exit 0.)
+
+send allow-sender { address a@b.test }
+
+deliver {
+    from a@b.test
+    to   research@kasi.test
+    body "do the thing"
+}
+
+task 1 status is awaiting-agent
+
+agent {
+    out notes.txt "did some work but crashed before writing reply.txt"
+    exit 1
+}
+
+task 1 status is awaiting-user
+outbound count is 0

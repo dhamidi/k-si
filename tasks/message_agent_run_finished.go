@@ -32,9 +32,11 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		TranscriptPath: p.TranscriptPath,
 	})
 
-	// A stopped run yields no reply — the human already has the thread, we only
-	// keep the transcript (docs/05).
-	if p.Stopped {
+	// A reply goes out only when the run actually succeeded and produced one. A
+	// stopped run, a non-zero exit (the agent crashed or timed out), or a run that
+	// wrote no reply.txt must NOT email the user an empty or broken message — keep
+	// the transcript and hand the task back to the human (docs/05).
+	if p.Stopped || p.Exit != 0 || !hasReply(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
 		return s, []runtime.Cmd{capture}
@@ -68,4 +70,16 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	})
 
 	return s, []runtime.Cmd{capture, assemble}
+}
+
+// hasReply reports whether the agent left the reply body käsi sends. Its absence
+// means a failed or misbehaving run, not an intentional silence — the worker
+// prompt (docs/05) tells the agent to always write reply.txt, even to ask.
+func hasReply(manifest []string) bool {
+	for _, name := range manifest {
+		if name == "reply.txt" {
+			return true
+		}
+	}
+	return false
 }

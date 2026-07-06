@@ -54,6 +54,7 @@ func handleFinishAgentRun(v runtime.View, s Model, p FinishAgentRunPayload,
 		runtime.Send(taskmsg.NewAgentRunFinished(taskmsg.AgentRunFinishedPayload{
 			TaskID:         p.TaskID,
 			RunID:          p.RunID,
+			Exit:           p.Exit,
 			OutManifest:    p.OutManifest,
 			Stopped:        stopped,
 			TranscriptPath: p.TranscriptPath,
