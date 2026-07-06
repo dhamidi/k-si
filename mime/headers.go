@@ -21,6 +21,21 @@ func LocalPart(address string) string {
 	return bare
 }
 
+// Domain is the complement of LocalPart: the part after the @, tolerating a
+// display-name form ("Name" <a@b>). Empty when the address has no @.
+func Domain(address string) string {
+	bare := address
+	if a, err := mail.ParseAddress(address); err == nil {
+		bare = a.Address
+	} else {
+		bare = strings.Trim(bare, " <>")
+	}
+	if i := strings.LastIndex(bare, "@"); i >= 0 {
+		return bare[i+1:]
+	}
+	return ""
+}
+
 // CcList parses a Cc header value into bare addresses (display names dropped).
 // Returns nil for an empty or unparseable header so callers can range freely.
 func CcList(header string) []string {

@@ -40,9 +40,17 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		return s, []runtime.Cmd{capture}
 	}
 
+	// The reply is sent as the configured deliverable identity; it falls back to
+	// the routeAddr placeholder only when unset (the sim ring never sends). The
+	// Message-ID takes that address's domain so it matches what email stamps.
+	from := s.ReplyFrom
+	if from == "" {
+		from = routeAddr(t.Route)
+	}
+
 	// Record the reply's deterministic Message-ID in References BEFORE the user
 	// can reply to it, so the next inbound threads back onto this task.
-	replyID := emailmsg.ReplyMessageID(p.TaskID, p.RunID)
+	replyID := emailmsg.ReplyMessageID(p.TaskID, p.RunID, mime.Domain(from))
 	t.References = append(append([]string(nil), t.References...), replyID)
 	tasks[i] = t
 	s.Tasks = tasks
@@ -50,7 +58,7 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	assemble := emailmsg.NewAssembleReply(emailmsg.AssembleReplyPayload{
 		TaskID:          p.TaskID,
 		RunID:           p.RunID,
-		From:            routeAddr(t.Route),
+		From:            from,
 		To:              t.Participants,
 		Subject:         mime.ReplySubject(t.Subject),
 		InReplyTo:       t.LastMessageID,

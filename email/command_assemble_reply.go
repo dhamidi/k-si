@@ -47,7 +47,9 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 	}
 	body += "\n\n— mark this task done: " + completionURL + "\n"
 
-	messageID := msg.ReplyMessageID(p.TaskID, p.RunID)
+	// Same domain tasks used when it pre-recorded this into References — derived
+	// from the reply-from address on both sides — or threading breaks.
+	messageID := msg.ReplyMessageID(p.TaskID, p.RunID, mime.Domain(p.From))
 	hdr := map[string][]string{
 		"From":             {p.From},
 		"To":               {strings.Join(p.To, ", ")},

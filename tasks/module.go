@@ -25,6 +25,7 @@ func Module(e Edges) *runtime.Module {
 	registerLayInFromInbox(mod)
 	registerCaptureTranscript(mod)
 	registerArchiveTask(mod)
+	registerSetReplyFrom(mod)
 	return mod
 }
 

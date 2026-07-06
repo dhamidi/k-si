@@ -1,14 +1,16 @@
 package msg
 
-// ReplyMessageID is the Message-ID käsi puts on the reply for a given (task, run).
-// Deterministic so tasks can pre-record it in the thread's References the moment it
-// asks email to assemble the reply, and email stamps the same value when building it.
+// ReplyMessageID is the Message-ID käsi puts on the reply for a given (task, run)
+// on the given domain. Deterministic so tasks can pre-record it in the thread's
+// References the moment it asks email to assemble the reply, and email stamps the
+// same value when building it — the domain must be derived identically on both
+// sides (the reply-from's domain) or threading breaks.
 //
 // Built by hand (no fmt) so this contract package stays a leaf that imports
 // nothing but runtime (rules/contract-packages-are-leaves; docs/15). The output
-// is identical to fmt.Sprintf("<reply-%d-%d@kasi.test>", taskID, runID).
-func ReplyMessageID(taskID, runID int64) string {
-	return "<reply-" + itoa(taskID) + "-" + itoa(runID) + "@kasi.test>"
+// is identical to fmt.Sprintf("<reply-%d-%d@%s>", taskID, runID, domain).
+func ReplyMessageID(taskID, runID int64, domain string) string {
+	return "<reply-" + itoa(taskID) + "-" + itoa(runID) + "@" + domain + ">"
 }
 
 // itoa renders a base-10 int64 without importing strconv/fmt.

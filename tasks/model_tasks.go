@@ -7,6 +7,10 @@ import "github.com/dhamidi/k-si/runtime"
 // the log converges byte-for-byte on the live model (BRIEF replay-convergence).
 type Model struct {
 	Tasks []Task `json:"tasks"`
+	// ReplyFrom is the deliverable From address replies are sent as — configured
+	// once via set-reply-from (docs/04). Empty falls back to the routeAddr
+	// placeholder, which is fine for the sim ring but not for real delivery.
+	ReplyFrom string `json:"reply_from"`
 }
 
 // slice reads the tasks Model out of a whole-model View — the typed accessor
