@@ -44,6 +44,8 @@ func main() {
 		os.Exit(runServe(os.Args[2:]))
 	case "secret":
 		os.Exit(runSecret(os.Args[2:]))
+	case "probe":
+		os.Exit(runProbe(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -56,5 +58,6 @@ func usage() {
 Commands:
   serve   run käsi: kasi serve [-addr 127.0.0.1:8787] [-state ./data]
   test    run test scripts: kasi test [-n N] [--log memory|sqlite] [--record] [--cassettes] [--selftest] [path ...]
-  secret  manage the secrets store: kasi secret <set secret://ns/key | ls> [-state ./data]  (set reads the value from stdin)`)
+  secret  manage the secrets store: kasi secret <set secret://ns/key | ls> [-state ./data]  (set reads the value from stdin)
+  probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)`)
 }
