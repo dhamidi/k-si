@@ -1,0 +1,37 @@
+[
+  {
+    "name": "sample_text",
+    "label": "Text field (single line)",
+    "type": "text",
+    "required": true
+  },
+  {
+    "name": "sample_longtext",
+    "label": "Long text field (multi-line)",
+    "type": "longtext",
+    "required": false
+  },
+  {
+    "name": "sample_choice",
+    "label": "Choice field (pick one)",
+    "type": "choice",
+    "options": [
+      "Option A",
+      "Option B",
+      "Option C"
+    ],
+    "required": true
+  },
+  {
+    "name": "sample_file",
+    "label": "File upload",
+    "type": "file",
+    "required": false
+  },
+  {
+    "name": "sample_secret",
+    "label": "Secret field (password / API key)",
+    "type": "secret",
+    "required": true
+  }
+]

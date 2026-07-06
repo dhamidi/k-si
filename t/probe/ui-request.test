@@ -1,0 +1,38 @@
+# t/probe/ui-request.test — ring 3 (docs/13): does a REAL agent raise a valid web
+# UI request? The answer→resume machinery is deterministic and covered offline by
+# t/research/ui-request*.test; this probe validates only the reality-dependent part
+# — that a real Claude agent, told to collect input it must not put in an email,
+# chooses the form channel and writes a request.json that mints a working link.
+# One agent turn, so it is cheap.
+#
+# Run it live (real Claude + Fastmail), recording the real turn as a cassette:
+#     ./bin/kasi probe t/probe/ui-request.test
+# In --ring sim (the merge gate) the agent block below scripts the turn from the
+# real captured spec; in --ring live the real agent runs and the assertions must
+# hold for WHATEVER spec it writes. To fold the captured real turn into the offline
+# recorded gate, move this file to t/recorded/ once its cassette exists.
+
+send allow-sender    { address kasi@decode.ee }
+send set-reply-from  { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "show me your web form"
+    body    "I'd like to try your secure web form. Please raise a UI request that collects a few fields — include at least a text field, a choice, a file upload, and a secret (an API key) — then stop; I'll fill it in from the link. Do not ask for any of these in your reply."
+}
+
+task 1 status is awaiting-agent
+
+# Ring 1/2 script the turn from the real captured spec; ring 3 runs the real agent.
+agent {
+    out request.json [fixture ui-request/live-sample.json]
+    out reply.txt "Here's a secure form with one of each field type — use the link to fill it in."
+}
+
+task 1 status is awaiting-user
+
+# Robust to whatever the real agent writes: it chose the form channel (the reply
+# carries the capability link) and the request registered with a link.
+outbound last body matches "*provide the requested input*"
+task 1 request-link matches "*/requests/*"

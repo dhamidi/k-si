@@ -1,0 +1,55 @@
+# t/research/ui-request-live-spec.test — Flow C against a REAL agent-authored form
+# spec (t/fixtures/ui-request/live-sample.json), captured verbatim from the live
+# deploy. It differs from the hand-written bank-login fixture — underscore field
+# names, all five field types, a 3-option choice — so this exercises mint, the
+# form, and the answer/lay-in/resume path against what an agent actually emits, not
+# a synthetic minimum. The graduation loop (docs/13): a live success ratcheted into
+# an offline regression.
+
+send allow-sender { address a@b.test }
+
+deliver {
+    from    a@b.test
+    to      research@kasi.test
+    subject "field types"
+    body    "show me one of each field type"
+}
+
+task 1 status is awaiting-agent
+
+# Turn 1: the agent raises the request with the real captured spec.
+agent {
+    out request.json [fixture ui-request/live-sample.json]
+    out reply.txt "Here is a form with one of each field type — use the link."
+}
+
+task 1 status is awaiting-user
+outbound last body matches "*provide the requested input*"
+
+# Answer on the "web": every type — text, longtext, choice, file, and a secret.
+set url [task 1 request-link]
+answer $url {
+    text   sample_text     "hello world"
+    text   sample_longtext "a longer note across the field"
+    text   sample_choice   "Option B"
+    file   sample_file      t/fixtures/ui-request/live-sample.json
+    secret sample_secret   "live-secret-must-not-leak"
+}
+
+task 1 status is awaiting-agent
+
+# Text, longtext and choice values are laid into in/answers.json as plain text.
+task 1 input answers.json matches "*hello world*"
+task 1 input answers.json matches "*Option B*"
+# The uploaded file is laid in beside them under its own filename; the secret is
+# NOT laid in (it goes to the env).
+task 1 inputs are {answers.json body.txt live-sample.json}
+# The secret travels as a reference and is resolved into the resumed agent's env.
+task 1 request-secret sample_secret matches "secret://task/*/sample_secret"
+task 1 run-env sample_secret matches "SENTINEL-SECRET(task/*/sample_secret)"
+
+# Turn 2: resumed with everything, the agent finishes.
+agent { out reply.txt "Received all five field types." }
+
+task 1 status is awaiting-user
+outbound last body matches "*Received all five*"
