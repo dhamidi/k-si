@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dhamidi/k-si/agents"
+	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/mime"
@@ -50,6 +51,10 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 			return "", fmt.Errorf("agent needs a block { out <file> <content> … }")
 		}
 		return "", agentTurn(in, inst, args[0])
+	}
+
+	v["stop"] = func(in *testlang.Interp, args []string) (string, error) {
+		return "", stopAgent(inst)
 	}
 
 	v["outbound"] = func(in *testlang.Interp, args []string) (string, error) {
@@ -274,7 +279,10 @@ func parseDeliverBlock(in *testlang.Interp, block string) (inboundMail, error) {
 // way a mail client's reply would: To becomes our route address, In-Reply-To and
 // References carry the outbound's identity so route-email matches the task.
 func applyReplyToLast(inst *instance, m *inboundMail) error {
-	sent := inst.world.mail.Sent()
+	// Read the messages the module actually sent — the outbound edge, which is
+	// SimMail in the sim ring but RecordedMail/RecordingMail in the recorded and
+	// live rings (where world.mail stays the inbound-injection twin).
+	sent := inst.world.outbound.(sentMailer).Sent()
 	if len(sent) == 0 {
 		return fmt.Errorf("deliver: reply-to-last, but nothing has been sent")
 	}
@@ -362,6 +370,24 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 		return fmt.Errorf("agent: unknown ring %q", inst.world.ring)
 	}
 
+	inst.app.Settle()
+	return nil
+}
+
+// stopAgent signals the currently-running agent run to stop — the web Stop button
+// / supervisor path (docs/05). One stimulus, the same across rings: sim cancels
+// the blocked SimHarness, live SIGTERMs the real process, recorded returns Stopped
+// from the cassette. A stopped run yields no reply; the task returns to the human.
+func stopAgent(inst *instance) error {
+	running := agents.RunningRuns(inst.app.View())
+	if len(running) == 0 {
+		return fmt.Errorf("stop: no agent run is currently running")
+	}
+	r := running[0]
+	inst.app.Send(agentmsg.NewStopAgentRun(agentmsg.StopAgentRunPayload{
+		TaskID: r.TaskID,
+		RunID:  int64(r.ID),
+	}))
 	inst.app.Settle()
 	return nil
 }
