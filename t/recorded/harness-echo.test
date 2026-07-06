@@ -1,0 +1,27 @@
+# t/recorded/harness-echo.test — the first ring-2 harness cassette (docs/13).
+#
+# Portable across rings: in --ring sim the `agent` block scripts the turn; in
+# --ring recorded the block is ignored and the committed cassette replays a real
+# worker turn captured from a live probe. The delivered instruction pins the
+# agent's behaviour so the recording is stable, and assertions match on outcome
+# and pattern (never exact wording reality owns).
+
+send allow-sender { address owner@example.test }
+
+deliver {
+    from    owner@example.test
+    to      research@kasi.test
+    subject "echo check"
+    body    "Write exactly the word DONE into out/reply.txt and nothing else. Do not ask any questions."
+}
+
+task 1 status is awaiting-agent
+
+# Ring 1 scripts this turn; ring 2 replays the recorded one (contents ignored).
+agent {
+    out reply.txt "DONE"
+}
+
+task 1 status is awaiting-user
+outbound last to is owner@example.test
+outbound last body matches "*DONE*"
