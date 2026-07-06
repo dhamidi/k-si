@@ -1,7 +1,8 @@
 <!-- request_field.vue — one spec field: label + a control chosen by type + error
      (decision-005). Renders in isolation from a single FieldView; the page loops
      it once per field. Semantic and labelled; the `required` attribute mirrors
-     the spec so the browser enforces it before submit. -->
+     the spec so the browser enforces it before submit. A secret renders masked
+     (type=password) and never echoes its value back into the page (decision-004). -->
 <template>
 	<div class="request-field">
 		<label :for="field.Name">{{ field.Label }}</label>
@@ -19,7 +20,6 @@
 		<input v-if="field.Type == 'file'" type="file"
 			:id="field.Name" :name="field.Name" :required="field.Required">
 
-		<!-- secret: masked, never carries a Value back into the page (decision-004) -->
 		<input v-if="field.Type == 'secret'" type="password" autocomplete="off"
 			:id="field.Name" :name="field.Name" :required="field.Required">
 
