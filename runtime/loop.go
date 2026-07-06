@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // App is one assembled instance of the application: the reducer loop, the
@@ -19,10 +20,20 @@ type App struct {
 	log   Log
 	clock Clock
 
+	// model is the whole application state as ONE immutable snapshot, swapped
+	// atomically by the single reducer goroutine. Readers Load it lock-free and
+	// get a stable, consistent value (docs/01) — the Go translation of Elm's
+	// runtime holding the model value and swapping it on update. Handlers must
+	// still return a NEW slice (copy-on-write): the snapshot's immutability is
+	// only real if nothing mutates a slice already inside a Stored snapshot.
+	model atomic.Pointer[snapshot]
+
+	// mu guards the reducer's bookkeeping — NOT the model (that is the atomic
+	// above): the pending counter and its cond, the command trace, the
+	// dead-send/failure logs, and the running-subscription set.
 	mu      sync.Mutex
 	cond    *sync.Cond
 	pending int // queued + applying + in-flight effects; 0 == quiescent
-	model   map[string]any
 	trace   []string
 	// deadSends are messages that reached no handler (or would not decode) —
 	// a mistyped or mismatched tag. Fatal in a full assembly (docs/13). failures
@@ -45,6 +56,23 @@ type envelope struct {
 	applied chan struct{}
 }
 
+// snapshot is an immutable point-in-time model: each module's slice keyed by
+// name. Once Stored it is never mutated; an update copies the map and replaces
+// one entry, so a reader holding an older snapshot is unaffected.
+type snapshot struct {
+	slices map[string]any
+}
+
+// with returns a new snapshot with one module's slice replaced.
+func (s *snapshot) with(name string, slice any) *snapshot {
+	next := make(map[string]any, len(s.slices))
+	for k, v := range s.slices {
+		next[k] = v
+	}
+	next[name] = slice
+	return &snapshot{slices: next}
+}
+
 // New assembles an App from modules. This is called from main.go — the one
 // assembly point (docs/01) — and from the test runner with simulated edges.
 // A tag owned by two modules is an assembly error and fails loudly.
@@ -54,15 +82,15 @@ func New(modules ...*Module) *App {
 		msgOwner: map[string]*Module{},
 		cmdOwner: map[string]*Module{},
 		clock:    RealClock{},
-		model:    map[string]any{},
 		running:  map[string]runningSub{},
 		inbox:    make(chan envelope, 1024),
 		done:     make(chan struct{}),
 	}
 	a.cond = sync.NewCond(&a.mu)
 
+	slices := make(map[string]any, len(modules))
 	for _, m := range modules {
-		a.model[m.name] = m.zero
+		slices[m.name] = m.zero
 
 		for tag := range m.handlers {
 			if owner, taken := a.msgOwner[tag]; taken {
@@ -79,6 +107,7 @@ func New(modules ...*Module) *App {
 		}
 	}
 
+	a.model.Store(&snapshot{slices: slices})
 	return a
 }
 
@@ -216,25 +245,23 @@ func (a *App) apply(msg Msg, meta Meta) []Cmd {
 		return nil
 	}
 
-	a.mu.Lock()
-	view := View{slices: a.model}
-	slice := a.model[owner.name]
-	a.mu.Unlock()
-
-	next, cmds, decoded := owner.handlers[msg.Tag](view, slice, msg.Payload, meta)
+	// Read the current snapshot lock-free; the reducer is the only writer, so a
+	// plain Load/Store (no CAS) is correct.
+	cur := a.model.Load()
+	next, cmds, decoded := owner.handlers[msg.Tag](View{slices: cur.slices}, cur.slices[owner.name], msg.Payload, meta)
 	if !decoded {
 		a.recordDeadSend(fmt.Sprintf("%s (payload did not decode)", msg.Tag))
 		return nil
 	}
+	a.model.Store(cur.with(owner.name, next))
 
-	a.mu.Lock()
-	a.model[owner.name] = next
 	if a.live {
+		a.mu.Lock()
 		for _, c := range cmds {
 			a.trace = append(a.trace, traceEntry(c))
 		}
+		a.mu.Unlock()
 	}
-	a.mu.Unlock()
 
 	return cmds
 }
@@ -283,11 +310,12 @@ func (a *App) diffSubscriptions(ctx context.Context) {
 	}
 
 	desired := map[string]declared{}
-	view := View{slices: a.model}
+	cur := a.model.Load()
+	view := View{slices: cur.slices}
 
 	for _, m := range a.modules {
 		for _, provide := range m.subs {
-			for _, sub := range provide(view, a.model[m.name]) {
+			for _, sub := range provide(view, cur.slices[m.name]) {
 				desired[sub.ID] = declared{sub: sub, edges: m.edges}
 			}
 		}
@@ -347,17 +375,11 @@ func traceEntry(c Cmd) string {
 
 // --- Introspection for edges and the test runner -----------------------------
 
-// View returns a read snapshot of the model for edge reads (docs/08). The
-// slices are values, so the snapshot stays stable while the reducer moves on.
+// View returns a read snapshot of the model for edge reads (docs/08) — a
+// lock-free atomic Load of the current immutable snapshot, which stays stable
+// while the reducer swaps in later ones.
 func (a *App) View() View {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	slices := make(map[string]any, len(a.model))
-	for name, slice := range a.model {
-		slices[name] = slice
-	}
-	return View{slices: slices}
+	return View{slices: a.model.Load().slices}
 }
 
 // HasTag reports whether any assembled module handles the message tag.
@@ -379,10 +401,7 @@ func (a *App) StrictDecode(tag string, payload json.RawMessage) error {
 // ModelJSON returns a module's slice as JSON, for generic reads and the
 // replay-convergence check.
 func (a *App) ModelJSON(module string) ([]byte, error) {
-	a.mu.Lock()
-	slice, ok := a.model[module]
-	a.mu.Unlock()
-
+	slice, ok := a.model.Load().slices[module]
 	if !ok {
 		return nil, fmt.Errorf("no module %q in this assembly", module)
 	}
