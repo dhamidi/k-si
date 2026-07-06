@@ -292,7 +292,7 @@ func (c *JMAP) Recent(ctx context.Context, limit int) ([]Inbound, error) {
 		}
 		out = append(out, Inbound{
 			Raw:       raw,
-			MessageID: first(e.MessageID),
+			MessageID: bracket(first(e.MessageID)),
 			Recipient: firstEmail(e.To),
 		})
 	}
@@ -358,7 +358,7 @@ func (c *JMAP) Fetch(ctx context.Context, sinceState string) (msgs []Inbound, ne
 		if err != nil {
 			return nil, "", err
 		}
-		msgs = append(msgs, Inbound{Raw: raw, MessageID: first(e.MessageID), Recipient: firstEmail(e.To)})
+		msgs = append(msgs, Inbound{Raw: raw, MessageID: bracket(first(e.MessageID)), Recipient: firstEmail(e.To)})
 	}
 	return msgs, changed.NewState, nil
 }
@@ -543,6 +543,16 @@ func first(ss []string) string {
 		return ss[0]
 	}
 	return ""
+}
+
+// bracket wraps a JMAP messageId in the RFC 5322 angle brackets the JMAP spec
+// strips, so In-Reply-To/References built from it actually match — Gmail won't
+// thread otherwise. Empty or already-bracketed ids pass through unchanged.
+func bracket(id string) string {
+	if id == "" || strings.HasPrefix(id, "<") {
+		return id
+	}
+	return "<" + id + ">"
 }
 
 func firstEmail(to []struct {
