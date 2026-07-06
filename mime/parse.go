@@ -86,6 +86,18 @@ func (out *Message) readMultipart(body io.Reader, boundary string) error {
 			return fmt.Errorf("mime: next part: %w", err)
 		}
 
+		ptype, params, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+
+		// Recurse into a nested multipart — Gmail wraps a message with an
+		// attachment as multipart/mixed[ multipart/alternative[text,html], file ].
+		// Without recursing, the text body is lost and the structure mishandled.
+		if strings.HasPrefix(ptype, "multipart/") {
+			if err := out.readMultipart(p, params["boundary"]); err != nil {
+				return err
+			}
+			continue
+		}
+
 		content, err := io.ReadAll(p)
 		if err != nil {
 			return fmt.Errorf("mime: read part: %w", err)
@@ -100,9 +112,13 @@ func (out *Message) readMultipart(body io.Reader, boundary string) error {
 		}
 
 		filename := p.FileName()
-		ptype, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-		if out.Text == "" && filename == "" && (ptype == "" || ptype == "text/plain") {
-			out.Text = string(content)
+		if filename == "" {
+			// An unnamed part is the body: take the first text/plain as the text.
+			// Other unnamed parts (the html alternative) are redundant renderings
+			// we don't lay in — the agent reads body.txt.
+			if out.Text == "" && (ptype == "" || ptype == "text/plain") {
+				out.Text = string(content)
+			}
 			continue
 		}
 		out.Parts = append(out.Parts, Part{
