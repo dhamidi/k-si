@@ -9,6 +9,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>käsi — tasks</title>
+		<base_styles></base_styles>
 	</head>
 	<body>
 		<main class="view-tasks">
@@ -28,7 +29,7 @@
 </template>
 
 <style scoped>
-main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
 h1 { font-size: 1.5rem; margin: 0 0 1rem; }
 h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

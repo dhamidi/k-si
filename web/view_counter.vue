@@ -5,6 +5,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>käsi — counter</title>
+		<base_styles></base_styles>
 	</head>
 	<body>
 		<main class="view-counter">
@@ -23,6 +24,6 @@
 </template>
 
 <style scoped>
-main { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+main { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
 .error { color: #b00020; }
 </style>

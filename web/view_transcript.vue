@@ -11,6 +11,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<meta v-if="transcript.Active" http-equiv="refresh" content="5">
 		<title>käsi — transcript</title>
+		<base_styles></base_styles>
 	</head>
 	<body>
 		<main class="view-transcript">
@@ -31,7 +32,7 @@
 </template>
 
 <style scoped>
-main { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+main { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
 h1 { font-size: 1.5rem; margin: 0.25rem 0; }
 .live { font-size: 0.875rem; }
 .turns { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }

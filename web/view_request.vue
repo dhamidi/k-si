@@ -7,6 +7,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>käsi — request</title>
+		<base_styles></base_styles>
 	</head>
 	<body>
 		<main class="view-request">
@@ -28,7 +29,7 @@
 </template>
 
 <style scoped>
-main { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+main { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
 form { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem; }
 button { align-self: flex-start; padding: 0.5rem 1rem; }
 </style>
