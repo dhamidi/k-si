@@ -1,4 +1,4 @@
-{"kind":"message-log","recorded_at":"2026-07-06T11:39:20.489975313Z","recorded_by":"kasi test --record","source":"t/recorded/agent-resume.test"}
+{"kind":"message-log","recorded_at":"2026-07-06T11:48:42.33539071Z","recorded_by":"kasi test --record","source":"t/recorded/agent-resume.test"}
 {"offset":1,"time":"2020-01-01T00:00:00Z","tag":"allow-sender","payload":{"address":"kasi@decode.ee"}}
 {"offset":2,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"research@kasi.test","sender":"kasi@decode.ee","cc":null,"subject":"memory check","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null,"completion_token":"tok-1"}}
 {"offset":3,"cause":2,"time":"2020-01-01T00:00:00Z","tag":"create-task","payload":{"inbox_id":1,"route":"research","template":"research","sender":"kasi@decode.ee","cc":null,"subject":"memory check","message_id":"\u003cin-1@example.test\u003e","completion_token":"tok-1"}}

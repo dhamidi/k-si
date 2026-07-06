@@ -1,4 +1,4 @@
-{"kind":"message-log","recorded_at":"2026-07-06T11:39:41.960234717Z","recorded_by":"kasi test --record","source":"t/recorded/mail-roundtrip.test"}
+{"kind":"message-log","recorded_at":"2026-07-06T11:49:05.316022018Z","recorded_by":"kasi test --record","source":"t/recorded/mail-roundtrip.test"}
 {"offset":1,"time":"2020-01-01T00:00:00Z","tag":"allow-sender","payload":{"address":"kasi@decode.ee"}}
 {"offset":2,"time":"2020-01-01T00:00:00Z","tag":"set-reply-from","payload":{"address":"kasi@decode.ee"}}
 {"offset":3,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"kasi@decode.ee","sender":"kasi@decode.ee","cc":null,"subject":"roundtrip echo","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null,"completion_token":"tok-1"}}

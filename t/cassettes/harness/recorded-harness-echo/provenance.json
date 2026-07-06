@@ -1,10 +1,10 @@
 {
   "kind": "harness-run",
-  "recorded_at": "2026-07-06T11:39:30.753680601Z",
+  "recorded_at": "2026-07-06T11:48:53.384326182Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/harness-echo.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "169943d"
+    "git": "de185d1"
   }
 }
