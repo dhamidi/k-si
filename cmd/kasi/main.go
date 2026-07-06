@@ -46,6 +46,8 @@ func main() {
 		os.Exit(runSecret(os.Args[2:]))
 	case "probe":
 		os.Exit(runProbe(os.Args[2:]))
+	case "capture-inbox":
+		os.Exit(runCaptureInbox(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -59,5 +61,6 @@ Commands:
   serve   run käsi: kasi serve [-addr 127.0.0.1:8787] [-state ./data]
   test    run test scripts: kasi test [-n N] [--log memory|sqlite] [--record] [--cassettes] [--selftest] [path ...]
   secret  manage the secrets store: kasi secret <set secret://ns/key | ls> [-state ./data]  (set reads the value from stdin)
-  probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)`)
+  probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)
+  capture-inbox  capture REAL inbound mail into the parse corpus: kasi capture-inbox [-n 10] [-state ./data] [-dir t/fixtures/mime]  (reads the live inbox, read-only)`)
 }
