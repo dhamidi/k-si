@@ -13,6 +13,10 @@ type CreateTaskPayload struct {
 	Cc        []string `json:"cc"`
 	Subject   string   `json:"subject"`
 	MessageID string   `json:"message_id"`
+	// CompletionToken guards the task's completion link — minted at the inbound
+	// edge (unguessable in production), carried here rather than derived from the
+	// task id (docs/04, docs/13).
+	CompletionToken string `json:"completion_token"`
 }
 
 func NewCreateTask(p CreateTaskPayload) runtime.Msg {

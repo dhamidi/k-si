@@ -188,6 +188,9 @@ func deliver(in *testlang.Interp, inst *instance, block string) error {
 		MessageID:  messageID,
 		InReplyTo:  m.inReplyTo,
 		References: m.references,
+		// Deterministic in the sim ring — the real edge mints crypto/rand; scenarios
+		// extract the token via `click`, so the value only needs to be stable.
+		CompletionToken: fmt.Sprintf("tok-%d", inboxID),
 	}))
 	inst.app.Settle()
 	return nil
@@ -211,14 +214,15 @@ func deliverRaw(inst *instance, path string) error {
 		return fmt.Errorf("deliver: %w", err)
 	}
 	inst.app.Send(email.NewRouteEmail(email.RouteEmailPayload{
-		InboxID:    inboxID,
-		Recipient:  msg.Header.Get("To"),
-		Sender:     firstAddr(msg.Header.Get("From")),
-		Cc:         mime.CcList(msg.Header.Get("Cc")),
-		Subject:    msg.Header.Get("Subject"),
-		MessageID:  msg.Header.Get("Message-ID"),
-		InReplyTo:  msg.Header.Get("In-Reply-To"),
-		References: strings.Fields(msg.Header.Get("References")),
+		InboxID:         inboxID,
+		Recipient:       msg.Header.Get("To"),
+		Sender:          firstAddr(msg.Header.Get("From")),
+		Cc:              mime.CcList(msg.Header.Get("Cc")),
+		Subject:         msg.Header.Get("Subject"),
+		MessageID:       msg.Header.Get("Message-ID"),
+		InReplyTo:       msg.Header.Get("In-Reply-To"),
+		References:      strings.Fields(msg.Header.Get("References")),
+		CompletionToken: fmt.Sprintf("tok-%d", inboxID),
 	}))
 	inst.app.Settle()
 	return nil

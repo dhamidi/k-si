@@ -1,8 +1,6 @@
 package tasks
 
 import (
-	"fmt"
-
 	"github.com/dhamidi/k-si/runtime"
 )
 
@@ -89,12 +87,9 @@ func IsParticipant(t Task, addr string) bool {
 	return false
 }
 
-// token is the deterministic completion token for a task (Stage 1; unguessable
-// tokens are a Stage-2 concern, docs/05).
-func token(id TaskID) string { return fmt.Sprintf("tok-%d", id) }
-
-// routeAddr is the from-address a route replies as (Stage-1 sim domain; real
-// domains are Stage 2).
+// routeAddr is the fallback from-address a route replies as when no deliverable
+// reply-from is configured (the sim ring never sends); real delivery uses the
+// configured ReplyFrom (set-reply-from, docs/04).
 func routeAddr(route string) string { return route + "@kasi.test" }
 
 // dedup returns addrs with duplicates removed, preserving insertion order.

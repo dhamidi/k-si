@@ -19,6 +19,11 @@ type RouteEmailPayload struct {
 	MessageID  string   `json:"message_id"`
 	InReplyTo  string   `json:"in_reply_to"`
 	References []string `json:"references"`
+	// CompletionToken is minted at the inbound edge (crypto/rand in production,
+	// deterministic in the sim ring) and carried to the task it creates, so the
+	// completion link is unguessable and randomness never enters a pure handler
+	// (docs/04, docs/13).
+	CompletionToken string `json:"completion_token"`
 }
 
 func NewRouteEmail(p RouteEmailPayload) runtime.Msg {
@@ -60,12 +65,13 @@ func handleRouteEmail(v runtime.View, s Model, p RouteEmailPayload,
 
 	route, template := routeFor(mime.LocalPart(p.Recipient))
 	return s, []runtime.Cmd{runtime.Send(taskmsg.NewCreateTask(taskmsg.CreateTaskPayload{
-		InboxID:   p.InboxID,
-		Route:     route,
-		Template:  template,
-		Sender:    p.Sender,
-		Cc:        p.Cc,
-		Subject:   p.Subject,
-		MessageID: p.MessageID,
+		InboxID:         p.InboxID,
+		Route:           route,
+		Template:        template,
+		Sender:          p.Sender,
+		Cc:              p.Cc,
+		Subject:         p.Subject,
+		MessageID:       p.MessageID,
+		CompletionToken: p.CompletionToken,
 	}))}
 }

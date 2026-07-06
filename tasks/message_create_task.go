@@ -25,7 +25,7 @@ func handleCreateTask(v runtime.View, s Model, p msg.CreateTaskPayload,
 		Participants:    dedup(append([]string{p.Sender}, p.Cc...)),
 		References:      []string{p.MessageID},
 		LastMessageID:   p.MessageID,
-		CompletionToken: token(id),
+		CompletionToken: p.CompletionToken,
 		InboxIDs:        []int64{p.InboxID},
 	}
 	s.Tasks = append(append([]Task(nil), s.Tasks...), t)

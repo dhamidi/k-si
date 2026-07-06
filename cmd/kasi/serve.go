@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -189,15 +191,29 @@ func route(app *runtime.App, content *store.SQLiteContent, m email.Inbound) {
 		return
 	}
 	app.Send(email.NewRouteEmail(email.RouteEmailPayload{
-		InboxID:    id,
-		Recipient:  m.Recipient,
-		Sender:     firstAddr(parsed.Header.Get("From")),
-		Cc:         mime.CcList(parsed.Header.Get("Cc")),
-		Subject:    parsed.Header.Get("Subject"),
-		MessageID:  m.MessageID,
-		InReplyTo:  parsed.Header.Get("In-Reply-To"),
-		References: strings.Fields(parsed.Header.Get("References")),
+		InboxID:         id,
+		Recipient:       m.Recipient,
+		Sender:          firstAddr(parsed.Header.Get("From")),
+		Cc:              mime.CcList(parsed.Header.Get("Cc")),
+		Subject:         parsed.Header.Get("Subject"),
+		MessageID:       m.MessageID,
+		InReplyTo:       parsed.Header.Get("In-Reply-To"),
+		References:      strings.Fields(parsed.Header.Get("References")),
+		CompletionToken: mintToken(),
 	}))
+}
+
+// mintToken mints an unguessable completion token at the inbound edge — 128 bits
+// of crypto/rand, URL-safe. Randomness enters here, not in a pure handler, and
+// rides route-email into the log as a recorded value (docs/13).
+func mintToken() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand failing is fatal for a secret; don't fall back to anything
+		// guessable.
+		panic("kasi serve: crypto/rand: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
 func firstAddr(header string) string {
