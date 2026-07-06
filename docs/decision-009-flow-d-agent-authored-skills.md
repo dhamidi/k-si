@@ -38,14 +38,16 @@ Build the **authoring slice**, faithful to the Agent Skills format:
 - **Provisioning — ALL skills into EVERY run, by default.** `start-agent-run` (the
   single choke point every run passes through — first turn, reply, or resume) reads
   the whole `skill` table and lays each skill's tree into the run's workspace
-  `skills/<name>/…` box (the exact layout the harness expects) before starting the
-  harness. So every agent run — any task — sees every skill käsi has learned, with
+  `.claude/skills/<name>/…` box — where the Claude CLI discovers project skills,
+  relative to its cwd (the task dir), so a provisioned skill is surfaced natively —
+  before starting the harness. So every agent run — any task — sees every skill käsi has learned, with
   no template needed: skills extracted from one run are laid into future runs by
   default. The Agent Skills progressive-disclosure model means the agent only
   *loads* the skills relevant to its task (from each SKILL.md's name+description), so
   provisioning all of them is correct, not noisy. `store-skill` additionally
   provisions the just-authored skill into the current workspace immediately. The
-  worker prompt documents authoring (`out/skills/<name>/`) and use (`./skills/`).
+  worker prompt documents authoring (`out/skills/<name>/`); provisioned skills are
+  discovered natively from `./.claude/skills/`.
 
 ## Out of scope (deferred, named)
 

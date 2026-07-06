@@ -62,10 +62,10 @@ func (o *OS) WriteOut(taskID int64, parts []mime.Part) error {
 	return o.writeBox(taskID, "out", parts)
 }
 
-// WriteSkills provisions skill trees into task-<id>/skills/ (Flow D,
+// WriteSkills provisions skill trees into task-<id>/.claude/skills/ (Flow D,
 // decision-009), the layout the harness expects at ./skills/<name>/.
 func (o *OS) WriteSkills(taskID int64, parts []mime.Part) error {
-	return o.writeBox(taskID, "skills", parts)
+	return o.writeBox(taskID, SkillsBox, parts)
 }
 
 func (o *OS) writeBox(taskID int64, box string, parts []mime.Part) error {

@@ -90,7 +90,7 @@ func (m *Memory) WriteSkills(taskID int64, parts []mime.Part) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
-	return writeInto("skills", t.skills, parts)
+	return writeInto(SkillsBox, t.skills, parts)
 }
 
 // Harvest reads out/ into parts, reply.txt first (if present) and the rest in
@@ -186,7 +186,7 @@ func (m *Memory) filesLocked(t *tree) []mime.Part {
 		parts = append(parts, partOf("out/"+name, t.out[name]))
 	}
 	for _, name := range sortedKeys(t.skills) {
-		parts = append(parts, partOf("skills/"+name, t.skills[name]))
+		parts = append(parts, partOf(SkillsBox+"/"+name, t.skills[name]))
 	}
 	for _, runID := range sortedRunIDs(t.transcripts) {
 		parts = append(parts, mime.Part{

@@ -53,8 +53,10 @@ Skills directory under ./out/skills/<name>/ — a ./out/skills/<name>/SKILL.md w
 YAML frontmatter (a "name:" matching the folder <name> and a "description:" of
 what the skill does and when to use it) between --- fences, then Markdown
 instructions, plus any optional ./out/skills/<name>/scripts/ or references/ files
-it needs. It is saved durably and, next time, appears under ./skills/<name>/.
-Reusable skills already available to you are in ./skills/ — read them first.
+it needs. It is saved durably and provisioned into ./.claude/skills/<name>/ on
+future runs, where you discover it as an Agent Skill automatically. Every skill
+käsi has learned is already installed there for you — you don't need to load them
+by hand.
 
 Never wait for input — always stop.`
 

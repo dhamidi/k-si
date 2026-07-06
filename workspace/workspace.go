@@ -49,10 +49,11 @@ type Workspace interface {
 	// WriteOut writes parts into out/ — how the (sim) harness deposits a turn's
 	// output. Appends across turns, overwriting same-named files.
 	WriteOut(taskID int64, parts []mime.Part) error
-	// WriteSkills provisions skill trees into a nested skills/ box beside in/ and
-	// out/ (Flow D, decision-009), so a later turn of the same task finds
-	// ./skills/<name>/SKILL.md. Parts carry paths relative to the skills box
-	// ("pay-invoice/SKILL.md", "pay-invoice/scripts/run.sh"); each lands at that
+	// WriteSkills provisions skill trees into the SkillsBox (Flow D, decision-009).
+	// The box is .claude/skills/ — the location the Claude CLI discovers project
+	// skills from, relative to its cwd (the task dir) — so a run finds
+	// ./.claude/skills/<name>/SKILL.md natively. Parts carry paths relative to the
+	// box ("pay-invoice/SKILL.md", "pay-invoice/scripts/run.sh"); each lands at that
 	// relative path, intermediate directories created, paths validated to stay in
 	// the box (decision-011). Same overwrite/append semantics as WriteOut.
 	WriteSkills(taskID int64, parts []mime.Part) error
@@ -80,6 +81,12 @@ type Workspace interface {
 // forward slashes for use as a relative box location. Both twins call it before
 // writing so the sandbox boundary holds on disk and in memory alike
 // (decision-011).
+// SkillsBox is the workspace box skills are provisioned into (Flow D). It is
+// .claude/skills/ because that is where the Claude CLI discovers project skills,
+// relative to its cwd (the task dir) — so a provisioned skill is surfaced to the
+// agent natively (progressive disclosure), not left in a directory it never reads.
+const SkillsBox = ".claude/skills"
+
 func validBoxPath(box, filename string) (string, error) {
 	name := path.Clean(filepath.ToSlash(filename))
 	if name == "" || name == "." {

@@ -30,6 +30,7 @@ import (
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/testlang"
 	"github.com/dhamidi/k-si/web"
+	"github.com/dhamidi/k-si/workspace"
 )
 
 func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
@@ -728,11 +729,11 @@ func taskOutputNames(inst *instance, n int) ([]string, error) {
 	return names, nil
 }
 
-// taskProvisionedNames returns the nth task's skills/ box as sorted,
-// skills/-stripped relative paths — the skill tree store-skill provisioned into
-// the workspace (Flow D, decision-009). It mirrors taskOutputNames but filters
-// the skills/ prefix, so a scenario can assert the stored tree landed in the
-// workspace as skills/<name>/… ("pay-invoice/SKILL.md").
+// taskProvisionedNames returns the nth task's provisioned-skills box as sorted,
+// box-stripped relative paths — the skill trees laid into the workspace (Flow D,
+// decision-009). It mirrors taskOutputNames but filters the SkillsBox
+// (.claude/skills/) prefix, so a scenario can assert a skill landed in the
+// workspace as <name>/… ("pay-invoice/SKILL.md").
 func taskProvisionedNames(inst *instance, n int) ([]string, error) {
 	id, err := nthTaskID(inst, n)
 	if err != nil {
@@ -744,7 +745,7 @@ func taskProvisionedNames(inst *instance, n int) ([]string, error) {
 	}
 	var names []string
 	for _, p := range all {
-		if name, ok := strings.CutPrefix(p.Filename, "skills/"); ok {
+		if name, ok := strings.CutPrefix(p.Filename, workspace.SkillsBox+"/"); ok {
 			names = append(names, name)
 		}
 	}
