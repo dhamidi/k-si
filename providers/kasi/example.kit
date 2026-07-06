@@ -58,3 +58,17 @@ kasi subscription {
 	emits finish-agent-run
 	description "watch harness processes; emit finish-agent-run on exit"
 }
+
+kasi component {
+	name request-field
+	props {
+		field FieldView
+	}
+	description "one spec field: label + a control chosen by type + error"
+	intent {
+		Render one form field from a single FieldView: a label plus the
+		control chosen by field.Type (text, longtext, choice, file, secret)
+		and its error. The page loops it once per spec field. See Flow C
+		decision-005.
+	}
+}

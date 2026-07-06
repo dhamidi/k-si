@@ -39,6 +39,7 @@ class KasiProvider {
 		yield new SubscriptionType(this.kit)
 		yield new ViewType(this.kit)
 		yield new FormType(this.kit)
+		yield new ComponentType(this.kit)
 	}
 
 	async *components() {
@@ -1026,6 +1027,70 @@ model (docs/08, docs/15). Do not refactor unrelated code.`,
 	}
 }
 
+// --- component -------------------------------------------------------------------
+
+class ComponentType extends KasiType {
+	id() {
+		return 'component'
+	}
+
+	description() {
+		return 'A reusable htmlc sub-component: a plain SFC fragment a page composes by its <name> tag — no .go render helper, no page wrapper (docs/08)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			name: this.tagField('Component name, kebab-case; becomes web/<snake>.vue and the <snake> custom-element tag the parent page uses', [
+				'request-field',
+				'request-summary',
+				'task-card',
+			]),
+			props: Type.Optional(
+				Type.Record(Type.String({ pattern: '^[a-z][a-zA-Z0-9]*$' }), Type.String({ description: 'Example of what the parent binds (a View type or literal)' }), {
+					description: 'Props the parent page binds (<tag :prop="…">): prop name -> example value, documented in the SFC header comment',
+					examples: [{ field: 'FieldView', message: 'string' }],
+					cli: false,
+				}),
+			),
+			description: this.descriptionField(['one spec field: label + a control chosen by type + error']),
+		})
+	}
+
+	normalize(spec) {
+		const name = spec.name
+
+		if (name === undefined || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
+			throw new this.kit.UserError(`component: name must be kebab-case, got ${JSON.stringify(name)}`)
+		}
+
+		return { ...spec, name, module: 'web' }
+	}
+
+	async *generate(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const vueFile = `web/${snakeCase(spec.name)}.vue`
+
+		yield* this.createFresh(env, vueFile, componentVueTemplate(spec))
+
+		if (spec.intent !== undefined) {
+			yield this.plan(
+				spec,
+				`Implement the ${spec.name} component`,
+				[vueFile],
+				`Intent: ${spec.intent}
+
+Implement the ${spec.name} sub-component in ${vueFile}. It is a plain SFC
+fragment — a single-rooted <template> plus <style scoped>, no <html> wrapper
+and no .go render helper. The parent page composes it with the <${snakeCase(spec.name)}>
+custom-element tag htmlc derives from the filename, binding each prop as
+<${snakeCase(spec.name)} :prop="…">. Semantic, mobile-first HTML that works
+without JavaScript (docs/08). Do not refactor unrelated code.`,
+			)
+		}
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1308,6 +1373,41 @@ function viewVueTemplate(spec) {
 </template>
 
 <style scoped>
+</style>
+`
+}
+
+function componentVueTemplate(spec) {
+	const snake = snakeCase(spec.name)
+	const kebab = spec.name
+	const props = Object.keys(spec.props ?? {})
+
+	const propsDoc =
+		props.length > 0
+			? `\n     Props the parent binds (<${snake} ${props.map((p) => `:${p}="…"`).join(' ')}>):\n${props
+					.map((p) => `       ${p} — ${spec.props[p]}`)
+					.join('\n')}`
+			: `\n     Props: none yet — the parent binds them as <${snake} :prop="…">.`
+
+	const body =
+		props.length > 0
+			? props.map((p) => `\t\t{{ ${p} }}`).join('\n')
+			: `\t\t<!-- reference props as {{ prop }}, loop with v-for, branch with v-if (like request_field.vue) -->`
+
+	return `<!-- ${snake}.vue — ${spec.description ?? 'TODO: one line on what this fragment shows'}.
+     A reusable htmlc sub-component: a plain SFC fragment (a single-rooted
+     <template> + <style scoped>), no <html> wrapper and no .go render helper.
+     The parent page composes it by the <${snake}> custom-element tag htmlc
+     derives from this filename (docs/08).${propsDoc} -->
+<template>
+	<div class="${kebab}">
+${body}
+	</div>
+</template>
+
+<style scoped>
+.${kebab} {
+}
 </style>
 `
 }
