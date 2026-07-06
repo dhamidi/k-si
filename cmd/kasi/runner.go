@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dhamidi/k-si/cassette"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/testlang"
@@ -35,8 +37,10 @@ func runTest(args []string) int {
 	selftest := flags.Bool("selftest", false, "run the test-language conformance corpus")
 	flags.Parse(args)
 
-	if *ring != "sim" {
-		fmt.Fprintf(os.Stderr, "kasi test: ring %q is not built yet — see BUILDING.md stage 2\n", *ring)
+	switch *ring {
+	case "sim", "recorded", "live":
+	default:
+		fmt.Fprintf(os.Stderr, "kasi test: unknown ring %q (sim, recorded, live)\n", *ring)
 		return 1
 	}
 
@@ -74,7 +78,7 @@ func runTest(args []string) int {
 	start := time.Now()
 
 	for _, script := range scripts {
-		if err := runScriptFleet(script, *fleet, newLog, *record); err != nil {
+		if err := runScriptFleet(script, *fleet, newLog, *record, *ring); err != nil {
 			failed++
 			fmt.Fprintf(os.Stderr, "FAIL %s\n%s\n", script, indent(err.Error()))
 		} else {
@@ -121,16 +125,21 @@ func collectScripts(paths []string) ([]string, error) {
 	return scripts, nil
 }
 
-func runScriptFleet(path string, n int, newLog logMaker, record bool) error {
+func runScriptFleet(path string, n int, newLog logMaker, record bool, ring string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
 	if n <= 1 {
-		inst, err := runScript(string(src), "0", newLog)
+		inst, err := runScript(string(src), "0", newLog, ring, path)
 		if err != nil {
 			return err
+		}
+		if ring == "live" && record {
+			if err := saveHarnessCassette(path, inst); err != nil {
+				return err
+			}
 		}
 		if record {
 			return recordCassette(path, inst.log)
@@ -145,7 +154,7 @@ func runScriptFleet(path string, n int, newLog logMaker, record bool) error {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = runScript(string(src), strconv.Itoa(i), newLog)
+			_, errs[i] = runScript(string(src), strconv.Itoa(i), newLog, ring, path)
 		}(i)
 	}
 	wg.Wait()
@@ -233,7 +242,7 @@ func moduleNames(mods []*runtime.Module) []string {
 	return names
 }
 
-func runScript(src, index string, newLog logMaker) (*instance, error) {
+func runScript(src, index string, newLog logMaker, ring, path string) (*instance, error) {
 	cmds, err := testlang.Parse(src)
 	if err != nil {
 		return nil, err
@@ -244,7 +253,18 @@ func runScript(src, index string, newLog logMaker) (*instance, error) {
 		return nil, err
 	}
 
-	inst := &instance{log: log, cleanup: cleanup, newLog: newLog, clock: runtime.SimClock(), world: newSimWorld()}
+	world, err := newWorld(ring, path)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	if world.workdir != "" {
+		liveDir := world.workdir
+		logCleanup := cleanup
+		cleanup = func() { logCleanup(); os.RemoveAll(liveDir) }
+	}
+
+	inst := &instance{log: log, cleanup: cleanup, newLog: newLog, clock: runtime.SimClock(), world: world}
 	if err := inst.boot(); err != nil {
 		cleanup()
 		return nil, err
@@ -265,6 +285,82 @@ func runScript(src, index string, newLog logMaker) (*instance, error) {
 	}
 
 	return inst, standingChecks(inst)
+}
+
+// newWorld builds the external world for a ring. sim assembles fresh in-memory
+// twins; recorded loads the committed harness cassette and self-plays it; live
+// mints a real OS workspace and drives the real Claude harness through the
+// recording decorator (docs/13).
+func newWorld(ring, path string) (*simWorld, error) {
+	switch ring {
+	case "sim":
+		return newSimWorld(), nil
+	case "recorded":
+		c, err := cassette.LoadHarness(harnessCassetteDir(path))
+		if err != nil {
+			return nil, fmt.Errorf("no harness cassette for %s (%v) — record it via: kasi test --ring live --record %s", path, err, path)
+		}
+		return newRecordedWorld(c), nil
+	case "live":
+		dir, err := os.MkdirTemp("", "kasi-live-")
+		if err != nil {
+			return nil, err
+		}
+		return newLiveWorld(dir), nil
+	default:
+		return nil, fmt.Errorf("unknown ring %q (sim, recorded, live)", ring)
+	}
+}
+
+// harnessCassetteDir maps a script path to its harness cassette directory,
+// slugging the path exactly as recordCassette does so the recorded ring reads
+// what the live ring wrote (docs/13).
+func harnessCassetteDir(path string) string {
+	return filepath.Join("t/cassettes/harness", cassetteSlug(path))
+}
+
+// cassetteSlug derives a flat, filesystem-safe name from a script path: strip
+// the t/ prefix and .test suffix, then replace path separators with dashes.
+func cassetteSlug(script string) string {
+	slug := strings.TrimSuffix(strings.TrimPrefix(script, "t/"), ".test")
+	return strings.ReplaceAll(slug, "/", "-")
+}
+
+// saveHarnessCassette writes the turns the recording decorator captured during a
+// green live run, stamped with provenance and the tool versions in play — the
+// live ring's whole point, minting the cassette the recorded ring will replay
+// (docs/13). Version lookup is best-effort and never fails the save.
+func saveHarnessCassette(path string, inst *instance) error {
+	prov := cassette.Provenance{
+		Kind:       "harness-run",
+		RecordedAt: time.Now().UTC(),
+		RecordedBy: "kasi test --ring live --record",
+		Source:     path,
+		Versions:   versions(),
+	}
+	return cassette.SaveHarness(harnessCassetteDir(path), cassette.HarnessCassette{
+		Provenance: prov,
+		Turns:      inst.world.recording.Turns(),
+	})
+}
+
+// versions records the tool versions of a live run for staleness diagnosis. Each
+// lookup is best-effort: a command that errors omits its key rather than failing
+// the capture. This is ring-3 tooling, so real exec is fine here (docs/13).
+func versions() map[string]string {
+	v := map[string]string{}
+	if out, err := exec.Command("claude", "--version").Output(); err == nil {
+		line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+		if line != "" {
+			v["claude"] = line
+		}
+	}
+	if out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output(); err == nil {
+		if sha := strings.TrimSpace(string(out)); sha != "" {
+			v["git"] = sha
+		}
+	}
+	return v
 }
 
 // standingChecks run after every script, so they can never be forgotten

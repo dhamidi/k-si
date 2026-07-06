@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/email"
@@ -271,9 +272,40 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 	}
 	taskID := running[0].TaskID
 
-	if err := inst.world.harness.DeliverTurn(taskID, out, exit); err != nil {
-		return fmt.Errorf("agent: %w", err)
+	// The dispatch branches per ring (docs/13, docs/14). In sim the block's
+	// out/exit ARE the turn. In recorded and live the block is parsed only to
+	// error uniformly on malformed input — the cassette (recorded) or the real
+	// agent (live) is authoritative, so out/exit go unused.
+	switch inst.world.ring {
+	case "sim":
+		if err := inst.world.sim.DeliverTurn(taskID, out, exit); err != nil {
+			return fmt.Errorf("agent: %w", err)
+		}
+	case "recorded":
+		if err := inst.world.recorded.DeliverRecorded(taskID); err != nil {
+			return fmt.Errorf("agent: %w", err)
+		}
+	case "live":
+		deadline := time.Now().Add(180 * time.Second)
+		for {
+			still := false
+			for _, r := range agents.RunningRuns(inst.app.View()) {
+				if r.TaskID == taskID {
+					still = true
+				}
+			}
+			if !still {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("agent: live run for task %d did not finish within 180s", taskID)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	default:
+		return fmt.Errorf("agent: unknown ring %q", inst.world.ring)
 	}
+
 	inst.app.Settle()
 	return nil
 }

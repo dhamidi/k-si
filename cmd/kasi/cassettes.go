@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dhamidi/k-si/cassette"
@@ -22,9 +21,7 @@ func recordCassette(script string, log runtime.Log) error {
 		return err
 	}
 
-	slug := strings.TrimSuffix(strings.TrimPrefix(script, "t/"), ".test")
-	slug = strings.ReplaceAll(slug, "/", "-")
-	path := filepath.Join(cassetteDir, slug+".jsonl")
+	path := filepath.Join(cassetteDir, cassetteSlug(script)+".jsonl")
 
 	prov := cassette.Provenance{
 		Kind:       "message-log",
