@@ -37,10 +37,11 @@ func runServe(args []string) int {
 	addr := flags.String("addr", "127.0.0.1:8787", "listen address (host-gated deployment, docs/08)")
 	state := flags.String("state", "data", "state directory holding the databases (docs/03)")
 	workdir := flags.String("workdir", "data/work", "task workspaces ($WORKDIR, docs/05)")
-	spooldir := flags.String("spool", "data/spool", "outbound mail spool (.eml files) — the stand-in sender")
+	spooldir := flags.String("spool", "data/spool", "outbound mail spool (.eml files) — used unless -send is set")
 	baseURL := flags.String("base-url", "https://kasi.test", "public base URL for capability links (docs/04)")
 	allow := flags.String("allow", "", "comma-separated addresses to seed the initiator allowlist (docs/04)")
 	poll := flags.Bool("poll", false, "poll Fastmail for inbound mail — routes REAL mail into agent runs (off by default)")
+	send := flags.Bool("send", false, "submit replies through Fastmail — sends REAL mail (off by default; spools otherwise)")
 	flags.Parse(args)
 
 	if err := os.MkdirAll(*workdir, 0o755); err != nil {
@@ -69,10 +70,15 @@ func runServe(args []string) int {
 
 	clock := runtime.RealClock{}
 	work := workspace.NewOS(*workdir)
-	// Outbound is the spool sender: the read-only Fastmail token can't submit, so
-	// replies are written to <spool>/*.eml for inspection. Swap in email.NewJMAP
-	// once a send-capable token exists (docs/04).
-	outbound := email.NewSpoolMail(*spooldir)
+	// One JMAP client serves both real-world directions. Outbound defaults to the
+	// spool sender — replies written to <spool>/*.eml for inspection — while -send
+	// submits them through Fastmail for real. Sending real mail is outward-facing,
+	// so it is opt-in like -poll; a production deployment runs with both (docs/04).
+	jmap := email.NewJMAP(sec, "secret://fastmail/api-token")
+	var outbound email.Mail = email.NewSpoolMail(*spooldir)
+	if *send {
+		outbound = jmap
+	}
 
 	app := runtime.New(
 		counter.Module(counter.Edges{Clock: clock}),
@@ -92,7 +98,7 @@ func runServe(args []string) int {
 	seedAllowlist(app, *allow)
 
 	if *poll {
-		go pollInbox(ctx, app, email.NewJMAP(sec, "secret://fastmail/api-token"), content)
+		go pollInbox(ctx, app, jmap, content)
 	}
 
 	server, err := web.NewServer(app)
@@ -105,7 +111,11 @@ func runServe(args []string) int {
 		httpServer.Close()
 	}()
 
-	fmt.Printf("kasi: http://%s  state=%s  spool=%s  poll=%v  (Ctrl-C to stop)\n", *addr, *state, *spooldir, *poll)
+	outboundDesc := "spool=" + *spooldir
+	if *send {
+		outboundDesc = "send=fastmail"
+	}
+	fmt.Printf("kasi: http://%s  state=%s  %s  poll=%v  (Ctrl-C to stop)\n", *addr, *state, outboundDesc, *poll)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fail("kasi serve:", err)
 	}
