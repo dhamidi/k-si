@@ -29,6 +29,7 @@ import (
 //     closed by Signal to make a blocked Wait return Stopped.
 type SimHarness struct {
 	mu   sync.Mutex
+	cond *sync.Cond // broadcast when a run is registered, so DeliverTurn can wait
 	work workspace.Workspace
 	runs map[int64]*liveRun // keyed by taskID (ephemeral)
 }
@@ -58,10 +59,12 @@ var _ Harness = (*SimHarness)(nil)
 // the same workspace into the tasks module so harvested out/ and captured
 // transcripts line up).
 func NewSimHarness(work workspace.Workspace) *SimHarness {
-	return &SimHarness{
+	h := &SimHarness{
 		work: work,
 		runs: make(map[int64]*liveRun),
 	}
+	h.cond = sync.NewCond(&h.mu)
+	return h
 }
 
 // Start registers a live run for a task's first turn and returns immediately;
@@ -123,12 +126,16 @@ func (h *SimHarness) Signal(ctx context.Context, hd Handle) error {
 // finish-agent-run is enqueued before it returns, so the stimulus's Settle()
 // waits for the whole turn.
 func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, exit int) error {
+	// Wait for the run to register: after a restart the agent-watch subscription
+	// auto-registers the resumed run in its own goroutine, which can lag the
+	// `agent` stimulus. The caller already found a running run in the model, so
+	// one will register; blocking here removes that race deterministically.
 	h.mu.Lock()
+	for h.runs[taskID] == nil {
+		h.cond.Wait()
+	}
 	lr := h.runs[taskID]
 	h.mu.Unlock()
-	if lr == nil {
-		return fmt.Errorf("agents: DeliverTurn: no live run for task %d", taskID)
-	}
 
 	if err := h.work.WriteOut(taskID, outParts); err != nil {
 		return fmt.Errorf("agents: DeliverTurn: write out: %w", err)
@@ -168,6 +175,7 @@ func (h *SimHarness) register(taskID, runID int64, session string) *liveRun {
 	}
 	lr := newLiveRun(runID, session)
 	h.runs[taskID] = lr
+	h.cond.Broadcast() // wake any DeliverTurn waiting for this run to register
 	return lr
 }
 

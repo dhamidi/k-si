@@ -41,6 +41,16 @@ func newSimWorld() *simWorld {
 	}
 }
 
+// crash resets the world's EPHEMERAL edge state — what a killed process loses.
+// The content store, the sent mailbox, and the workspace tree survive (they are
+// disk and the outside world); the harness's live-run registry does not: its
+// "processes" die, so a fresh harness takes their place, and any still-draining
+// agent-watch goroutine from the old App operates on the discarded harness, never
+// racing the resumed run on shared rendezvous channels (docs/05, docs/13).
+func (w *simWorld) crash() {
+	w.harness = agents.NewSimHarness(w.work)
+}
+
 // assembleSim wires the one module list to the shared sim world and clock — the
 // simulation-ring counterpart of main.go's real-edge assembly (docs/12). Only
 // the scenario boot uses this; refold and cassette replay use assembly(true),

@@ -393,9 +393,11 @@ func registerVocabulary(in *testlang.Interp, inst *instance) {
 	}
 
 	v["crash"] = func(in *testlang.Interp, args []string) (string, error) {
-		// Drop the model and goroutines; keep only what production would
-		// keep — the log (docs/01).
+		// Drop the model and goroutines; keep only what production would keep —
+		// the log, the content store, and the workspace (docs/01). The harness's
+		// live "processes" die with the App, so reset that ephemeral state too.
 		inst.app.Stop()
+		inst.world.crash()
 		return "", nil
 	}
 
