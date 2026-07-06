@@ -6,10 +6,10 @@
 # agent's behaviour so the recording is stable, and assertions match on outcome
 # and pattern (never exact wording reality owns).
 
-send allow-sender { address owner@example.test }
+send allow-sender { address kasi@decode.ee }
 
 deliver {
-    from    owner@example.test
+    from    kasi@decode.ee
     to      research@kasi.test
     subject "echo check"
     body    "Write exactly the word DONE into out/reply.txt and nothing else. Do not ask any questions."
@@ -23,5 +23,5 @@ agent {
 }
 
 task 1 status is awaiting-user
-outbound last to is owner@example.test
+outbound last to is kasi@decode.ee
 outbound last body matches "*DONE*"

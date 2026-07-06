@@ -1,6 +1,6 @@
 {
-  "kind": "harness-run",
-  "recorded_at": "2026-07-06T09:53:00.220436149Z",
+  "kind": "mail-exchange",
+  "recorded_at": "2026-07-06T09:53:00.285199826Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/harness-echo.test",
   "versions": {
