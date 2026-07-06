@@ -1,0 +1,53 @@
+# t/web/skills.test — Flow D end to end (decision-009/010/011): an agent authors
+# an Agent Skills directory under out/skills/<name>/; finish-agent-run stores the
+# tree (store-skill), provisions it into the workspace skills/ box, and registers
+# it. The reply still sends and carries NO skill attachment. Then the skills browse
+# UI — list, detail (metadata + file tree + SKILL.md), and one file's raw text —
+# is driven through the REAL web.Server in-process (decision-008). We assert on
+# real rendered markers and the provisioned tree, never on internals.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "learn"
+    body    "figure out how to pay invoices and remember it"
+}
+
+task 1 status is awaiting-agent
+
+# The turn writes a top-level reply plus a two-level skill subtree from fixtures.
+agent {
+    out reply.txt                             "Learned it — saved a skill."
+    out skills/pay-invoice/SKILL.md           [fixture skills/pay-invoice/SKILL.md]
+    out skills/pay-invoice/scripts/extract.sh [fixture skills/pay-invoice/scripts/extract.sh]
+}
+
+task 1 status is awaiting-user
+
+# The reply sent, body is the top-level reply.txt, and it carries NO attachment —
+# a skill is stored/provisioned, never emailed (decision-011).
+outbound count is 1
+outbound last body matches "*saved a skill*"
+outbound last attachments is ""
+
+# store-skill provisioned the whole tree into the workspace skills/ box
+# (decision-009) — mind: no space just inside the braces.
+task 1 provisioned are {pay-invoice/SKILL.md pay-invoice/scripts/extract.sh}
+
+# --- registered + browsable through the real web edge (decision-008) ---
+# The registry list shows the skill's name and description, each a link to detail.
+visit /skills matches "*pay-invoice*"
+visit /skills matches "*confirm the amount*"
+visit /skills matches "*/skills/pay-invoice*"
+
+# The detail page shows the SKILL.md body inline and the file tree, each entry a
+# link to its raw file view.
+visit /skills/pay-invoice matches "*Pay an invoice*"
+visit /skills/pay-invoice matches "*scripts/extract.sh*"
+visit /skills/pay-invoice matches "*/skills/pay-invoice/files/scripts/extract.sh*"
+
+# The file view renders the entry's raw text — the leaf that makes the tree
+# browsable. The {+path} catch-all carries the multi-segment path.
+visit /skills/pay-invoice/files/scripts/extract.sh matches "*echo total*"

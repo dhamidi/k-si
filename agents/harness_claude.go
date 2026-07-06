@@ -46,7 +46,17 @@ If you need more from the user, you have two channels — pick by what you need:
          from the environment.
 
 Use the form (not reply.txt) whenever a secret is involved: it is the only way to
-collect one without it landing in an email. Never wait for input — always stop.`
+collect one without it landing in an email.
+
+To teach yourself for future runs, you may write a reusable SKILL as an Agent
+Skills directory under ./out/skills/<name>/ — a ./out/skills/<name>/SKILL.md with
+YAML frontmatter (a "name:" matching the folder <name> and a "description:" of
+what the skill does and when to use it) between --- fences, then Markdown
+instructions, plus any optional ./out/skills/<name>/scripts/ or references/ files
+it needs. It is saved durably and, next time, appears under ./skills/<name>/.
+Reusable skills already available to you are in ./skills/ — read them first.
+
+Never wait for input — always stop.`
 
 // Claude is the default harness adapter (docs/05): it shells out to the Claude
 // CLI, running one worker turn per task in the task's workspace. It is the

@@ -29,6 +29,7 @@ import (
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
+	"github.com/dhamidi/k-si/skills"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
@@ -99,6 +100,7 @@ func runServe(args []string) int {
 	}
 
 	app := runtime.New(
+		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),

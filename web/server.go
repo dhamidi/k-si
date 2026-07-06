@@ -101,6 +101,20 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.POST("runs.stop", "/tasks/{id}/runs/{run}/stop", http.HandlerFunc(s.stopRun)); err != nil {
 		return nil, err
 	}
+	// The skills browse UI (docs/08, Flow D decision-009/010): the registry list,
+	// one skill's detail (metadata + file tree + SKILL.md), and any one tree entry's
+	// raw text. Host-gated, no token (decision-006). skills.file's {+path} is a
+	// reserved-expansion catch-all so a multi-segment relative path
+	// (scripts/extract.sh) rides one segment, reverse-routed with clean slashes.
+	if err := s.router.GET("skills.index", "/skills", http.HandlerFunc(s.showSkills)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("skills.show", "/skills/{name}", http.HandlerFunc(s.showSkill)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("skills.file", "/skills/{name}/files/{+path}", http.HandlerFunc(s.showSkillFile)); err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }

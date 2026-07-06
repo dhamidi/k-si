@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/dhamidi/k-si/skills"
 	"os"
 
 	"github.com/dhamidi/k-si/agents"
@@ -24,6 +25,7 @@ import (
 // world (simworld.go). main.go stays the one place modules are named (docs/01).
 func assembly() []*runtime.Module {
 	return []*runtime.Module{
+		skills.Module(skills.SimEdges()),
 		counter.Module(counter.SimEdges()),
 		email.Module(email.SimEdges()),
 		tasks.Module(tasks.SimEdges()),

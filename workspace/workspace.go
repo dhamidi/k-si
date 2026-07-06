@@ -49,6 +49,13 @@ type Workspace interface {
 	// WriteOut writes parts into out/ — how the (sim) harness deposits a turn's
 	// output. Appends across turns, overwriting same-named files.
 	WriteOut(taskID int64, parts []mime.Part) error
+	// WriteSkills provisions skill trees into a nested skills/ box beside in/ and
+	// out/ (Flow D, decision-009), so a later turn of the same task finds
+	// ./skills/<name>/SKILL.md. Parts carry paths relative to the skills box
+	// ("pay-invoice/SKILL.md", "pay-invoice/scripts/run.sh"); each lands at that
+	// relative path, intermediate directories created, paths validated to stay in
+	// the box (decision-011). Same overwrite/append semantics as WriteOut.
+	WriteSkills(taskID int64, parts []mime.Part) error
 	// WriteTranscript stores run-<runID>'s transcript bytes verbatim.
 	WriteTranscript(taskID, runID int64, b []byte) error
 	// ReadTranscript returns a run's transcript bytes.

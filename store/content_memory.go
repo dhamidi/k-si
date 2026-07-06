@@ -23,6 +23,8 @@ type MemoryContent struct {
 	nextOutbox int64
 	archive    []ArchiveRow
 	nextArch   int64
+	skills     []SkillRow
+	nextSkill  int64
 }
 
 var _ Content = (*MemoryContent)(nil)
@@ -151,4 +153,59 @@ func (c *MemoryContent) ArchiveCount(taskID int64, kind string) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// AddSkill upserts by name: an existing name bumps that row's version and
+// replaces its content and metadata in place, returning the existing id; a fresh
+// name inserts and returns the new id (decision-010).
+func (c *MemoryContent) AddSkill(row SkillRow) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.skills {
+		if c.skills[i].Name == row.Name {
+			row.ID = c.skills[i].ID
+			row.Version = c.skills[i].Version + 1
+			c.skills[i] = row
+			return row.ID, nil
+		}
+	}
+
+	c.nextSkill++
+	row.ID = c.nextSkill
+	c.skills = append(c.skills, row)
+	return row.ID, nil
+}
+
+func (c *MemoryContent) SkillByID(id int64) (SkillRow, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, r := range c.skills {
+		if r.ID == id {
+			return r, true, nil
+		}
+	}
+	return SkillRow{}, false, nil
+}
+
+func (c *MemoryContent) SkillByName(name string) (SkillRow, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, r := range c.skills {
+		if r.Name == name {
+			return r, true, nil
+		}
+	}
+	return SkillRow{}, false, nil
+}
+
+func (c *MemoryContent) AllSkills() ([]SkillRow, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := append([]SkillRow(nil), c.skills...)
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }

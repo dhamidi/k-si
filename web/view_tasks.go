@@ -16,6 +16,9 @@ import (
 // (decision-005).
 type TasksView struct {
 	Groups []TaskGroup
+	// SkillsPath links to the skills registry (the small cross-nav both list
+	// pages carry). Reverse-routed, never string-built (rule no-url-string-building).
+	SkillsPath string
 }
 
 // TaskGroup is one status bucket of the list: a heading plus its rows, newest

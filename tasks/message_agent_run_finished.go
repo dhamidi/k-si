@@ -1,6 +1,8 @@
 package tasks
 
 import (
+	"strings"
+
 	emailmsg "github.com/dhamidi/k-si/email/msg"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
@@ -34,12 +36,23 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 
 	// A stopped or failed run (crash/timeout) yields nothing to send — keep the
 	// transcript and hand the task back to the human (docs/05). This gate runs
-	// before the request and reply branches, so a crash never mints a request nor
-	// emails a reply, whatever half-written files it left in out/.
+	// before the request, reply, and skill branches, so a crash never mints a
+	// request, emails a reply, nor stores a skill, whatever half-written files it
+	// left in out/.
 	if p.Stopped || p.Exit != 0 {
 		tasks[i] = t
 		s.Tasks = tasks
 		return s, []runtime.Cmd{capture}
+	}
+
+	// A successful run may ADDITIVELY author one or more skills (Flow D,
+	// decision-009): it wrote out/skills/<name>/SKILL.md. This is orthogonal to
+	// the reply/request branches — a run may author a skill and reply, and raise a
+	// request, or author with none of those — so store-skill rides alongside
+	// whatever else the run produced. capture stays first; store-skill next.
+	cmds := []runtime.Cmd{capture}
+	if hasSkill(p.OutManifest) {
+		cmds = append(cmds, NewStoreSkill(StoreSkillPayload{TaskID: p.TaskID, RunID: p.RunID}))
 	}
 
 	// A raised UI request takes precedence over reply.txt (Flow C): the run wrote
@@ -51,18 +64,19 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	if hasRequest(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
-		return s, []runtime.Cmd{capture, emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
+		return s, append(cmds, emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
 			TaskID: p.TaskID,
 			RunID:  p.RunID,
-		})}
+		}))
 	}
 
 	// A successful run that wrote no reply.txt produced nothing to send — no empty
-	// email; keep the transcript and hand the task back (docs/05).
+	// email; keep the transcript (and any authored skill) and hand the task back
+	// (docs/05).
 	if !hasReply(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
-		return s, []runtime.Cmd{capture}
+		return s, cmds
 	}
 
 	// The reply is sent as the configured deliverable identity; it falls back to
@@ -92,7 +106,7 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		OutManifest:     p.OutManifest,
 	})
 
-	return s, []runtime.Cmd{capture, assemble}
+	return s, append(cmds, assemble)
 }
 
 // hasReply reports whether the agent left the reply body käsi sends. Its absence
@@ -112,6 +126,20 @@ func hasReply(manifest []string) bool {
 func hasRequest(manifest []string) bool {
 	for _, name := range manifest {
 		if name == "request.json" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSkill reports whether the run authored at least one Agent Skill — the
+// (recursive) out-manifest holds a skills/<name>/SKILL.md, the required file of
+// an Agent Skills directory (Flow D, decision-009). Only a SKILL.md marks a
+// valid skill folder; store-skill groups the whole tree by <name>.
+func hasSkill(manifest []string) bool {
+	for _, name := range manifest {
+		segs := strings.Split(name, "/")
+		if len(segs) == 3 && segs[0] == "skills" && segs[1] != "" && segs[2] == "SKILL.md" {
 			return true
 		}
 	}

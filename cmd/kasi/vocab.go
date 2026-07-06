@@ -594,6 +594,15 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", err
 			}
 			return finishRead("task "+strings.Join(read, " "), strings.Join(names, " "), verb)
+		case "provisioned":
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d provisioned: takes no argument", n)
+			}
+			names, err := taskProvisionedNames(inst, n)
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), strings.Join(names, " "), verb)
 		case "request-link":
 			if len(read) != 2 {
 				return "", fmt.Errorf("task %d request-link: takes no argument", n)
@@ -712,6 +721,30 @@ func taskOutputNames(inst *instance, n int) ([]string, error) {
 	var names []string
 	for _, p := range all {
 		if name, ok := strings.CutPrefix(p.Filename, "out/"); ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// taskProvisionedNames returns the nth task's skills/ box as sorted,
+// skills/-stripped relative paths — the skill tree store-skill provisioned into
+// the workspace (Flow D, decision-009). It mirrors taskOutputNames but filters
+// the skills/ prefix, so a scenario can assert the stored tree landed in the
+// workspace as skills/<name>/… ("pay-invoice/SKILL.md").
+func taskProvisionedNames(inst *instance, n int) ([]string, error) {
+	id, err := nthTaskID(inst, n)
+	if err != nil {
+		return nil, err
+	}
+	all, err := inst.world.work.Files(id)
+	if err != nil {
+		return nil, fmt.Errorf("task %d provisioned: %w", n, err)
+	}
+	var names []string
+	for _, p := range all {
+		if name, ok := strings.CutPrefix(p.Filename, "skills/"); ok {
 			names = append(names, name)
 		}
 	}

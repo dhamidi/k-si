@@ -26,6 +26,32 @@ type Content interface {
 	// ArchiveCount counts archive rows for a task of a given kind, backing
 	// `archive count task N transcript`.
 	ArchiveCount(taskID int64, kind string) (int, error)
+
+	// AddSkill stores a skill's tree (Flow D, decision-010). Name is UNIQUE: on a
+	// name clash it bumps the existing row's version and replaces its content,
+	// description, origin metadata, and updated_at, returning the EXISTING id —
+	// so a re-authored skill updates in place. Otherwise it inserts and returns
+	// the new id.
+	AddSkill(SkillRow) (int64, error)
+	SkillByID(id int64) (SkillRow, bool, error)
+	SkillByName(name string) (SkillRow, bool, error)
+	AllSkills() ([]SkillRow, error)
+}
+
+// SkillRow is one row of the skill table (docs/03): an agent-authored (or
+// UI-authored) Agent Skills directory kept durably, separate from the ephemeral
+// workspace, so a skill created in one run survives into the next. Content is a
+// tar of the whole tree (decision-010); the model's registry holds only light
+// metadata referencing this row by id.
+type SkillRow struct {
+	ID          int64
+	Name        string // UNIQUE; the folder name, matches SKILL.md frontmatter
+	Description string
+	Content     []byte // tar of the skill directory
+	Origin      string // 'ui' | 'agent'
+	OriginTask  int64  // task that authored it, if origin='agent'; 0 otherwise
+	Version     int    // bumped on re-author; provisioning uses latest
+	UpdatedAt   string // RFC3339 timestamp
 }
 
 // InboxRow is one row of the inbox table (docs/03): inbound MIME landed by

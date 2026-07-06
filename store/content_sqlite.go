@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS archive (
   bytes        BLOB    NOT NULL,
   created_at   TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS skill (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT    NOT NULL UNIQUE,  -- referenced by task templates
+  description TEXT,
+  content     BLOB    NOT NULL,         -- tar of the skill directory tree
+  origin      TEXT    NOT NULL,         -- 'ui' | 'agent'
+  origin_task INTEGER,                  -- task that authored it, if origin='agent'
+  version     INTEGER NOT NULL,         -- bumped on edit; provisioning uses latest
+  updated_at  TEXT    NOT NULL
+);
 `
 
 // OpenSQLiteContent opens (creating if needed) the content tables in the main
@@ -268,4 +279,100 @@ func (c *SQLiteContent) ArchiveCount(taskID int64, kind string) (int, error) {
 		return 0, fmt.Errorf("archive count task %d %q: %w", taskID, kind, err)
 	}
 	return n, nil
+}
+
+func skillOriginTask(originTask int64) any {
+	if originTask == 0 {
+		return nil
+	}
+	return originTask
+}
+
+// AddSkill upserts by name: an existing name bumps that row's version and
+// replaces its content and metadata in place, returning the existing id; a fresh
+// name inserts and returns the new id (decision-010).
+func (c *SQLiteContent) AddSkill(row SkillRow) (int64, error) {
+	var (
+		id      int64
+		version int
+	)
+	err := c.db.QueryRow(`SELECT id, version FROM skill WHERE name = ?`, row.Name).Scan(&id, &version)
+	switch {
+	case err == nil:
+		_, err = c.db.Exec(
+			`UPDATE skill SET description = ?, content = ?, origin = ?, origin_task = ?, version = ?, updated_at = ? WHERE id = ?`,
+			nullableString(row.Description), row.Content, row.Origin, skillOriginTask(row.OriginTask), version+1, row.UpdatedAt, id,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("update skill %q: %w", row.Name, err)
+		}
+		return id, nil
+	case err == sql.ErrNoRows:
+		result, err := c.db.Exec(
+			`INSERT INTO skill (name, description, content, origin, origin_task, version, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			row.Name, nullableString(row.Description), row.Content, row.Origin, skillOriginTask(row.OriginTask), row.Version, row.UpdatedAt,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("add skill %q: %w", row.Name, err)
+		}
+		return result.LastInsertId()
+	default:
+		return 0, fmt.Errorf("lookup skill %q: %w", row.Name, err)
+	}
+}
+
+func (c *SQLiteContent) SkillByID(id int64) (SkillRow, bool, error) {
+	return c.scanSkill(c.db.QueryRow(
+		`SELECT id, name, description, content, origin, origin_task, version, updated_at FROM skill WHERE id = ?`, id,
+	))
+}
+
+func (c *SQLiteContent) SkillByName(name string) (SkillRow, bool, error) {
+	return c.scanSkill(c.db.QueryRow(
+		`SELECT id, name, description, content, origin, origin_task, version, updated_at FROM skill WHERE name = ?`, name,
+	))
+}
+
+func (c *SQLiteContent) scanSkill(row *sql.Row) (SkillRow, bool, error) {
+	var (
+		r           SkillRow
+		description sql.NullString
+		originTask  sql.NullInt64
+	)
+	err := row.Scan(&r.ID, &r.Name, &description, &r.Content, &r.Origin, &originTask, &r.Version, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return SkillRow{}, false, nil
+	}
+	if err != nil {
+		return SkillRow{}, false, fmt.Errorf("skill: %w", err)
+	}
+	r.Description = description.String
+	r.OriginTask = originTask.Int64
+	return r, true, nil
+}
+
+func (c *SQLiteContent) AllSkills() ([]SkillRow, error) {
+	rows, err := c.db.Query(
+		`SELECT id, name, description, content, origin, origin_task, version, updated_at FROM skill ORDER BY id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SkillRow
+	for rows.Next() {
+		var (
+			r           SkillRow
+			description sql.NullString
+			originTask  sql.NullInt64
+		)
+		if err := rows.Scan(&r.ID, &r.Name, &description, &r.Content, &r.Origin, &originTask, &r.Version, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		r.Description = description.String
+		r.OriginTask = originTask.Int64
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

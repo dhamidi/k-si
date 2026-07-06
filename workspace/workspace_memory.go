@@ -22,11 +22,12 @@ type Memory struct {
 	trees map[int64]*tree
 }
 
-// tree is one task-<id>/ directory: named files under in/ and out/, plus a
-// transcript per run.
+// tree is one task-<id>/ directory: named files under in/, out/, and skills/,
+// plus a transcript per run.
 type tree struct {
-	in          map[string]file  // filename -> file, the in/ box
-	out         map[string]file  // filename -> file, the out/ box
+	in          map[string]file  // relative path -> file, the in/ box
+	out         map[string]file  // relative path -> file, the out/ box
+	skills      map[string]file  // relative path -> file, the skills/ box (Flow D)
 	transcripts map[int64][]byte // runID -> transcript bytes
 }
 
@@ -80,6 +81,16 @@ func (m *Memory) WriteOut(taskID int64, parts []mime.Part) error {
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
 	return writeInto("out", t.out, parts)
+}
+
+// WriteSkills provisions skill trees into the skills/ box (Flow D,
+// decision-009), so a later turn finds ./skills/<name>/SKILL.md. Same
+// overwrite/append-by-path semantics as WriteOut.
+func (m *Memory) WriteSkills(taskID int64, parts []mime.Part) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.ensure(taskID)
+	return writeInto("skills", t.skills, parts)
 }
 
 // Harvest reads out/ into parts, reply.txt first (if present) and the rest in
@@ -174,6 +185,9 @@ func (m *Memory) filesLocked(t *tree) []mime.Part {
 	for _, name := range sortedKeys(t.out) {
 		parts = append(parts, partOf("out/"+name, t.out[name]))
 	}
+	for _, name := range sortedKeys(t.skills) {
+		parts = append(parts, partOf("skills/"+name, t.skills[name]))
+	}
 	for _, runID := range sortedRunIDs(t.transcripts) {
 		parts = append(parts, mime.Part{
 			Filename:    fmt.Sprintf("transcript-%d.jsonl", runID),
@@ -191,6 +205,7 @@ func (m *Memory) ensure(taskID int64) *tree {
 		t = &tree{
 			in:          make(map[string]file),
 			out:         make(map[string]file),
+			skills:      make(map[string]file),
 			transcripts: make(map[int64][]byte),
 		}
 		m.trees[taskID] = t

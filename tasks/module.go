@@ -29,6 +29,7 @@ func Module(e Edges) *runtime.Module {
 	registerCaptureTranscript(mod)
 	registerArchiveTask(mod)
 	registerSetReplyFrom(mod)
+	registerStoreSkill(mod)
 	return mod
 }
 
