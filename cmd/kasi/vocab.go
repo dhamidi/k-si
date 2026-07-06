@@ -121,12 +121,22 @@ type inboundMail struct {
 	replyToLast bool
 	inReplyTo   string
 	references  []string
+
+	// rawPath, when set by a `raw <file>` line, injects verbatim RFC-5322 bytes
+	// (a captured real message) instead of building MIME from the fields above.
+	// It is mutually exclusive with every structured field.
+	rawPath    string
+	structured bool
 }
 
 func deliver(in *testlang.Interp, inst *instance, block string) error {
 	m, err := parseDeliverBlock(in, block)
 	if err != nil {
 		return err
+	}
+
+	if m.rawPath != "" {
+		return deliverRaw(inst, m.rawPath)
 	}
 
 	if m.replyToLast {
@@ -178,6 +188,37 @@ func deliver(in *testlang.Interp, inst *instance, block string) error {
 	return nil
 }
 
+// deliverRaw injects verbatim RFC-5322 bytes from a file, mirroring serve.route():
+// store the raw message as an inbox row, then route-email it with the headers read
+// straight off the wire (docs/04). This lets a scenario replay a captured real
+// message rather than one built from `deliver` fields.
+func deliverRaw(inst *instance, path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("deliver: raw %s: %w", path, err)
+	}
+	msg, err := mime.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("deliver: raw: parse: %w", err)
+	}
+	inboxID, err := inst.world.mail.Deliver(raw)
+	if err != nil {
+		return fmt.Errorf("deliver: %w", err)
+	}
+	inst.app.Send(email.NewRouteEmail(email.RouteEmailPayload{
+		InboxID:    inboxID,
+		Recipient:  msg.Header.Get("To"),
+		Sender:     firstAddr(msg.Header.Get("From")),
+		Cc:         mime.CcList(msg.Header.Get("Cc")),
+		Subject:    msg.Header.Get("Subject"),
+		MessageID:  msg.Header.Get("Message-ID"),
+		InReplyTo:  msg.Header.Get("In-Reply-To"),
+		References: strings.Fields(msg.Header.Get("References")),
+	}))
+	inst.app.Settle()
+	return nil
+}
+
 func parseDeliverBlock(in *testlang.Interp, block string) (inboundMail, error) {
 	var m inboundMail
 	lines, err := blockLines(in, block)
@@ -186,17 +227,28 @@ func parseDeliverBlock(in *testlang.Interp, block string) (inboundMail, error) {
 	}
 	for _, words := range lines {
 		switch words[0] {
+		case "raw":
+			if len(words) != 2 {
+				return m, fmt.Errorf("deliver: raw needs a single file path")
+			}
+			m.rawPath = words[1]
 		case "from":
+			m.structured = true
 			m.from = arg(words)
 		case "to":
+			m.structured = true
 			m.to = arg(words)
 		case "cc":
+			m.structured = true
 			m.cc = append(m.cc, strings.Fields(strings.Join(words[1:], " "))...)
 		case "subject":
+			m.structured = true
 			m.subject = arg(words)
 		case "body":
+			m.structured = true
 			m.body = arg(words)
 		case "attach":
+			m.structured = true
 			if len(words) != 3 {
 				return m, fmt.Errorf("deliver: attach needs a filename and content")
 			}
@@ -206,10 +258,14 @@ func parseDeliverBlock(in *testlang.Interp, block string) (inboundMail, error) {
 				Bytes:       []byte(words[2]),
 			})
 		case "reply-to-last":
+			m.structured = true
 			m.replyToLast = true
 		default:
 			return m, fmt.Errorf("deliver: unknown field %q", words[0])
 		}
+	}
+	if m.rawPath != "" && m.structured {
+		return m, fmt.Errorf("deliver: raw is mutually exclusive with from/to/cc/subject/body/attach/reply-to-last")
 	}
 	return m, nil
 }
@@ -312,12 +368,17 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 
 // --- outbound (mail the sim edge has sent) -----------------------------------
 
+// sentMailer is the sliver of the Mail edge the `outbound` read needs: the log of
+// transmitted messages. SimMail, RecordedMail and RecordingMail all satisfy it, so
+// the read works against whichever edge the ring wired into email.Edges (docs/13).
+type sentMailer interface{ Sent() [][]byte }
+
 func outbound(inst *instance, args []string) (string, error) {
 	read, verb := splitVerb(args)
 	if len(read) == 0 {
 		return "", fmt.Errorf("outbound needs last|N|count [field]")
 	}
-	sent := inst.world.mail.Sent()
+	sent := inst.world.outbound.(sentMailer).Sent()
 
 	if read[0] == "count" {
 		return finishRead("outbound count", strconv.Itoa(len(sent)), verb)

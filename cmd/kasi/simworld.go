@@ -15,6 +15,7 @@ import (
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/tasks"
 	"github.com/dhamidi/k-si/workspace"
@@ -33,6 +34,14 @@ type simWorld struct {
 	work    workspace.Workspace // the workspace wired into Edges (memory or OS)
 	harness agents.Harness      // the harness wired into Edges
 
+	// outbound is the Mail edge wired into email.Edges: SimMail in the sim ring,
+	// RecordedMail when a recorded scenario opts into a mail cassette, and
+	// RecordingMail in the live ring. mail stays the SimMail in EVERY ring, used
+	// by `deliver` for inbound injection regardless of the outbound edge (docs/13).
+	outbound      email.Mail
+	recordingMail *email.RecordingMail  // set for ring "live", for saving a mail cassette
+	mailCassette  cassette.MailCassette // the loaded mail cassette (ring "recorded", opt-in)
+
 	sim       *agents.SimHarness       // set for ring "sim" (nil otherwise)
 	recorded  *agents.RecordedHarness  // set for ring "recorded"
 	recording *agents.RecordingHarness // set for ring "live"
@@ -48,50 +57,66 @@ func newSimWorld() *simWorld {
 	content := store.NewMemoryContent()
 	work := workspace.NewMemory()
 	sim := agents.NewSimHarness(work)
+	mail := email.NewSimMail(content)
 	return &simWorld{
-		ring:    "sim",
-		content: content,
-		mail:    email.NewSimMail(content),
-		work:    work,
-		harness: sim,
-		sim:     sim,
+		ring:     "sim",
+		content:  content,
+		mail:     mail,
+		outbound: mail,
+		work:     work,
+		harness:  sim,
+		sim:      sim,
 	}
 }
 
 // newRecordedWorld builds the recorded ring's world: the same sim content/mail
 // twins, a memory workspace, and a RecordedHarness that self-plays the committed
-// cassette when the `agent` command triggers it (docs/13).
-func newRecordedWorld(c cassette.HarnessCassette) *simWorld {
+// cassette when the `agent` command triggers it (docs/13). Mail replay is opt-in
+// per scenario: with a mail cassette the outbound edge replays it, otherwise the
+// SimMail stays the outbound edge — most recorded scenarios have only a harness
+// cassette and never send.
+func newRecordedWorld(c cassette.HarnessCassette, mc cassette.MailCassette, hasMail bool) *simWorld {
 	content := store.NewMemoryContent()
 	work := workspace.NewMemory()
 	recorded := agents.NewRecordedHarness(work, c)
-	return &simWorld{
+	mail := email.NewSimMail(content)
+	w := &simWorld{
 		ring:     "recorded",
 		content:  content,
-		mail:     email.NewSimMail(content),
+		mail:     mail,
 		work:     work,
 		harness:  recorded,
 		recorded: recorded,
 		cassette: c,
 	}
+	if hasMail {
+		w.outbound = email.NewRecordedMail(mc)
+		w.mailCassette = mc
+	} else {
+		w.outbound = mail
+	}
+	return w
 }
 
 // newLiveWorld builds the live-capture world: the SAME deterministic sim
 // content/mail twins as sim/recorded (so the captured in/ bytes match what
 // replay lays down), but a real OS workspace and the real Claude harness wrapped
 // in the recording decorator (docs/13). Only work and harness are real.
-func newLiveWorld(workdir string) *simWorld {
+func newLiveWorld(workdir string, sec secrets.Secrets) *simWorld {
 	content := store.NewMemoryContent()
 	work := workspace.NewOS(workdir)
 	recording := agents.NewRecordingHarness(agents.NewClaude(workdir), work)
+	recordingMail := email.NewRecordingMail(sec, "secret://fastmail/api-token")
 	return &simWorld{
-		ring:      "live",
-		content:   content,
-		mail:      email.NewSimMail(content),
-		work:      work,
-		harness:   recording,
-		recording: recording,
-		workdir:   workdir,
+		ring:          "live",
+		content:       content,
+		mail:          email.NewSimMail(content),
+		outbound:      recordingMail,
+		recordingMail: recordingMail,
+		work:          work,
+		harness:       recording,
+		recording:     recording,
+		workdir:       workdir,
 	}
 }
 
@@ -117,7 +142,7 @@ func (w *simWorld) crash() {
 func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 	return []*runtime.Module{
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: w.mail, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
+		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
 		agents.Module(agents.Edges{Clock: clock, Harness: w.harness, Work: w.work}),
 	}

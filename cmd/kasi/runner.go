@@ -23,6 +23,7 @@ import (
 
 	"github.com/dhamidi/k-si/cassette"
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/testlang"
 )
@@ -138,6 +139,9 @@ func runScriptFleet(path string, n int, newLog logMaker, record bool, ring strin
 		}
 		if ring == "live" && record {
 			if err := saveHarnessCassette(path, inst); err != nil {
+				return err
+			}
+			if err := saveMailCassette(path, inst); err != nil {
 				return err
 			}
 		}
@@ -300,13 +304,28 @@ func newWorld(ring, path string) (*simWorld, error) {
 		if err != nil {
 			return nil, fmt.Errorf("no harness cassette for %s (%v) — record it via: kasi test --ring live --record %s", path, err, path)
 		}
-		return newRecordedWorld(c), nil
+		// A mail cassette is opt-in: many recorded scenarios have only a harness
+		// cassette and never send, so a missing one is not an error — the world
+		// falls back to SimMail for outbound (docs/13).
+		mc, mailErr := cassette.LoadMail(mailCassetteDir(path))
+		hasMail := mailErr == nil
+		return newRecordedWorld(c, mc, hasMail), nil
 	case "live":
 		dir, err := os.MkdirTemp("", "kasi-live-")
 		if err != nil {
 			return nil, err
 		}
-		return newLiveWorld(dir), nil
+		key, err := secrets.LoadKey("data")
+		if err != nil {
+			os.RemoveAll(dir)
+			return nil, fmt.Errorf("live ring needs the secrets store: %w", err)
+		}
+		sec, err := secrets.OpenSQLite("data/secrets.db", key)
+		if err != nil {
+			os.RemoveAll(dir)
+			return nil, fmt.Errorf("live ring needs the secrets store: %w", err)
+		}
+		return newLiveWorld(dir, sec), nil
 	default:
 		return nil, fmt.Errorf("unknown ring %q (sim, recorded, live)", ring)
 	}
@@ -317,6 +336,13 @@ func newWorld(ring, path string) (*simWorld, error) {
 // what the live ring wrote (docs/13).
 func harnessCassetteDir(path string) string {
 	return filepath.Join("t/cassettes/harness", cassetteSlug(path))
+}
+
+// mailCassetteDir maps a script path to its mail cassette directory, slugging the
+// path the same way as the harness cassette so the recorded ring reads what the
+// live ring wrote (docs/13).
+func mailCassetteDir(path string) string {
+	return filepath.Join("t/cassettes/mail", cassetteSlug(path))
 }
 
 // cassetteSlug derives a flat, filesystem-safe name from a script path: strip
@@ -341,6 +367,30 @@ func saveHarnessCassette(path string, inst *instance) error {
 	return cassette.SaveHarness(harnessCassetteDir(path), cassette.HarnessCassette{
 		Provenance: prov,
 		Turns:      inst.world.recording.Turns(),
+	})
+}
+
+// saveMailCassette writes the outbound submissions the recording mail edge
+// captured during a green live run, so the recorded ring can replay them (docs/13).
+// It writes nothing when the scenario sent no mail — an empty cassette would only
+// invite a recorded scenario to opt into a replay that has nothing to give.
+func saveMailCassette(path string, inst *instance) error {
+	if inst.world.recordingMail == nil {
+		return nil
+	}
+	ix := inst.world.recordingMail.Interactions()
+	if len(ix) == 0 {
+		return nil
+	}
+	return cassette.SaveMail(mailCassetteDir(path), cassette.MailCassette{
+		Provenance: cassette.Provenance{
+			Kind:       "mail-exchange",
+			RecordedAt: time.Now().UTC(),
+			RecordedBy: "kasi test --ring live --record",
+			Source:     path,
+			Versions:   versions(),
+		},
+		Interactions: ix,
 	})
 }
 
