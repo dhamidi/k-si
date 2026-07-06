@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -511,6 +512,33 @@ func taskRead(inst *instance, args []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("task: first word is the task ordinal, got %q", read[0])
 	}
+
+	// `task <n> inputs` / `task <n> input <file>` observe the files käsi laid into
+	// the workspace in/ box — the parser's actual output, not the task model — so a
+	// scenario can assert the body was extracted and every attachment was laid in.
+	if len(read) >= 2 {
+		switch read[1] {
+		case "inputs":
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d inputs: takes no argument", n)
+			}
+			names, err := taskInputNames(inst, n)
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), strings.Join(names, " "), verb)
+		case "input":
+			if len(read) != 3 {
+				return "", fmt.Errorf("task %d input: needs a filename, e.g. `task %d input body.txt`", n, n)
+			}
+			body, err := taskInputBytes(inst, n, read[2])
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), string(body), verb)
+		}
+	}
+
 	obj, err := nthTask(inst, n)
 	if err != nil {
 		return "", err
@@ -520,6 +548,55 @@ func taskRead(inst *instance, args []string) (string, error) {
 		return "", fmt.Errorf("task %s: %w", strings.Join(read, " "), err)
 	}
 	return finishRead("task "+strings.Join(read, " "), value, verb)
+}
+
+// taskInputFiles returns the parts käsi laid under the nth task's in/ box, in the
+// sorted, in/-stripped form the input reads expose. Workspace.Files already yields
+// in/ first and sorted (see the Workspace doc); we keep the in/-prefixed entries
+// and strip the prefix so a scenario names files as `body.txt`, not `in/body.txt`.
+func taskInputFiles(inst *instance, n int) ([]mime.Part, error) {
+	id, err := nthTaskID(inst, n)
+	if err != nil {
+		return nil, err
+	}
+	all, err := inst.world.work.Files(id)
+	if err != nil {
+		return nil, fmt.Errorf("task %d inputs: %w", n, err)
+	}
+	var ins []mime.Part
+	for _, p := range all {
+		if name, ok := strings.CutPrefix(p.Filename, "in/"); ok {
+			p.Filename = name
+			ins = append(ins, p)
+		}
+	}
+	return ins, nil
+}
+
+func taskInputNames(inst *instance, n int) ([]string, error) {
+	ins, err := taskInputFiles(inst, n)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(ins))
+	for _, p := range ins {
+		names = append(names, p.Filename)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func taskInputBytes(inst *instance, n int, file string) ([]byte, error) {
+	ins, err := taskInputFiles(inst, n)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range ins {
+		if p.Filename == file {
+			return p.Bytes, nil
+		}
+	}
+	return nil, fmt.Errorf("task %d input %s: no such file in in/", n, file)
 }
 
 func taskList(inst *instance) ([]json.RawMessage, error) {

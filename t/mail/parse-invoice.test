@@ -1,0 +1,18 @@
+# t/mail/parse-invoice.test — the multipart-with-attachment parse regression (bug 2).
+#
+# A real forwarded Gmail message captured from the kasi@decode.ee inbox:
+#   multipart/mixed[ multipart/alternative[text/plain, text/html], application/pdf ]
+# Before mime.readMultipart learned to recurse into the nested multipart, this
+# exact message came out with an EMPTY body.txt and the PDF dropped — yet a task
+# was still created, so "task exists" never caught it. This scenario asserts what
+# the parser actually laid into in/: BOTH files present, and a genuine body.
+# It FAILS against the old non-recursive parser and PASSES now.
+
+send allow-sender { address dario.hamidi@gmail.com }
+
+deliver { raw t/fixtures/mime/invoice-fwd-pdf.eml }
+
+task 1 route is main
+task 1 status is awaiting-agent
+task 1 inputs are {26425390718.pdf body.txt}
+task 1 input body.txt matches "*attachment*"
