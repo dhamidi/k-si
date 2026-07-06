@@ -45,6 +45,12 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		if part.Filename == "request.json" {
 			continue
 		}
+		// Only TOP-LEVEL files ride the reply as attachments. Nested output (any
+		// path with a "/", e.g. the whole skills/ subtree) is structured artifact,
+		// stored/provisioned, never emailed (decision-011).
+		if strings.Contains(part.Filename, "/") {
+			continue
+		}
 		attachments = append(attachments, part)
 	}
 	completionURL, err := link.Completion(e.BaseURL, p.TaskID, p.CompletionToken)

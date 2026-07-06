@@ -8,17 +8,29 @@
 // runtime.
 package workspace
 
-import "github.com/dhamidi/k-si/mime"
+import (
+	"fmt"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/dhamidi/k-si/mime"
+)
 
 // Workspace is the filesystem edge for a task's ephemeral scratch directory,
 // laid out as $WORKDIR/task-<id>/{in,out}/ plus per-run transcripts (docs/05).
 //
 // Filename conventions on the mime.Part values that cross this seam:
 //
-//   - LayIn and WriteOut take Parts with PLAIN filenames ("body.txt",
-//     "invoice.pdf", "reply.txt"); they land under in/ and out/ respectively.
-//   - Harvest returns Parts with PLAIN filenames (out/'s contents), reply.txt
-//     first so the caller can peel the reply body off the attachments.
+//   - LayIn and WriteOut take Parts whose Filename is a path RELATIVE to the box
+//     ("body.txt", "reply.txt", "skills/pay/SKILL.md"); each lands at that
+//     relative path under in/ or out/, intermediate directories created. A flat
+//     name is a depth-1 path, so flat behaviour is unchanged. Paths are
+//     validated to stay within the box — an absolute path or a ".." segment is
+//     rejected (decision-011: the workspace is a sandbox boundary).
+//   - Harvest returns Parts for out/'s whole tree with Filename the path
+//     RELATIVE to out/ ("reply.txt", "skills/pay/SKILL.md"), reply.txt first so
+//     the caller can peel the reply body off the attachments.
 //   - Files returns Parts whose Filename is the path RELATIVE to task-<id> —
 //     "in/invoice.pdf", "out/receipt.pdf", "transcript-<runID>.jsonl" — so the
 //     archive step can tell an inbound attachment from an artifact from a
@@ -54,4 +66,23 @@ type Workspace interface {
 	// Root is the location backing this workspace (a directory for OS, a
 	// synthetic sentinel for Memory).
 	Root() string
+}
+
+// validBoxPath rejects a part path that would escape its box: an absolute path,
+// an empty path, or one with a ".." segment. It returns the path cleaned to
+// forward slashes for use as a relative box location. Both twins call it before
+// writing so the sandbox boundary holds on disk and in memory alike
+// (decision-011).
+func validBoxPath(box, filename string) (string, error) {
+	name := path.Clean(filepath.ToSlash(filename))
+	if name == "" || name == "." {
+		return "", fmt.Errorf("workspace: %s: empty part path %q", box, filename)
+	}
+	if path.IsAbs(name) || filepath.IsAbs(filename) {
+		return "", fmt.Errorf("workspace: %s: absolute part path %q not allowed", box, filename)
+	}
+	if name == ".." || strings.HasPrefix(name, "../") {
+		return "", fmt.Errorf("workspace: %s: part path %q escapes the box", box, filename)
+	}
+	return name, nil
 }

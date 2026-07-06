@@ -585,6 +585,15 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", err
 			}
 			return finishRead("task "+strings.Join(read, " "), string(body), verb)
+		case "outputs":
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d outputs: takes no argument", n)
+			}
+			names, err := taskOutputNames(inst, n)
+			if err != nil {
+				return "", err
+			}
+			return finishRead("task "+strings.Join(read, " "), strings.Join(names, " "), verb)
 		case "request-link":
 			if len(read) != 2 {
 				return "", fmt.Errorf("task %d request-link: takes no argument", n)
@@ -683,6 +692,28 @@ func taskInputNames(inst *instance, n int) ([]string, error) {
 	names := make([]string, 0, len(ins))
 	for _, p := range ins {
 		names = append(names, p.Filename)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// taskOutputNames returns the nth task's out/ box as sorted, out/-stripped
+// relative paths — the run's artifact tree ("reply.txt",
+// "skills/pay/SKILL.md"), mirroring taskInputNames but for out/ (decision-011).
+func taskOutputNames(inst *instance, n int) ([]string, error) {
+	id, err := nthTaskID(inst, n)
+	if err != nil {
+		return nil, err
+	}
+	all, err := inst.world.work.Files(id)
+	if err != nil {
+		return nil, fmt.Errorf("task %d outputs: %w", n, err)
+	}
+	var names []string
+	for _, p := range all {
+		if name, ok := strings.CutPrefix(p.Filename, "out/"); ok {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 	return names, nil

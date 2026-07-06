@@ -68,17 +68,44 @@ func (o *OS) writeBox(taskID int64, box string, parts []mime.Part) error {
 		return err
 	}
 	for _, p := range parts {
-		if err := os.WriteFile(filepath.Join(dir, filepath.Base(p.Filename)), p.Bytes, 0o644); err != nil {
+		// Each part is written at its relative path under the box (creating
+		// intermediate dirs), validated to stay inside the box — no absolute path,
+		// no ".." escape (decision-011).
+		rel, err := validBoxPath(box, p.Filename)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, p.Bytes, 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Harvest reads out/ into parts, reply.txt first, the rest name-sorted.
+// Harvest reads out/ into parts RECURSIVELY, Filename set to the path relative
+// to out/ ("reply.txt", "skills/pay/SKILL.md"). reply.txt (top-level) is first,
+// the rest path-sorted. A flat out/ yields plain names exactly as before.
 func (o *OS) Harvest(taskID int64) ([]mime.Part, error) {
 	dir := filepath.Join(o.taskDir(taskID), "out")
-	entries, err := os.ReadDir(dir)
+	var names []string
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -86,12 +113,6 @@ func (o *OS) Harvest(taskID int64) ([]mime.Part, error) {
 		return nil, err
 	}
 
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
 	sort.Slice(names, func(i, j int) bool {
 		if names[i] == "reply.txt" != (names[j] == "reply.txt") {
 			return names[i] == "reply.txt"
@@ -101,7 +122,7 @@ func (o *OS) Harvest(taskID int64) ([]mime.Part, error) {
 
 	var parts []mime.Part
 	for _, name := range names {
-		b, err := os.ReadFile(filepath.Join(dir, name))
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
 		if err != nil {
 			return nil, err
 		}

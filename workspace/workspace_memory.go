@@ -70,8 +70,7 @@ func (m *Memory) LayIn(taskID int64, parts []mime.Part) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
-	writeInto(t.in, parts)
-	return nil
+	return writeInto("in", t.in, parts)
 }
 
 // WriteOut writes parts into out/ (the sim harness depositing a turn's output),
@@ -80,12 +79,12 @@ func (m *Memory) WriteOut(taskID int64, parts []mime.Part) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
-	writeInto(t.out, parts)
-	return nil
+	return writeInto("out", t.out, parts)
 }
 
 // Harvest reads out/ into parts, reply.txt first (if present) and the rest in
-// filename order.
+// path order, each Filename the path relative to out/ (a nested part keeps its
+// "skills/pay/SKILL.md" path; a flat one stays a plain name).
 func (m *Memory) Harvest(taskID int64) ([]mime.Part, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -199,19 +198,27 @@ func (m *Memory) ensure(taskID int64) *tree {
 	return t
 }
 
-// writeInto copies parts into a box, overwriting by filename and normalising an
-// empty ContentType from the filename extension.
-func writeInto(box map[string]file, parts []mime.Part) {
+// writeInto copies parts into a box keyed by the part's relative path,
+// overwriting by path and normalising an empty ContentType from the extension.
+// Each path is validated to stay inside the box (no absolute, no "..") — the
+// on-disk twin's os.MkdirAll tree is a flat map of relative paths here, but the
+// same sandbox rule holds (decision-011).
+func writeInto(boxName string, box map[string]file, parts []mime.Part) error {
 	for _, p := range parts {
+		rel, err := validBoxPath(boxName, p.Filename)
+		if err != nil {
+			return err
+		}
 		ct := p.ContentType
 		if ct == "" {
-			ct = defaultContentType(p.Filename)
+			ct = defaultContentType(rel)
 		}
-		box[p.Filename] = file{
+		box[rel] = file{
 			contentType: ct,
 			bytes:       append([]byte(nil), p.Bytes...),
 		}
 	}
+	return nil
 }
 
 // partOf rebuilds a mime.Part for a stored file under the given (possibly

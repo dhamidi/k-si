@@ -252,16 +252,27 @@ func (c *Claude) signalRun(run *claudeRun) error {
 	return nil
 }
 
+// manifest lists out/ RECURSIVELY as sorted paths relative to out/, files only —
+// ["reply.txt", "skills/pay/SKILL.md", "skills/pay/scripts/run.sh"] — so the whole
+// output tree crosses the seam (decision-011).
 func (c *Claude) manifest(run *claudeRun) []string {
-	entries, err := os.ReadDir(run.outDir)
+	var names []string
+	err := filepath.WalkDir(run.outDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(run.outDir, p)
+		if err != nil {
+			return err
+		}
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
 	if err != nil {
 		return nil
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
 	}
 	sort.Strings(names)
 	return names

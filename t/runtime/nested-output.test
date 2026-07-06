@@ -1,0 +1,40 @@
+# t/runtime/nested-output.test — an agent's out/ is a file TREE, end to end
+# (decision-011). A worker turn writes a top-level reply plus a nested skills/
+# subtree; käsi must carry the whole tree at its relative paths, send the reply,
+# and NOT ride the nested files as email attachments.
+
+send allow-sender { address a@b.test }
+
+deliver {
+    from a@b.test
+    to   research@kasi.test
+    body "make me a pay skill"
+}
+
+task 1 status is awaiting-agent
+
+# The scripted turn writes a flat control file and a two-level nested subtree.
+agent {
+    out reply.txt "done"
+    out skills/pay/SKILL.md "# pay"
+    out skills/pay/scripts/run.sh "echo hi"
+    exit 0
+}
+
+# The reply was sent, body is the top-level reply.txt.
+task 1 status is awaiting-user
+outbound count is 1
+outbound last body matches "*done*"
+
+# The workspace carries every file at its RELATIVE path — nested paths preserved,
+# not flattened to basenames (mind: no space just inside the braces).
+task 1 outputs are {reply.txt skills/pay/SKILL.md skills/pay/scripts/run.sh}
+
+# Nested output is structured, never an attachment: the reply carries none, so
+# SKILL.md / run.sh do not ride the email.
+outbound last attachments is ""
+
+# Crash-safety parity: the tree survives replay unchanged.
+crash
+restart
+task 1 outputs are {reply.txt skills/pay/SKILL.md skills/pay/scripts/run.sh}
