@@ -34,14 +34,19 @@ func NewRecordedMail(c cassette.MailCassette) *RecordedMail {
 	return &RecordedMail{inner: inner}
 }
 
-// Submit records the raw message (so `outbound` can observe it) and drives the
-// real JMAP send path, which is answered entirely from the cassette.
+// Submit drives the real JMAP send path (answered entirely from the cassette)
+// and records the raw message only once that send succeeds, so `outbound` never
+// observes a message the submit code rejected against a stale cassette.
 func (m *RecordedMail) Submit(ctx context.Context, raw []byte) error {
+	if err := m.inner.Submit(ctx, raw); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	m.sent = append(m.sent, append([]byte(nil), raw...))
 	m.mu.Unlock()
 
-	return m.inner.Submit(ctx, raw)
+	return nil
 }
 
 // Sent returns a copy of every message transmitted so far, for the `outbound`

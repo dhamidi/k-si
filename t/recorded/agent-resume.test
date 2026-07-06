@@ -41,3 +41,7 @@ task 1 status is awaiting-user
 
 # Turn 2 reproduced the token — only possible if the session was resumed.
 outbound last body matches "*$token*"
+
+# The bytes above are only what käsi assembled; assert the model recorded a real
+# send — mark-email-sent fires only when Mail.Submit actually succeeded.
+outbox last status is sent

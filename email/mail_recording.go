@@ -33,14 +33,19 @@ func NewRecordingMail(sec secrets.Secrets, tokenURL string) *RecordingMail {
 	}
 }
 
-// Submit records the raw message (so a capture can observe what was sent) and
-// transmits it for real through the inner JMAP client.
+// Submit transmits the raw message for real through the inner JMAP client and
+// records it only once that send succeeds, so a capture observes what was
+// actually sent rather than what was merely attempted.
 func (m *RecordingMail) Submit(ctx context.Context, raw []byte) error {
+	if err := m.inner.Submit(ctx, raw); err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	m.sent = append(m.sent, append([]byte(nil), raw...))
 	m.mu.Unlock()
 
-	return m.inner.Submit(ctx, raw)
+	return nil
 }
 
 // Sent returns a copy of every message transmitted so far, for the `outbound`
