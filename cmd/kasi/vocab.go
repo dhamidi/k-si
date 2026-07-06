@@ -564,6 +564,23 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", err
 			}
 			return finishRead("task "+strings.Join(read, " "), req.SecretRefs[read[2]], verb)
+		case "run-env":
+			// The resolved run environment the (sim) harness was handed — proves a
+			// Flow C secret was Resolve'd into the agent's env at the edge (M1.5).
+			if len(read) != 3 {
+				return "", fmt.Errorf("task %d run-env: needs a var, e.g. `task %d run-env bank-login`", n, n)
+			}
+			id, err := nthTaskID(inst, n)
+			if err != nil {
+				return "", err
+			}
+			h, ok := inst.world.harness.(interface {
+				EnvFor(int64) map[string]string
+			})
+			if !ok {
+				return "", fmt.Errorf("task %d run-env: only the sim harness records the run environment", n)
+			}
+			return finishRead("task "+strings.Join(read, " "), h.EnvFor(id)[read[2]], verb)
 		}
 	}
 

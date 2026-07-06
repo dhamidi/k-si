@@ -63,19 +63,19 @@ func NewClaude(workdir string) *Claude {
 }
 
 // Start opens a new session for a task's first turn (docs/05).
-func (c *Claude) Start(ctx context.Context, taskID, runID int64) (Handle, error) {
-	return c.spawn(taskID, runID, sessionFor(taskID), false)
+func (c *Claude) Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error) {
+	return c.spawn(taskID, runID, sessionFor(taskID), false, env)
 }
 
 // Resume continues an existing session for a later turn.
-func (c *Claude) Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error) {
+func (c *Claude) Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error) {
 	if session == "" {
 		session = sessionFor(taskID)
 	}
-	return c.spawn(taskID, runID, session, true)
+	return c.spawn(taskID, runID, session, true, env)
 }
 
-func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle, error) {
+func (c *Claude) spawn(taskID, runID int64, session string, resume bool, env map[string]string) (Handle, error) {
 	dir := filepath.Join(c.workdir, fmt.Sprintf("task-%d", taskID))
 	// The workspace and in/ are laid in by tasks before the run (docs/05); we
 	// only guarantee out/ exists for the agent to write into.
@@ -104,6 +104,14 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool) (Handle
 
 	cmd := exec.Command(c.bin, args...) // not CommandContext: Wait/Signal own the lifetime
 	cmd.Dir = dir
+	// Resolved Flow C secrets (decision-004) enter the worker's environment here,
+	// at the edge, and nowhere else. Inherit the parent env, then add them.
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 	// Stream stdout through a pipe we copy to the file, rather than pointing
 	// cmd.Stdout straight at the *os.File. A child's stdio block-buffers a
 	// redirected file, so the transcript would only update in chunks (or at

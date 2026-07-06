@@ -102,7 +102,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Clock: clock, Harness: agents.NewClaude(*workdir), Work: work}),
+		agents.Module(agents.Edges{Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -122,7 +122,7 @@ func runServe(args []string) int {
 		go pollInbox(ctx, app, jmap, content)
 	}
 
-	server, err := web.NewServer(app)
+	server, err := web.NewServer(app, sec, content)
 	if err != nil {
 		return fail("kasi serve:", err)
 	}

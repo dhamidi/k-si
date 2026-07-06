@@ -49,14 +49,15 @@ func NewRecordedHarness(work workspace.Workspace, c cassette.HarnessCassette) *R
 }
 
 // Start registers a live run for a task's first turn and returns immediately.
-func (h *RecordedHarness) Start(ctx context.Context, taskID, runID int64) (Handle, error) {
+// env is ignored: a recorded turn is replayed verbatim, not re-executed.
+func (h *RecordedHarness) Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error) {
 	session := sessionFor(taskID)
 	h.register(taskID, runID, session)
 	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
 }
 
 // Resume registers a live run continuing an existing session for a later turn.
-func (h *RecordedHarness) Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error) {
+func (h *RecordedHarness) Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error) {
 	if session == "" {
 		session = sessionFor(taskID)
 	}

@@ -36,6 +36,9 @@ answer $url {
 task 1 status is awaiting-agent                              # the agent resumed
 task 1 request-secret bank-login matches "secret://task/*/bank-login" # reference-only: a secret:// URL, not plaintext
 task 1 input answers.json matches "*please hurry*"           # the text answer was laid into in/
+# The secret was Resolve'd into the resumed agent's ENVIRONMENT at the edge — the
+# plaintext's only destination (M1.5, decision-004). In sim it is the sentinel.
+task 1 run-env bank-login matches "SENTINEL-SECRET(task/*/bank-login)"
 
 # Turn 2: resumed, the agent finishes.
 agent { out reply.txt "Paid. Thank you." }

@@ -32,6 +32,10 @@ type SimHarness struct {
 	cond *sync.Cond // broadcast when a run is registered, so DeliverTurn can wait
 	work workspace.Workspace
 	runs map[int64]*liveRun // keyed by taskID (ephemeral)
+	// envs records the resolved run environment last handed to Start/Resume per
+	// task, so a scenario can assert a Flow C secret reached the agent edge
+	// (decision-004). It is test observability only.
+	envs map[int64]map[string]string
 }
 
 // liveRun is one registered, in-flight turn.
@@ -62,6 +66,7 @@ func NewSimHarness(work workspace.Workspace) *SimHarness {
 	h := &SimHarness{
 		work: work,
 		runs: make(map[int64]*liveRun),
+		envs: make(map[int64]map[string]string),
 	}
 	h.cond = sync.NewCond(&h.mu)
 	return h
@@ -69,19 +74,36 @@ func NewSimHarness(work workspace.Workspace) *SimHarness {
 
 // Start registers a live run for a task's first turn and returns immediately;
 // the instance then sits quiescent with the watch subscription blocked in Wait.
-func (h *SimHarness) Start(ctx context.Context, taskID, runID int64) (Handle, error) {
+func (h *SimHarness) Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error) {
 	session := sessionFor(taskID)
+	h.recordEnv(taskID, env)
 	h.register(taskID, runID, session)
 	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
 }
 
 // Resume registers a live run continuing an existing session for a later turn.
-func (h *SimHarness) Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error) {
+func (h *SimHarness) Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error) {
 	if session == "" {
 		session = sessionFor(taskID)
 	}
+	h.recordEnv(taskID, env)
 	h.register(taskID, runID, session)
 	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
+}
+
+// recordEnv stores the run environment for test assertions (EnvFor).
+func (h *SimHarness) recordEnv(taskID int64, env map[string]string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.envs[taskID] = env
+}
+
+// EnvFor returns the environment last handed to Start/Resume for a task — the
+// resolved Flow C secrets, for a scenario to assert delivery (decision-004).
+func (h *SimHarness) EnvFor(taskID int64) map[string]string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.envs[taskID]
 }
 
 // Wait blocks until DeliverTurn hands this run its turn, or ctx is cancelled

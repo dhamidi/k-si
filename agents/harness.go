@@ -29,10 +29,12 @@ type Result struct {
 // (harness_sim.go) rendezvous-delivers scripted turns.
 type Harness interface {
 	// Start spawns a new session for a task's first turn and returns immediately
-	// with a Handle; the work runs in the worker process.
-	Start(ctx context.Context, taskID, runID int64) (Handle, error)
-	// Resume continues an existing session for a subsequent turn.
-	Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error)
+	// with a Handle; the work runs in the worker process. env carries resolved
+	// secrets (Flow C, docs/06) into the worker's environment — plaintext enters
+	// only here, at the edge, never a message or the log.
+	Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error)
+	// Resume continues an existing session for a subsequent turn; env is as for Start.
+	Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error)
 	// Wait blocks until the run's turn completes or ctx is cancelled, then
 	// returns the Result. On cancellation it returns Result{Stopped:true}.
 	Wait(ctx context.Context, h Handle) Result

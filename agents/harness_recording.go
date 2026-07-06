@@ -31,13 +31,13 @@ func NewRecordingHarness(inner Harness, work workspace.Workspace) *RecordingHarn
 }
 
 // Start delegates to the wrapped harness unchanged.
-func (h *RecordingHarness) Start(ctx context.Context, taskID, runID int64) (Handle, error) {
-	return h.inner.Start(ctx, taskID, runID)
+func (h *RecordingHarness) Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error) {
+	return h.inner.Start(ctx, taskID, runID, env)
 }
 
 // Resume delegates to the wrapped harness unchanged.
-func (h *RecordingHarness) Resume(ctx context.Context, taskID, runID int64, session string) (Handle, error) {
-	return h.inner.Resume(ctx, taskID, runID, session)
+func (h *RecordingHarness) Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error) {
+	return h.inner.Resume(ctx, taskID, runID, session, env)
 }
 
 // Signal delegates to the wrapped harness unchanged.
