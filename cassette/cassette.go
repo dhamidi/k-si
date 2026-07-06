@@ -25,6 +25,8 @@ type Provenance struct {
 	RecordedAt time.Time `json:"recorded_at"` // wall clock of the recording run
 	RecordedBy string    `json:"recorded_by"` // the tool, e.g. "kasi test --record"
 	Source     string    `json:"source"`      // the script or probe that produced it
+
+	Versions map[string]string `json:"versions,omitempty"` // e.g. {"claude":"1.2.3","git":"<sha>"} — for staleness diagnosis
 }
 
 func (p Provenance) validate() error {
