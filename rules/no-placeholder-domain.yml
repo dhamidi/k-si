@@ -1,0 +1,18 @@
+id: no-placeholder-domain
+language: go
+severity: error
+message: "Reserved/placeholder domains (.test, .example, .invalid, example.com) have no DNS/SPF/DKIM/MX — a reply From or capability base-url on one is dropped or spam-filed by recipients. Use a deliverable domain in real edge/production code (docs/04). Sim files are scoped out; a legitimate placeholder in a real file must carry an explicit `// ast-grep-ignore: no-placeholder-domain <reason>`."
+# Sim worlds and the scenario tree deal in placeholder domains by design — the sim
+# ring never sends. Everything else is a real edge and must deliver for real.
+ignores:
+  - '**/*_sim.go'
+  - 'cmd/kasi/vocab.go'
+  - 'cmd/kasi/simworld.go'
+  - 't/**'
+rule:
+  # a hostname label + reserved TLD (.test/.example/.invalid), or example.com;
+  # requires a label before the dot so a bare ".test" suffix GUARD is not flagged.
+  regex: '(?i)([\w-]+\.(test|example|invalid)\b|\bexample\.com\b)'
+  any:
+    - kind: interpreted_string_literal
+    - kind: raw_string_literal

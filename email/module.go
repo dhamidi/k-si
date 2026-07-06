@@ -46,6 +46,7 @@ func SimEdges() Edges {
 		Mail:    NewSimMail(content),
 		Content: content,
 		Work:    workspace.NewMemory(),
+		// ast-grep-ignore: no-placeholder-domain  SimEdges backs only replay/cassette paths that never drive a send (docs/12)
 		BaseURL: "https://kasi.test",
 	}
 }

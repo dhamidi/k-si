@@ -42,6 +42,7 @@ func runServe(args []string) int {
 	state := flags.String("state", "data", "state directory holding the databases (docs/03)")
 	workdir := flags.String("workdir", "data/work", "task workspaces ($WORKDIR, docs/05)")
 	spooldir := flags.String("spool", "data/spool", "outbound mail spool (.eml files) — used unless -send is set")
+	// ast-grep-ignore: no-placeholder-domain  flag DEFAULT only; real -send rejects a .test base-url in the guard below
 	baseURL := flags.String("base-url", "https://kasi.test", "public base URL for capability links (docs/04)")
 	allow := flags.String("allow", "", "comma-separated addresses to seed the initiator allowlist (docs/04)")
 	poll := flags.Bool("poll", false, "poll Fastmail for inbound mail — routes REAL mail into agent runs (off by default)")

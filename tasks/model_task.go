@@ -90,6 +90,7 @@ func IsParticipant(t Task, addr string) bool {
 // routeAddr is the fallback from-address a route replies as when no deliverable
 // reply-from is configured (the sim ring never sends); real delivery uses the
 // configured ReplyFrom (set-reply-from, docs/04).
+// ast-grep-ignore: no-placeholder-domain  sim-only fallback; real delivery uses the configured ReplyFrom (docs/04)
 func routeAddr(route string) string { return route + "@kasi.test" }
 
 // dedup returns addrs with duplicates removed, preserving insertion order.
