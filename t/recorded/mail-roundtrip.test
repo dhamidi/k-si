@@ -1,0 +1,28 @@
+# t/recorded/mail-roundtrip.test — ring-2 outbound mail exchange (docs/13).
+#
+# A self-addressed round-trip: the initiator is kasi@decode.ee, so käsi's reply
+# routes back to that same real inbox — a valid recipient, no third party, no
+# bounce. Run --ring live --record once and it captures BOTH cassettes: the real
+# Claude turn (harness-run) AND the real Fastmail upload→import→submission
+# exchange (mail-exchange). --ring recorded then replays both fully offline; sim
+# scripts the turn and sends through SimMail. Portable across all three rings.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      kasi@decode.ee
+    subject "roundtrip echo"
+    body    "Write exactly the word DONE into out/reply.txt and nothing else. Do not ask any questions."
+}
+
+task 1 status is awaiting-agent
+
+# Ring 1 scripts the turn; ring 2 replays the recorded one (block ignored).
+agent {
+    out reply.txt "DONE"
+}
+
+task 1 status is awaiting-user
+outbound last to is kasi@decode.ee
+outbound last body matches "*DONE*"

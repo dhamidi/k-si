@@ -1,0 +1,15 @@
+# t/mail/inbound-real.test — real inbound MIME through the parser + router (docs/13).
+#
+# A genuine Fastmail message — multipart/alternative, an RFC-2047 base64 encoded
+# subject, real Return-Path/Received/DKIM/X-Spam headers — captured from the live
+# kasi@decode.ee inbox and delivered byte-for-byte with `deliver { raw }`. The
+# best parser test cases are the ones reality wrote: this proves käsi parses and
+# routes real-world bytes, in any ring (deliver -raw is ring-agnostic).
+
+send allow-sender { address support@fastmail.com }
+
+deliver { raw t/cassettes/mail/inbound/welcome.eml }
+
+task 1 route is main
+task 1 status is awaiting-agent
+task 1 participants are support@fastmail.com

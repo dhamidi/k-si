@@ -1,0 +1,374 @@
+Return-Path: <bounce@messagingengine.com>
+Received: from phl-compute-04.internal (phl-compute-04.internal [10.202.2.44])
+	 by slotpi05m54 (Cyrus 3.13.5-191-g292337b6ac-fm-20260702.001-g292337b6) with LMTPA;
+	 Mon, 06 Jul 2026 04:36:01 -0400
+X-Cyrus-Session-Id: slotpi05m54-1783326961-3205746-2-3648060302093422674
+X-Sieve: CMU Sieve 3.0
+X-Spam-known-sender: yes ("The Fastmail Team"); trusted-sender
+X-Spam-sender-reputation: 500 (none)
+X-Spam-score: 0.0
+X-Spam-hits: ALL_TRUSTED -1, HEADER_FROM_DIFFERENT_DOMAINS 0.249, HTML_MESSAGE 0.001,
+  ME_SENDERREP_NEUTRAL 0.001, SPF_PASS -0.001, LANGUAGES en,
+  BAYES_USED none, SA_VERSION 4.0.1
+X-Spam-source: IP='Unknown', Host='unk', Country='unk', FromHeader='com', MailFrom='com'
+X-Spam-charsets: subject='UTF-8', to='UTF-8', plain='utf-8', html='utf-8'
+X-Resolved-to: kasi@decode.ee
+X-Delivered-to: kasi@decode.ee
+X-Mail-from: bounce@messagingengine.com
+Received: from phl-mx-04 ([10.202.2.203])
+  by phl-compute-04.internal (LMTPProxy); Mon, 06 Jul 2026 04:36:01 -0400
+Received: from phl-mx-04.messagingengine.com (localhost [127.0.0.1])
+	by mailmx.phl.internal (Postfix) with ESMTP id 602191EA00BF;
+	Mon,  6 Jul 2026 04:35:58 -0400 (EDT)
+Received: from mailmx.phl.internal (localhost [127.0.0.1])
+    by phl-mx-04.messagingengine.com (Authentication Milter) with ESMTP
+    id 3150A336D93.1FF691EA012D;
+    Mon, 6 Jul 2026 04:35:58 -0400
+ARC-Seal: i=1; a=rsa-sha256; cv=none; d=messagingengine.com; s=fm2; t=
+    1783326958; b=TDXOt7ljIXhgY2w+nXYOCxNcSX/zVDRW0qTMZCr3D7mVsK9N0N
+    HZUH48+ncnqAQpCkkDZW6bOjX7nDeZsU1MdF94HWbB+9d8R2IFd3MszUw6Gpvv1N
+    VYlBG+XQHsE7s5X0hwsoGjq+po/2ZQjzPHi+TEMY7NhDh/k29N9a4qx+0TBgr/Zg
+    wmAwO6H4pKH0VoDXigcErBVfItYfJycrzLQu6SBhGriaIMGEz0araaPacTdjkvJ7
+    Xs1VfX1D1CLB4eLDqiYIlY4+JqzbAJdSpXFO84LMIqA+qZWucP9eXX3xzkYLv8nX
+    9JJtySvtlxMlXB5zxk5tx9nF0OEtpZiw6e4Q==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=
+    messagingengine.com; h=subject:date:mime-version:content-type
+    :content-transfer-encoding:message-id:to:reply-to:from; s=fm2;
+    t=1783326958; bh=CBeZtE+H1tKXMdVM0c4ARMeoaybnrPE8YSy518Tsp+o=; b=
+    AqRfnRSjypJRLc4aK7ELCdoazZ9K7pBbdyw6fp5DG+v4jqmreVqK1ol5AkohZgta
+    ondoHujkdt8HdoDZW606n0V6I9aFwdc/0bfOQ6FgXWWiPHDRWTj5wtpBXTTw4syo
+    O/ndsXcaqHuYNO20T0NwivsR8HXHRLRHTeBpbNSLFRiMbFuVRVOJ8xayLSqc6mCv
+    oI8d2Y4/UYdmfQuoP58JcVjcgzMo97EkDDHlI4f3sRe5WD5i+cySSNl3XlIYwb7H
+    Y5BsExAXG87z07GOnHnsOozeCTJ2M1liX3OrtQ92+OfJBEFv+oMsjHI12/j8ZDMJ
+    Yxk3Aau4t2wbtQ5v73YXfg==
+ARC-Authentication-Results: i=1; phl-mx-04.messagingengine.com;
+    x-csa=none;
+    x-me-sender=pass
+    policy.xms=
+    7mhLatbXwqwiotV6Vo0sfbnWOvR42TbjmUptlIXQpIiqwKW7Coy0CUAqHO1pO6d8tpbJXwKu6c3iDFajSNx35ooQ14P7ZEvBg-nFzLD0en-HMNUFhnLLeUyF33xVmu8s40yqb2roUB88b-wxsjlAka9PzS93o0HU1GhGbrWQL7KUO8nUkWCpiSK_kQ72--cplICtLPjfow;
+    x-ptr=pass smtp.helo=fsystem-a1-smtp.messagingengine.com
+    policy.ptr=fsystem-a1-smtp.messagingengine.com;
+    bimi=skipped (DMARC Policy is not at enforcement);
+    arc=none (no signatures found);
+    dkim=pass (2048-bit rsa key sha256) header.d=fastmail.com
+    header.i=@fastmail.com header.b=kXBRfpsu header.a=rsa-sha256
+    header.s=fm2;
+    dkim=pass (2048-bit rsa key sha256) header.d=messagingengine.com
+    header.i=@messagingengine.com header.b=gtBk0ucs header.a=rsa-sha256
+    header.s=fm2;
+    dmarc=pass policy.published-domain-policy=none
+    policy.applied-disposition=none policy.evaluated-disposition=none
+    (p=none,d=none,d.eval=none) policy.policy-from=p
+    header.from=fastmail.com;
+    iprev=pass smtp.remote-ip=103.168.172.134
+    (fsystem-a1-smtp.messagingengine.com);
+    spf=pass smtp.mailfrom=bounce@messagingengine.com
+    smtp.helo=fsystem-a1-smtp.messagingengine.com
+X-ME-Authentication-Results: phl-mx-04.messagingengine.com;
+    x-tls=pass smtp.version=TLSv1.3 smtp.cipher=TLS_AES_256_GCM_SHA384
+      smtp.bits=256/256;
+    x-vs=transactional:account score=20 state=14
+Authentication-Results: phl-mx-04.messagingengine.com;
+    x-csa=none;
+    x-me-sender=pass
+      policy.xms=
+      7mhLatbXwqwiotV6Vo0sfbnWOvR42TbjmUptlIXQpIiqwKW7Coy0CUAqHO1pO6d8tpbJXwKu6c3iDFajSNx35ooQ14P7ZEvBg-nFzLD0en-HMNUFhnLLeUyF33xVmu8s40yqb2roUB88b-wxsjlAka9PzS93o0HU1GhGbrWQL7KUO8nUkWCpiSK_kQ72--cplICtLPjfow;
+    x-ptr=pass smtp.helo=fsystem-a1-smtp.messagingengine.com
+      policy.ptr=fsystem-a1-smtp.messagingengine.com
+Authentication-Results: phl-mx-04.messagingengine.com;
+    bimi=skipped (DMARC Policy is not at enforcement)
+Authentication-Results: phl-mx-04.messagingengine.com;
+    arc=none (no signatures found)
+Authentication-Results: phl-mx-04.messagingengine.com;
+    dkim=pass (2048-bit rsa key sha256) header.d=fastmail.com
+      header.i=@fastmail.com header.b=kXBRfpsu header.a=rsa-sha256
+      header.s=fm2;
+    dkim=pass (2048-bit rsa key sha256) header.d=messagingengine.com
+      header.i=@messagingengine.com header.b=gtBk0ucs header.a=rsa-sha256
+      header.s=fm2;
+    dmarc=pass policy.published-domain-policy=none
+      policy.applied-disposition=none policy.evaluated-disposition=none
+      (p=none,d=none,d.eval=none) policy.policy-from=p
+      header.from=fastmail.com;
+    iprev=pass smtp.remote-ip=103.168.172.134
+      (fsystem-a1-smtp.messagingengine.com);
+    spf=pass smtp.mailfrom=bounce@messagingengine.com
+      smtp.helo=fsystem-a1-smtp.messagingengine.com
+X-ME-VSCause: dmFkZTFfkUJp2+BS9AhjmYIqWJfAuT7Z5Ns9ua7l8oT51OdczkHZIyfcAsj56CCEFS77oL
+    tFcAUujLR95Z2Lr66VNAAVWoGXUy2GXNnAoKXsOhTt5+NSVHtn371irmCqpsM8t5dFOixr
+    pUIS52M0jFYi7aTZFD0s91f6vbIBFCZRt80dde9+91bqWObDW3wWh2gx56A5z6L1N42eZI
+    JJnisRDfv0vf62T8WrbaNNFahLnuCcRvbGH1naEl6dUSXE42W7MPQrlkp5/0irwzJHtiaS
+    pLiuQbtO0WaSqWyb+vp6ZGcc/KLq68rCV/RuH8BtNAZRrAIMgurBgFWE7FXIZ34NbheVkP
+    ZXrRxp5n7AV1D2EdgXJSOHmq0LWC2RL48K1c1J45ZZuJ6kAaq+lt7yHXuiDaw6wF4z1QjU
+    FlBNkOFJgQQ0t2EYEVZCwKClWs8idF3Ay4+8kuNT8fZxLkCfQTjEYEDLw+njHfcjayaW6X
+    gf0AUKocoJfDZLt6Q1EbRJps8757eeQLxG+eQJcEdC/xe58c2YHpvtDnLtCLZFi3Mhv3xn
+    fyhuHxMsOiwp/hY8nbYEq0BV+9AWRNxUN5tt66YC9AYDt5SgCgOOr6PNRqKM/4yZ3NWl+i
+    5QNuBcwt+EyT7oVmayPt/DYupqs8MDYLL1F9MVCb9qPd2sgS42EqromRcEFg
+X-ME-VSScore: 20
+X-ME-VSCategory: transactional:account
+X-ME-CSA: none
+Received-SPF: pass
+    (messagingengine.com: Sender is authorized to use 'bounce@messagingengine.com' in 'mfrom' identity (mechanism 'include:spf.messagingengine.com' matched))
+    receiver=phl-mx-04.messagingengine.com;
+    identity=mailfrom;
+    envelope-from="bounce@messagingengine.com";
+    helo=fsystem-a1-smtp.messagingengine.com;
+    client-ip=103.168.172.134
+Received: from mailfsystem.phl.internal (phl-outbound-02.internal [10.202.2.182])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (2048 bits))
+	(No client certificate requested)
+	by mailmx.phl.internal (Postfix) with ESMTPS id 1FF691EA012D;
+	Mon,  6 Jul 2026 04:35:58 -0400 (EDT)
+Received: from phl-compute-10.internal (phl-compute-10.internal [10.202.2.50])
+	by mailfsystem.phl.internal (Postfix) with ESMTP id 10CE81E00EF8;
+	Mon,  6 Jul 2026 04:35:58 -0400 (EDT)
+Received: from phl-web-05 ([10.202.2.216])
+  by phl-compute-10.internal (MEProxy); Mon, 06 Jul 2026 04:35:58 -0400
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=fastmail.com; h=
+	cc:content-transfer-encoding:content-type:content-type:date:date
+	:from:from:in-reply-to:message-id:mime-version:reply-to:reply-to
+	:subject:subject:to:to; s=fm2; t=1783326958; x=1783413358; bh=CB
+	eZtE+H1tKXMdVM0c4ARMeoaybnrPE8YSy518Tsp+o=; b=kXBRfpsuPTj89CcJI8
+	uDIXQUr1crZokmpLnoSBm/mO0HVgK1yqaNClyfDt3isoKNL7YZTpqK0FPSccB9OD
+	2zP40kBlRpEUHd15gVrLdeiPVtnisj/gjDSuYeoRWShNdA4KkuiRJ0AQHFM5p2g0
+	xf7XM8Xw21snUQMRX4qGLvC5mEGJl925zc92ScLAhhAmnhIB4oCDCMtT4LwZlA6I
+	LyF9fz7tf9Iz/NhhXuu0M+4Aul0ebShNlhJT9QouQC5jE891aDD/2E9424fKFxOS
+	QbcA04IkrqhHRl7C9P2qBqwHC1FIHnXooHWIS7vl5Tr0Yaic6h9aZ4r/w68rX/fP
+	6Hxw==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=
+	messagingengine.com; h=cc:content-transfer-encoding:content-type
+	:content-type:date:date:feedback-id:feedback-id:from:from
+	:in-reply-to:message-id:mime-version:reply-to:reply-to:subject
+	:subject:to:to:x-me-proxy:x-me-sender:x-me-sender:x-sasl-enc; s=
+	fm2; t=1783326958; x=1783413358; bh=CBeZtE+H1tKXMdVM0c4ARMeoaybn
+	rPE8YSy518Tsp+o=; b=gtBk0ucsFxCaz6HJ83uM4Drfbhng6VAL9RVJBx3cc6e/
+	E9qaK0cOcLtCofIhH188LIAoasHrJLbgJ2cTNC4cO1qKUXpF/O2KeKtKLnOFKGQc
+	Ct5zuysYVFLIbYZWKcYmSMyoFc6T3AU4pF4kfHjR8zL2ig3Gx7ZuMTfFD7qTfCrn
+	4mv5Jfbv7bAegQ6KCrLxwE6UOirUVhscTDG2ZEvpbUgLfWwmedWqb3V0wbVtxWgJ
+	yVkydSOvminn8H+2LF36GTaWp+iD2Q/zOshMl/sqyuWDHZk7kHRa5BKk/u2MF96c
+	nRN2sh7g/xWin0reQdVWwcnQskpyry5cVs9uFRttRw==
+X-ME-Sender: <xms:7mhLauLJKrG34VokXnvqhzZdt5HTOuZg9_GMcNDykqbq47IT3dQt-Y1PoMlypsLk>
+    <xme:7mhLag_Vf9TRDy3hlirYB5Ly4e35N_H8grHymFCJJZqiADUhUB7xa5FIpGw1d6A4T
+    s3wctkJI1ERcHrqfttXlXRnLdGRce3MeAjn4D2dSM3ezbOwag8>
+X-ME-Proxy-Cause: dmFkZTF4LCE51p0vvorO2rkueucUUHsoatXdxr7UMja79oQ3T7P1xKQ4iWhJIXde8ANybm
+    uSYmVi15fEQV6C24/ZNf6K99yB4Zhs/hbH0S6uCfAmT64ymY5Iyb+PuaGScVEmd9Q32e9T
+    o05ulj/hunPd8fYBK+XHfiXpLKvjZH9E6iUVc9Nk2V9P4hs5F2Xj7Pyz9BiPE14i0rVV4b
+    Ds71mkEfp8lhu+884oLpqd67dApfk+iMN2u4SUxXyfLwqWh+FnX3sTwvkVPNGveasDFLa1
+    kLn1Y+OojFeRYPIjQOjbEonf0J6xX0/F4lpRu+bOoK8QVVKdnOomVCC5jno5bH1KZ7fSFk
+    Yw2YqFiOgYZKXPwXHLP2CeD/shhOmb0EvW1byQQhQNJFUrl2XQt4GZfn26mhiz2PdL/dIo
+    CtFvyfwggJXfrT2fCs6mjy+YFWpCRhnbwXMV+LQkzMZLkTVkyu2V/xOHu2MhU+U8k5Ddl4
+    RfIJ8eAZKyR7GgaB90dAHbtEPs/LfBKj3D54Jlaiqj2Z7TxjnWoFmxRHMITfBIk0vpN0h6
+    9vpmlFNPtH1b/0zRKolWhm8RICzuNk1u532GfQ5rm9K0ukkVVNVD01a7x9/Iei92GKLFFs
+    RRSyOmBVl5r/FhmDc+ME1vz/UuUF6f5oWozDUnPW5I6wwCR60q2grOjmf1nw
+X-ME-Proxy: <xmx:7mhLampTD3quubwxRGXh1GHquMqcAJlTeCM6-7xa7ahlf1kIvDqsWg>
+    <xmx:7mhLaqpfw2emw1sppxTVZONOkP_zFw1xja8iobsaSjuib5Y7WE9yvA>
+    <xmx:7mhLao1tI4ckmIt4TYK3dp9ylhCrojmVZzPZFmzyO64zh9XD5sGHqw>
+    <xmx:7mhLahCcWMqKUnYjspC0w605ocASjIRNbtSS4MGieHm60TUj8IjlXB88WeAe>
+    <xmx:7mhLaodQd2xBguIKwlNaUIHD53aTJvVzQoLvTslmCQNuwvCy853KdMuC>
+Feedback-ID: i35d941ae:Fastmail
+Received: by mailuser.phl.internal (Postfix, from userid 99)
+	id E76F01600087; Mon,  6 Jul 2026 04:35:57 -0400 (EDT)
+Subject: =?UTF-8?B?V2VsY29tZSB0byBGYXN0bWFpbCDigJQgZ2V0IHNldCB1cCBpbiBt?=
+ =?UTF-8?B?aW51dGVz?=
+Date: Mon, 6 Jul 2026 04:35:57 -0400
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary=17833269570.6D7C89.2319341
+Content-Transfer-Encoding: 7bit
+Message-ID: <17833269571.fE3a.2319341@phl-web-05.internal>
+Errors-To: bounce@messagingengine.com
+To: =?UTF-8?B?S8Okc2k=?= <kasi@decode.ee>
+Auto-Submitted: auto-generated
+X-FM-MailKit: welcome/welcome-1-non-admins
+X-FM-Archive-To: =?UTF-8?B?S8Okc2kgPGthc2lAZGVjb2RlLmVlPg==?=
+Reply-To: support@fastmail.com
+From: "The Fastmail Team" <support@fastmail.com>
+X-Mailer: MessagingEngine.com Internal Interface
+
+
+--17833269570.6D7C89.2319341
+Date: Mon, 6 Jul 2026 04:35:57 -0400
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+
+## Welcome to Fastmail
+
+Your account is part of a group managed by an admin. You can reach out to y=
+our admin with account questions, or [contact our support team](https://www=
+.fastmail.help/hc/en-us) directly.
+
+Getting started takes just a few minutes.
+
+**Step 1: Bring your email to Fastmail**=20=20
+[Use our migration tool](https://app.fastmail.com/settings/migration/import=
+) to import your email, contacts, and calendars from your old provider. You=
+ can also send and receive from your old address right inside Fastmail.
+
+**Step 2: Get the Fastmail app**=20=20
+[Download Fastmail](https://app.fastmail.com/settings/migration/apps) on yo=
+ur phone or tablet for push notifications and quick access on the go. We al=
+so have [great apps for Mac, Windows, and Linux](https://www.fastmail.com/d=
+ownload/).
+
+**Step 3: Make Fastmail yours**=20=20
+[Explore your settings](https://app.fastmail.com/settings) to set up your c=
+alendars, choose your color scheme, and organize with labels or folders.
+
+All the best,=20=20
+The Fastmail Team
+
+Questions? [Contact support](https://support.fastmail.com/).=20=20
+Stay up-to-date on [our blog](https://fastmail.com/blog) and [Mastodon](htt=
+ps://mastodon.social/@fastmail/).
+
+
+--17833269570.6D7C89.2319341
+Date: Mon, 6 Jul 2026 04:35:57 -0400
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html>
+<html lang=3D"en" xmlns:v=3D"urn:schemas-microsoft-com:vml" xmlns:o=3D"urn:=
+schemas-microsoft-com:office:office" xmlns:w=3D"urn:schemas-microsoft-com:o=
+ffice:word">
+<head>
+<title></title>
+<meta charset=3D"utf-8">
+<meta name=3D"viewport" content=3D"width=3Ddevice-width">
+<meta name=3D"color-scheme" content=3D"light dark">
+<meta name=3D"supported-color-schemes" content=3D"light dark">
+<!--[if gte mso 9]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPer=
+Inch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+<style type=3D"text/css">
+:root {color-scheme: light dark;supported-color-schemes: light dark;}
+pre#wrapped-content {font: 16px/25px "Proxima Nova", system-ui, "-apple-sys=
+tem", "Segoe UI", Arial, sans-serif;}
+h1,h2,h3,p,pre,ul,ol,hr{margin:20px 0;}
+h1,h2,h3{line-height:1.2;color:#333E48;}
+h1{font-size:22px;}
+h2{font-size:20px;}
+h3{font-size:18px;}
+h1,h2,h3,strong{font-weight:600;}
+.main h2 a{text-decoration:none;font-weight:600;color:#0067B9;font-size:20p=
+x;}
+hr{border:0;border-top:1px solid #e0e2e3;height:0;background:transparent;pa=
+dding:0;margin:24px 0;}
+.main a{color:#0067b9;}
+.main .cta {display:inline-block;padding:4px 16px;background:#0067b9;color:=
+#fff;border-radius:4px;font-weight:600;text-decoration:none}
+.logo{line-height:16px;}
+.main>h1:first-child,.main>h2:first-child,.main>h3:first-child,.main>p:firs=
+t-child{margin-top:0px!important;}
+.main>p:last-child{margin-bottom:0px!important;}
+@media(max-width:500px){
+.main{padding:30px 20px!important;}
+.logo{padding:10px!important;}
+#type-header{margin-top:0;}
+}
+@media(max-width:400px){.main h2 a{display:block;}}
+@media screen{
+@import url("https://app.fastmail.com/static/styles/font.css");
+}
+.logo-dark,.logo-light{width:120px;height:30px;}
+.logo-dark{display: none!important;}
+@media (prefers-color-scheme: dark) {
+body{background:#2f3136!important;color:#ffffff!important;}
+footer{color:#c9d5e2!important;}
+h1,h2,h3{color:#c9d5e2!important;}
+.main-body{background:#38393a!important;}
+.logo-dark{display:inline-block!important;width:auto!important;max-height:i=
+nherit!important;overflow:visible!important;float:none!important;}
+.logo-light{display:none!important;}
+.main a,.main h2 a{color:#69b3e7;}
+}
+</style>
+<!--[if mso]>
+<style type=3D"text/css">
+body, table, td {font-family: Arial, Helvetica, sans-serif !important;}
+</style>
+<![endif]-->
+</head>
+<body bgcolor=3D"#ebeced" style=3D"padding:0;margin:0;background:#ebeced;co=
+lor:#333e48;font:16px/25px 'Proxima Nova', system-ui, '-apple-system', 'Seg=
+oe UI', Arial, sans-serif;text-align:center;-webkit-text-size-adjust:none">
+
+<header>
+<!--[if mso]>
+<a href=3D"https://www.fastmail.com/" class=3D"logo logo-light" style=3D"bo=
+rder:none;text-decoration:none;display:inline-block;padding:15px;color:inhe=
+rit"><img src=3D"https://app.fastmail.com/static/images/emailtemplates/FM-L=
+ogo-RGB-240-2x.png" width=3D"120" height=3D"30" alt=3D"Fastmail"></a>
+<![endif]-->
+<!--[if !mso]><! -->
+<a href=3D"https://www.fastmail.com/" class=3D"logo" style=3D"border:none;t=
+ext-decoration:none;display:inline-block;padding:15px;color:inherit"><img s=
+rc=3D"https://app.fastmail.com/static/images/emailtemplates/FM-Logo-RGB-240=
+-2x.png" alt=3D"Fastmail" class=3D"logo-light"><img src=3D"https://app.fast=
+mail.com/static/images/emailtemplates/FM-Logo-Dark-BG-RBG-240-2x.png" alt=
+=3D"Fastmail" class=3D"logo-dark" style=3D"display:none"></a>
+<!--<![endif]-->
+</header>
+
+<div style=3D"background:#fff;max-width:600px;width:100%;margin:auto;text-a=
+lign:left" class=3D"main-body">
+<!--[if gte mso 9]>
+<table align=3D"center" style=3D"width:600px;text-align:left; margin:20px 0=
+;"><tr><td style=3D"padding:20px 0;">
+<table style=3D"background:#fff;width:100%;"><tr><td style=3D"padding:20px;=
+">
+<![endif]-->
+<div class=3D"main" style=3D"padding:40px 30px">
+<h2>Welcome to Fastmail</h2>
+
+<p>Your account is part of a group managed by an admin. You can reach out t=
+o your admin with account questions, or <a href=3D"https://www.fastmail.hel=
+p/hc/en-us">contact our support team</a> directly.</p>
+
+<p>Getting started takes just a few minutes.</p>
+
+<p><strong>Step 1: Bring your email to Fastmail</strong> <br />
+<a href=3D"https://app.fastmail.com/settings/migration/import">Use our migr=
+ation tool</a> to import your email, contacts, and calendars from your old =
+provider. You can also send and receive from your old address right inside =
+Fastmail.</p>
+
+<p><strong>Step 2: Get the Fastmail app</strong> <br />
+<a href=3D"https://app.fastmail.com/settings/migration/apps">Download Fastm=
+ail</a> on your phone or tablet for push notifications and quick access on =
+the go. We also have <a href=3D"https://www.fastmail.com/download/">great a=
+pps for Mac, Windows, and Linux</a>.</p>
+
+<p><strong>Step 3: Make Fastmail yours</strong> <br />
+<a href=3D"https://app.fastmail.com/settings">Explore your settings</a> to =
+set up your calendars, choose your color scheme, and organize with labels o=
+r folders.</p>
+
+<p>All the best, <br />
+The Fastmail Team</p>
+
+<p>Questions? <a href=3D"https://support.fastmail.com/">Contact support</a>=
+. <br />
+Stay up-to-date on <a href=3D"https://fastmail.com/blog">our blog</a> and <=
+a href=3D"https://mastodon.social/@fastmail/">Mastodon</a>.</p>
+
+</div>
+<div style=3D"height:6px;background:linear-gradient(90deg,#64afe5,#0168b9)"=
+></div>
+</div>
+
+<footer>
+<p style=3D"padding:30px;line-height:20px;font-size:14px;color:#858b91;marg=
+in-top:0;">
+Powered by <a href=3D"https://www.fastmail.com" style=3D"color:#858b91;font=
+-weight:600;">Fastmail</a><br />
+<a style=3D"color:#858b91" href=3D"https://www.fastmail.help/hc/en-us">Get =
+support</a>
+</p>
+</footer>
+</body>
+</html>
+
+--17833269570.6D7C89.2319341--
