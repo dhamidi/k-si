@@ -1,0 +1,43 @@
+# t/recorded/agent-resume.test — harness conformance: session continuity (docs/13).
+#
+# The adapter must resume a real session across turns, not start a fresh one. To
+# prove it, turn 1 the agent invents a token that lives ONLY in its session — it
+# is never written into any message body, so it cannot be re-derived from in/.
+# Turn 2, resumed in the same session, it must recall that same token. If Resume
+# started fresh, the token would be lost and the LIVE probe would fail to match —
+# which is exactly the conformance the probe earns. Portable: sim scripts the
+# token, recorded replays it, live makes the real agent remember.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "memory check"
+    body    "Invent a random 4-digit number and remember it. Write ONLY those four digits to out/reply.txt — nothing else, no words."
+}
+
+task 1 status is awaiting-agent
+agent {
+    out reply.txt "4271"
+}
+task 1 status is awaiting-user
+
+# Capture what the agent chose, so turn 2 can be checked against it in any ring.
+set token [outbound last body]
+
+# The user replies in the same thread; the agent resumes the SAME session.
+deliver {
+    from kasi@decode.ee
+    reply-to-last
+    body "What four-digit number did you invent a moment ago? Write ONLY those four digits to out/reply.txt again — nothing else."
+}
+
+task 1 status is awaiting-agent
+agent {
+    out reply.txt "4271"
+}
+task 1 status is awaiting-user
+
+# Turn 2 reproduced the token — only possible if the session was resumed.
+outbound last body matches "*$token*"

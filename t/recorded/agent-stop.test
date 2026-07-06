@@ -1,0 +1,25 @@
+# t/recorded/agent-stop.test — harness conformance: stopping a running agent (docs/13).
+#
+# The adapter must stop a real, running process on demand. The turn is written to
+# run long enough that a live probe can signal it mid-flight; `stop` is the web
+# Stop button / supervisor path. Across rings the one stimulus behaves the same:
+# sim cancels the blocked SimHarness, live SIGTERMs the real Claude process,
+# recorded returns Stopped from the cassette. A stopped run sends no reply and
+# hands the task back to the human (docs/05).
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "stop check"
+    body    "Run the shell command `sleep 30`, then write DONE to out/reply.txt."
+}
+
+task 1 status is awaiting-agent
+
+# Signal the running run before it can finish.
+stop
+
+task 1 status is awaiting-user
+outbound count is 0

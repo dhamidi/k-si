@@ -1,0 +1,10 @@
+{
+  "kind": "harness-run",
+  "recorded_at": "2026-07-06T10:15:33.929615979Z",
+  "recorded_by": "kasi test --ring live --record",
+  "source": "t/recorded/agent-stop.test",
+  "versions": {
+    "claude": "2.1.201 (Claude Code)",
+    "git": "9277092"
+  }
+}
