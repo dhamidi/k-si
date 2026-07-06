@@ -18,7 +18,9 @@ func handleStopAgentRun(v runtime.View, s Model, p msg.StopAgentRunPayload,
 	if i < 0 {
 		return s, nil
 	}
-	s.Runs[i].Status = StatusStopping
+	runs := append([]AgentRun(nil), s.Runs...) // copy-on-write: never mutate the shared snapshot
+	runs[i].Status = StatusStopping
+	s.Runs = runs
 	return s, []runtime.Cmd{
 		NewSignalAgentRun(SignalAgentRunPayload{TaskID: p.TaskID, RunID: p.RunID}),
 	}

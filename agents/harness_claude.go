@@ -48,7 +48,6 @@ type claudeRun struct {
 	transcriptRel string
 	outDir        string
 	done          chan error
-	stopped       bool
 }
 
 var _ Harness = (*Claude)(nil)
@@ -164,7 +163,10 @@ func (c *Claude) Wait(ctx context.Context, h Handle) Result {
 		err := <-run.done
 		return Result{Exit: exitCode(err), TranscriptPath: run.transcriptRel, OutManifest: c.manifest(run), Stopped: true}
 	case err := <-run.done:
-		return Result{Exit: exitCode(err), TranscriptPath: run.transcriptRel, OutManifest: c.manifest(run), Stopped: run.stopped}
+		// A natural exit is not a stop; if this was actually a signalled run, the
+		// model (its status is stopping) is the authority and corrects it in the
+		// finish-agent-run handler. No mutable "stopped" field to race (docs/01).
+		return Result{Exit: exitCode(err), TranscriptPath: run.transcriptRel, OutManifest: c.manifest(run), Stopped: false}
 	}
 }
 
@@ -206,7 +208,6 @@ func (c *Claude) Signal(ctx context.Context, h Handle) error {
 	if run == nil {
 		return nil
 	}
-	run.stopped = true
 	return c.signalRun(run)
 }
 

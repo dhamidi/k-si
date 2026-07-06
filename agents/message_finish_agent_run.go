@@ -29,21 +29,33 @@ func registerFinishAgentRun(mod *runtime.Module) {
 func handleFinishAgentRun(v runtime.View, s Model, p FinishAgentRunPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	// A run is "stopped" if the model says so — its status was set to stopping by
+	// stop-agent-run — not because a mutable harness field claimed it (docs/01:
+	// everything the model knows rides on messages). The harness's exit-vs-cancel
+	// hint (p.Stopped) corroborates but the model is the authority.
+	stopped := p.Stopped
+
+	runs := append([]AgentRun(nil), s.Runs...) // copy-on-write: never mutate the shared snapshot
 	if i := s.findRun(AgentRunID(p.RunID)); i >= 0 {
-		if p.Stopped {
-			s.Runs[i].Status = StatusStopped
-		} else {
-			s.Runs[i].Status = StatusFinished
+		if runs[i].Status == StatusStopping {
+			stopped = true
 		}
-		s.Runs[i].Exit = p.Exit
-		s.Runs[i].TranscriptPath = p.TranscriptPath
+		if stopped {
+			runs[i].Status = StatusStopped
+		} else {
+			runs[i].Status = StatusFinished
+		}
+		runs[i].Exit = p.Exit
+		runs[i].TranscriptPath = p.TranscriptPath
 	}
+	s.Runs = runs
+
 	return s, []runtime.Cmd{
 		runtime.Send(taskmsg.NewAgentRunFinished(taskmsg.AgentRunFinishedPayload{
 			TaskID:         p.TaskID,
 			RunID:          p.RunID,
 			OutManifest:    p.OutManifest,
-			Stopped:        p.Stopped,
+			Stopped:        stopped,
 			TranscriptPath: p.TranscriptPath,
 		})),
 	}
