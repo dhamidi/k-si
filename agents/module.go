@@ -3,6 +3,7 @@ package agents
 import (
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
+	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/workspace"
 )
 
@@ -15,6 +16,9 @@ type Edges struct {
 	// Secrets resolves secret:// references into the run environment at the edge
 	// (Flow C, decision-004) — plaintext never enters the model or the log.
 	Secrets secrets.Secrets
+	// Content is read at run start to provision every learned skill into the
+	// workspace skills/ box (Flow D, decision-009).
+	Content store.Content
 }
 
 // Module bundles harness invocation, agent runs, and transcripts (docs/01).
@@ -43,5 +47,6 @@ func SimEdges() Edges {
 		Harness: NewSimHarness(work),
 		Work:    work,
 		Secrets: secrets.NewSim(),
+		Content: store.NewMemoryContent(),
 	}
 }

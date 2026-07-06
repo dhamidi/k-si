@@ -35,20 +35,25 @@ Build the **authoring slice**, faithful to the Agent Skills format:
   `Skill` entry (id, name, description, origin, origin_task, version) and the
   `register-skill` handler. Skills are global, not `tasks`-scoped; `store-skill`
   (tasks) → `register-skill` (skills) is the Flow-C mint→register cross-module emit.
-- **Provisioning — same task, for now.** `store-skill` writes the tree into the
-  workspace as `skills/<name>/…` (a nested `skills/` box beside `in/`/`out/`) — the
-  exact layout the harness expects, so the agent finds `./skills/<name>/SKILL.md`.
-  Because the workspace persists across turns, the **next turn of the same task**
-  has it. The worker prompt documents authoring (`out/skills/<name>/`) and use
-  (`./skills/`).
+- **Provisioning — ALL skills into EVERY run, by default.** `start-agent-run` (the
+  single choke point every run passes through — first turn, reply, or resume) reads
+  the whole `skill` table and lays each skill's tree into the run's workspace
+  `skills/<name>/…` box (the exact layout the harness expects) before starting the
+  harness. So every agent run — any task — sees every skill käsi has learned, with
+  no template needed: skills extracted from one run are laid into future runs by
+  default. The Agent Skills progressive-disclosure model means the agent only
+  *loads* the skills relevant to its task (from each SKILL.md's name+description), so
+  provisioning all of them is correct, not noisy. `store-skill` additionally
+  provisions the just-authored skill into the current workspace immediately. The
+  worker prompt documents authoring (`out/skills/<name>/`) and use (`./skills/`).
 
 ## Out of scope (deferred, named)
 
-Cross-task provisioning from the table at spawn, **task templates** declaring
-skills, **tools/mise**, secret namespaces, UI **editing/retiring/promoting**, and
-harness-native skill activation config. Cross-task reuse needs the template
-registry (absent); until then a stored skill is reusable within its task and
-**browsable in the UI** (the added phase) — the honest, shippable increment.
+**Task templates** that SELECT a per-route subset of skills (until then, all skills
+are provisioned to all runs — correct given progressive disclosure, just not
+selective), **tools/mise**, secret namespaces, UI **editing/retiring/promoting**,
+and harness-native skill activation config. A stored skill is browsable in the UI
+(the added phase) and now reusable across every future run.
 
 ## Consequences
 

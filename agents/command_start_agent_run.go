@@ -2,8 +2,12 @@ package agents
 
 import (
 	"context"
+	"fmt"
+	"log"
 
+	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/skilltree"
 )
 
 // "start-agent-run" — start or resume the worker harness in the task workspace
@@ -43,6 +47,13 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		env[field] = plaintext
 	}
 
+	// Provision every learned skill into this run's workspace before the harness
+	// starts — the single choke point every run passes through, so skills authored
+	// by any task are laid into every future run by default (Flow D, decision-009).
+	if err := provisionSkills(e, p.TaskID); err != nil {
+		return err
+	}
+
 	// Register the live run and return immediately; the agent-watch
 	// subscription emits finish-agent-run when the turn completes (docs/05).
 	// No emit here — results leave only via that subscription.
@@ -53,4 +64,31 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		_, err = e.Harness.Start(ctx, p.TaskID, p.RunID, env)
 	}
 	return err
+}
+
+// provisionSkills lays every skill in the registry into the run's workspace
+// skills/<name>/ box (docs/07 provisioning). It reads the skill table directly —
+// an effect has no model — and unpacks each skill's tar tree, rooting it under the
+// skill name. A corrupt blob is logged and skipped rather than blocking the run.
+func provisionSkills(e Edges, taskID int64) error {
+	rows, err := e.Content.AllSkills()
+	if err != nil {
+		return fmt.Errorf("agents: provision skills: %w", err)
+	}
+	for _, row := range rows {
+		parts, err := skilltree.Unpack(row.Content)
+		if err != nil {
+			log.Printf("agents: provision skill %q: %v", row.Name, err)
+			continue
+		}
+		rooted := make([]mime.Part, 0, len(parts))
+		for _, part := range parts {
+			part.Filename = row.Name + "/" + part.Filename
+			rooted = append(rooted, part)
+		}
+		if err := e.Work.WriteSkills(taskID, rooted); err != nil {
+			return fmt.Errorf("agents: provision skill %q: %w", row.Name, err)
+		}
+	}
+	return nil
 }

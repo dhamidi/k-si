@@ -1,0 +1,32 @@
+# t/research/skills-crosstask.test — a skill authored by ONE task is laid into a
+# DIFFERENT task's run by default (Flow D, decision-009). No template, no reference:
+# start-agent-run provisions every registered skill into every run's workspace, so
+# käsi's learned know-how reaches future tasks automatically.
+
+send allow-sender { address kasi@decode.ee }
+
+# Task 1 learns a skill.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "learn"
+    body    "work out how to pay invoices and remember it"
+}
+task 1 status is awaiting-agent
+agent {
+    out reply.txt "Saved a skill for next time."
+    out skills/pay-invoice/SKILL.md           [fixture skills/pay-invoice/SKILL.md]
+    out skills/pay-invoice/scripts/extract.sh [fixture skills/pay-invoice/scripts/extract.sh]
+}
+task 1 status is awaiting-user
+
+# Task 2 is a brand-new, unrelated task that never authored anything. Its run must
+# still find the skill provisioned — laid in at start-agent-run from the registry.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay this"
+    body    "pay the attached invoice"
+}
+task 2 status is awaiting-agent
+task 2 provisioned are {pay-invoice/SKILL.md pay-invoice/scripts/extract.sh}

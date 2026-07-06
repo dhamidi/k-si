@@ -104,7 +104,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec}),
+		agents.Module(agents.Edges{Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
