@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/tasks"
+	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/web"
 	"github.com/dhamidi/k-si/workspace"
 )
@@ -42,7 +44,20 @@ func runServe(args []string) int {
 	allow := flags.String("allow", "", "comma-separated addresses to seed the initiator allowlist (docs/04)")
 	poll := flags.Bool("poll", false, "poll Fastmail for inbound mail — routes REAL mail into agent runs (off by default)")
 	send := flags.Bool("send", false, "submit replies through Fastmail — sends REAL mail (off by default; spools otherwise)")
+	from := flags.String("from", "", "deliverable From address replies are sent as (an address you can send for, e.g. kasi@decode.ee)")
 	flags.Parse(args)
+
+	// Real send must use a deliverable From and a reachable link origin — a
+	// .test domain has no SPF/DKIM/MX and no DNS, so recipients would spam-file
+	// or drop the reply. Refuse rather than send mail nobody receives.
+	if *send {
+		if *from == "" || strings.HasSuffix(mime.Domain(*from), ".test") {
+			return fail("kasi serve:", fmt.Errorf("-send needs a real -from (an address on a domain you can send for); %q won't deliver", *from))
+		}
+		if u, err := url.Parse(*baseURL); err != nil || u.Hostname() == "" || strings.HasSuffix(u.Hostname(), ".test") {
+			return fail("kasi serve:", fmt.Errorf("-send needs a real -base-url; %q won't resolve for recipients", *baseURL))
+		}
+	}
 
 	if err := os.MkdirAll(*workdir, 0o755); err != nil {
 		return fail("kasi serve:", err)
@@ -95,6 +110,9 @@ func runServe(args []string) int {
 	}
 	defer app.Stop()
 
+	if *from != "" {
+		app.Send(taskmsg.NewSetReplyFrom(taskmsg.SetReplyFromPayload{Address: *from}))
+	}
 	seedAllowlist(app, *allow)
 
 	if *poll {
