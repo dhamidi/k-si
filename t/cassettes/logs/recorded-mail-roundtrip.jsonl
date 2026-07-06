@@ -1,8 +1,8 @@
-{"kind":"message-log","recorded_at":"2026-07-06T11:05:14.432007583Z","recorded_by":"kasi test --record","source":"t/recorded/mail-roundtrip.test"}
+{"kind":"message-log","recorded_at":"2026-07-06T11:39:41.960234717Z","recorded_by":"kasi test --record","source":"t/recorded/mail-roundtrip.test"}
 {"offset":1,"time":"2020-01-01T00:00:00Z","tag":"allow-sender","payload":{"address":"kasi@decode.ee"}}
 {"offset":2,"time":"2020-01-01T00:00:00Z","tag":"set-reply-from","payload":{"address":"kasi@decode.ee"}}
-{"offset":3,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"kasi@decode.ee","sender":"kasi@decode.ee","cc":null,"subject":"roundtrip echo","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null}}
-{"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"create-task","payload":{"inbox_id":1,"route":"main","template":"main","sender":"kasi@decode.ee","cc":null,"subject":"roundtrip echo","message_id":"\u003cin-1@example.test\u003e"}}
+{"offset":3,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"kasi@decode.ee","sender":"kasi@decode.ee","cc":null,"subject":"roundtrip echo","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null,"completion_token":"tok-1"}}
+{"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"create-task","payload":{"inbox_id":1,"route":"main","template":"main","sender":"kasi@decode.ee","cc":null,"subject":"roundtrip echo","message_id":"\u003cin-1@example.test\u003e","completion_token":"tok-1"}}
 {"offset":5,"cause":4,"time":"2020-01-01T00:00:00Z","tag":"spawn-agent-run","payload":{"task_id":4,"resume":false}}
 {"offset":6,"time":"2020-01-01T00:00:00Z","tag":"finish-agent-run","payload":{"task_id":4,"run_id":5,"exit":0,"transcript_path":"transcript-5.jsonl","out_manifest":["reply.txt"],"stopped":false}}
 {"offset":7,"cause":6,"time":"2020-01-01T00:00:00Z","tag":"agent-run-finished","payload":{"task_id":4,"run_id":5,"out_manifest":["reply.txt"],"stopped":false,"transcript_path":"transcript-5.jsonl"}}

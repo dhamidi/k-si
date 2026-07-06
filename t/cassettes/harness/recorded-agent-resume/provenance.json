@@ -1,10 +1,10 @@
 {
   "kind": "harness-run",
-  "recorded_at": "2026-07-06T10:11:25.649584453Z",
+  "recorded_at": "2026-07-06T11:39:20.326386868Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/agent-resume.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "9277092"
+    "git": "169943d"
   }
 }
