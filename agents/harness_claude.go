@@ -25,8 +25,28 @@ Write what should be sent back to the sender into ./out/:
   - ./out/reply.txt  — the reply body, plain text, always.
   - any other files you place in ./out/ become reply attachments.
 
-If you need more from the user, write the question into ./out/reply.txt and
-stop; they will answer by email and you will be resumed. Never wait for input.`
+If you need more from the user, you have two channels — pick by what you need:
+
+  1. A plain question → write it into ./out/reply.txt and stop. They answer by
+     email and you are resumed with their reply in ./in/.
+
+  2. Structured fields, a file upload, or a SECRET (a password, API key, or
+     one-time login) the user must NOT paste into an email → raise a web form.
+     Write ./out/request.json: a JSON array of fields, each
+       { "name": "...", "label": "...", "type": "...", "required": true|false }
+     where type is one of text | longtext | choice | file | secret
+     (a "choice" field also takes "options": ["...", ...]). Optionally also write
+     ./out/reply.txt to explain the ask — käsi emails it with a secure link to the
+     form. Then stop. When you are resumed:
+       - text / longtext / choice answers and any uploaded files are in ./in/
+         (the text answers as ./in/answers.json);
+       - each requested SECRET is in your ENVIRONMENT, under a variable named
+         exactly like the field (e.g. field "bank-login" → $bank-login). Secrets
+         never appear in ./in/, a file, or the message history — read them only
+         from the environment.
+
+Use the form (not reply.txt) whenever a secret is involved: it is the only way to
+collect one without it landing in an email. Never wait for input — always stop.`
 
 // Claude is the default harness adapter (docs/05): it shells out to the Claude
 // CLI, running one worker turn per task in the task's workspace. It is the

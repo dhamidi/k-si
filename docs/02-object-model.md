@@ -113,9 +113,13 @@ request references:
   uploads, and `secret://` URLs for secret fields — **never plaintext**
   ([06](./06-secrets.md)).
 
-The form spec is content the agent authored; the request record is a model entry
-plus a durable row ([03](./03-persistence.md)). It is the object behind the
-"prep a request → get a link → answer on the web" loop.
+The form spec is content the agent authored; the request record is a **model
+entry**, made durable by its `register-ui-request` entry in the message log —
+there is no separate `ui_request` table
+([decision-001](./decision-001-ui-request-is-a-model-entry-not-a-content-table.md)).
+Answered file uploads live in `archive`; secrets live in the secrets database;
+the record holds only references. It is the object behind the "prep a request →
+get a link → answer on the web" loop.
 
 ### Route / task template
 

@@ -243,9 +243,12 @@ The loop, edge-does-I/O and model-stays-pure:
    contract mirrors the reply and skill contracts.
 2. **Mint.** The `finish-agent-run` manifest flags the request; the handler emits
    a `mint-ui-request` command. Its effect generates an unguessable **token**,
-   writes a `pending` `ui_request` row ([03](./03-persistence.md)), builds the
-   capability link, and emits `register-ui-request` — a complete message carrying
-   the request id, token, form spec, and link.
+   builds the capability link (keyed by the raising run's id,
+   [decision-003](./decision-003-request-links-mirror-the-completion-link-keyed-by-run-id.md)),
+   and emits `register-ui-request` — a complete message carrying the run id,
+   token, form spec, and link. The request becomes a `pending` **model entry**,
+   durable via that log record, not a separate table
+   ([decision-001](./decision-001-ui-request-is-a-model-entry-not-a-content-table.md)).
 3. **Deliver.** `register-ui-request` adds the request to the model, sets the task
    to `awaiting-user`, and drives `assemble-reply` so the email reply contains the
    agent's message **and the link** ([04](./04-email.md)). The user gets a normal
