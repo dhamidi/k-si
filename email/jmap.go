@@ -423,7 +423,7 @@ func (c *JMAP) Submit(ctx context.Context, raw []byte) error {
 		return err
 	}
 
-	drafts, identity, err := c.sendContext(ctx, token)
+	drafts, sent, identity, err := c.sendContext(ctx, token)
 	if err != nil {
 		return err
 	}
@@ -444,7 +444,15 @@ func (c *JMAP) Submit(ctx context.Context, raw []byte) error {
 			"create": map[string]any{
 				"sub": map[string]any{"emailId": "#msg", "identityId": identity},
 			},
-			"onSuccessDestroyEmail": []string{"#sub"},
+			// Keep the sent reply in käsi's own mailbox so it shows up and threads
+			// with the conversation (docs/04): move it from Drafts to Sent and clear
+			// the draft flag, rather than destroying it after the send.
+			"onSuccessUpdateEmail": map[string]any{
+				"#sub": map[string]any{
+					"mailboxIds": map[string]any{sent: true},
+					"keywords":   map[string]any{"$seen": true},
+				},
+			},
 		}, "submit"),
 	)
 	return err
@@ -485,26 +493,37 @@ func (c *JMAP) upload(ctx context.Context, token string, raw []byte) (string, er
 // sendContext looks up the Drafts mailbox and the sending identity a submission
 // needs (docs/04). The first identity is used; matching From to a specific
 // identity is a refinement for when multiple sending addresses exist.
-func (c *JMAP) sendContext(ctx context.Context, token string) (draftsID, identityID string, err error) {
+func (c *JMAP) sendContext(ctx context.Context, token string) (draftsID, sentID, identityID string, err error) {
 	responses, err := c.call(ctx, token, []string{capCore, capMail, capSubmission},
-		invoke("Mailbox/query", map[string]any{
-			"accountId": c.accountID,
-			"filter":    map[string]any{"role": "drafts"},
-		}, "dq"),
+		invoke("Mailbox/get", map[string]any{"accountId": c.accountID}, "mg"),
 		invoke("Identity/get", map[string]any{"accountId": c.accountID}, "ig"),
 	)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
-	var drafts struct {
-		IDs []string `json:"ids"`
+	var boxes struct {
+		List []struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"list"`
 	}
-	if err := decodeResult(responses, "Mailbox/query", &drafts); err != nil {
-		return "", "", err
+	if err := decodeResult(responses, "Mailbox/get", &boxes); err != nil {
+		return "", "", "", err
 	}
-	if len(drafts.IDs) == 0 {
-		return "", "", fmt.Errorf("jmap: no Drafts mailbox")
+	for _, b := range boxes.List {
+		switch b.Role {
+		case "drafts":
+			draftsID = b.ID
+		case "sent":
+			sentID = b.ID
+		}
+	}
+	if draftsID == "" {
+		return "", "", "", fmt.Errorf("jmap: no Drafts mailbox")
+	}
+	if sentID == "" {
+		return "", "", "", fmt.Errorf("jmap: no Sent mailbox")
 	}
 
 	var ident struct {
@@ -513,12 +532,12 @@ func (c *JMAP) sendContext(ctx context.Context, token string) (draftsID, identit
 		} `json:"list"`
 	}
 	if err := decodeResult(responses, "Identity/get", &ident); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(ident.List) == 0 {
-		return "", "", fmt.Errorf("jmap: no sending identity")
+		return "", "", "", fmt.Errorf("jmap: no sending identity")
 	}
-	return drafts.IDs[0], ident.List[0].ID, nil
+	return draftsID, sentID, ident.List[0].ID, nil
 }
 
 // --- helpers ------------------------------------------------------------------
