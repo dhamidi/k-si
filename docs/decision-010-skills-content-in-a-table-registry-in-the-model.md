@@ -1,48 +1,53 @@
-# Decision 010 — skill content in the `skill` table, registry in the model
+# Decision 010 — a skill's tree is a tar blob in the `skill` table; registry in the model
 
-**Status:** accepted (Flow D, stage 3)
+**Status:** accepted (Flow D, stage 3) — revised for directory-tree skills
 
 ## Context
 
-A skill is Markdown instructions + light metadata (name, description, origin).
-docs/07: "The model holds the set of available skills; their content lives in
-SQLite." docs/03 defines a `skill` table. This is unlike a UI request (decision-001,
-a pure model entry) because a skill's content is a durable *blob* that outlives
-every task — the reason it goes to the database rather than a workspace file — and
-because a skill is UNIQUE by name and versioned.
+A skill is an Agent Skills **directory** (decision-009): `SKILL.md` plus optional
+`scripts/`, `references/`, `assets/`, and other files. docs/07: "The model holds
+the set of available skills; their content lives in SQLite." docs/03 gives the
+`skill` table a single `content BLOB`. A skill's payload is now a *file tree*, and
+it must survive workspace deletion (the reason skills live in the database) and be
+versioned and UNIQUE by name.
 
 ## Decision
 
-Split it exactly as inbox/archive already are — **heavy bytes in a content table,
-the index in the model**:
+Store the whole tree, atomically, and split heavy-bytes-from-index exactly as
+inbox/archive already are:
 
-- The **`skill` table** (in the content store, main DB — where inbox/outbox/archive
-  live) holds the durable content: `AddSkill(SkillRow) (id, error)` and
-  `SkillByID(id) (SkillRow, error)`, plus a lookup by name for the UNIQUE
-  constraint. `SkillRow{Name, Description, Content, Origin, OriginTask, Version}`.
-- The **registry** is the `skills` model: one `Skill{ID, Name, Description, Origin,
-  OriginTask, Version}` entry per skill (NO content — that stays in the table),
-  rebuilt from `register-skill` log records. The web list reads the registry from
-  the model; a skill's detail page reads its content from the table by id.
+- **Content = a tar of the skill directory**, held in the `skill` table's single
+  `content BLOB`. A skill is provisioned and versioned as one unit, so one blob per
+  skill (per version) is the natural granularity — no per-file table. A small pure
+  **`skilltree`** helper packs a `[]mime.Part` (the tree, paths relative to the
+  skill root) into a tar and reads it back: `Pack`, `List(tar) []string`,
+  `Read(tar, path) []byte`, `Unpack(tar) []mime.Part` — stdlib `archive/tar` only.
+- **Table.** `store.Content` gains `AddSkill(SkillRow) (id, error)` (UNIQUE name →
+  bump `version`, replace content), `SkillByID`, `SkillByName`, `AllSkills`.
+  `SkillRow{ Name, Description, Content /*tar*/, Origin, OriginTask, Version }`.
+- **Registry = the `skills` model**, content-free: `Skill{ ID, Name, Description,
+  Origin, OriginTask, Version }`, rebuilt from `register-skill` log records. The
+  list page reads the registry; a skill's detail page reads its tar from the table
+  by id and lists/reads entries with `skilltree`.
 
-`register-skill` carries the id + metadata (light) into the log; the content never
-enters the log or the model. `store-skill` is the only writer of the table and the
-emitter of `register-skill`, so table and registry can't drift.
+`register-skill` carries id + light metadata into the log; the tar never enters the
+log or the model. `store-skill` is the only writer, so table and registry can't
+drift.
 
 ## Rationale
 
-The content is a blob that must survive workspace deletion (the whole point of a
-skill, docs/07) — that is exactly what content tables are for (docs/03), and what
-the log is NOT for (references and light metadata only, docs/03). Keeping the
-registry content-free keeps the model small and the replay cheap, and matches the
-inbox pattern (raw MIME in the table, a reference in the model). A skill differs
-from a UI request (decision-001, model-only) precisely because its payload is
-durable heavy content, not a transient field set.
+The tree is durable heavy content that must outlive the task — content-table
+territory (docs/03), not the log's (references + light metadata only). A tar keeps
+the schema exactly as docs/03 (one `content BLOB`), stores the tree atomically
+(matching how a skill is provisioned and versioned as a unit), and unpacks with the
+standard library — no per-file schema, no ORM. The registry stays content-free so
+the model and replay stay cheap. A skill differs from a UI request (decision-001,
+model-only) precisely because its payload is a durable file tree.
 
 ## Consequences
 
-- `store.Content` gains `AddSkill`/`SkillByID`/`SkillByName` across the interface +
-  both twins; the SQLite twin adds the `CREATE TABLE skill` from docs/03.
-- The `skills` model holds content-free registry entries.
-- Versioning (`version` bumped on edit) is in the schema now; edit/retire is
-  deferred (decision-009), so v1 is written and used as latest.
+- New pure `skilltree` package (tar pack/list/read/unpack); `store.Content` skill
+  methods + `CREATE TABLE skill` across the interface and both twins.
+- The browse UI lists a skill's files from its tar and shows any one file's text.
+- Versioning is in the schema; edit/retire deferred (decision-009), so v1 is
+  written and provisioned as latest.
