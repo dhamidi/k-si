@@ -55,6 +55,13 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		cmds = append(cmds, NewStoreSkill(StoreSkillPayload{TaskID: p.TaskID, RunID: p.RunID}))
 	}
 
+	// Harvest memory on EVERY successful finish (feature-memory.md): out/memory/
+	// writes become remember directives, and an in/memory/ deletion becomes a forget
+	// — the deletion leaves no out/ artifact, so this cannot be gated on a manifest
+	// marker the way store-skill is. It rides alongside the reply/request/skill
+	// branches and runs before archival deletes the workspace.
+	cmds = append(cmds, NewCaptureMemory(CaptureMemoryPayload{TaskID: p.TaskID, RunID: p.RunID}))
+
 	// A raised UI request takes precedence over reply.txt (Flow C): the run wrote
 	// out/request.json to ask the human for input via the web. reply.txt is
 	// OPTIONAL here (docs/05), so this must precede the no-reply gate below or a

@@ -3,6 +3,7 @@ package workspace
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -67,6 +68,71 @@ func (o *OS) WriteOut(taskID int64, parts []mime.Part) error {
 // decision-009), the layout the harness expects at ./skills/<name>/.
 func (o *OS) WriteSkills(taskID int64, parts []mime.Part) error {
 	return o.writeBox(taskID, SkillsBox, parts)
+}
+
+// WriteMemory provisions the memory collection into in/: each note at
+// memory/<name>.md (raw Content) plus the MEMORY.md index (feature-memory.md),
+// and records this run's provisioned name set in a workspace-private manifest
+// file kept OUTSIDE task-<id>/ — so the archival walk (Files, rooted at
+// task-<id>/) never surfaces it, exactly as the sim twin holds it off the tree.
+func (o *OS) WriteMemory(taskID int64, mems []MemoryFile) error {
+	// An empty collection lays nothing — no notes, no index — so a run with no
+	// memories has an unchanged in/ box (feature-memory.md: the index rides with the
+	// notes it lists). The provisioned manifest is still written (empty) so the
+	// harvest diff and ProvisionedMemory behave identically to the sim twin.
+	if len(mems) > 0 {
+		if err := o.writeBox(taskID, "in", memoryParts(mems)); err != nil {
+			return err
+		}
+	}
+	b, err := json.Marshal(memoryNames(mems))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(o.root, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(o.memoryManifestPath(taskID), b, 0o644)
+}
+
+// ProvisionedMemory returns this run's pinned provisioned memory names, read from
+// the workspace-private manifest. An absent manifest (no memory provisioned)
+// yields an empty list, no error.
+func (o *OS) ProvisionedMemory(taskID int64) ([]string, error) {
+	b, err := os.ReadFile(o.memoryManifestPath(taskID))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	if err := json.Unmarshal(b, &names); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+// DeleteIn removes a file from the in/ box by its box-relative path — an agent
+// forgetting a memory (feature-memory.md). Absent file is a no-op; the path is
+// validated to stay inside the box (decision-011).
+func (o *OS) DeleteIn(taskID int64, rel string) error {
+	name, err := validBoxPath("in", rel)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(o.taskDir(taskID), "in", filepath.FromSlash(name))
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// memoryManifestPath is the workspace-private location for a run's provisioned
+// memory name set — a sibling of task-<id>/, so Files (which walks task-<id>/)
+// never treats it as an attachment.
+func (o *OS) memoryManifestPath(taskID int64) string {
+	return filepath.Join(o.root, ".memory-task-"+strconv.FormatInt(taskID, 10)+".manifest")
 }
 
 func (o *OS) writeBox(taskID int64, box string, parts []mime.Part) error {
@@ -217,7 +283,15 @@ func (o *OS) Delete(taskID int64, archived map[string]bool) error {
 			return fmt.Errorf("workspace: refusing to delete task-%d: %q is not archived", taskID, f.Filename)
 		}
 	}
-	return os.RemoveAll(o.taskDir(taskID))
+	if err := os.RemoveAll(o.taskDir(taskID)); err != nil {
+		return err
+	}
+	// The provisioned-memory manifest lives beside task-<id>/ (so Files never sees
+	// it); remove it alongside the workspace so cleanup leaves nothing behind.
+	if err := os.Remove(o.memoryManifestPath(taskID)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // contentType guesses a part's media type from its name, matching the sim twin.

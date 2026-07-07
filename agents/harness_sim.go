@@ -142,12 +142,13 @@ func (h *SimHarness) Signal(ctx context.Context, hd Handle) error {
 }
 
 // DeliverTurn is the test-vocabulary entry point (`agent { out <file> <content>
-// ... exit N }`). It writes the turn's out/ files and a transcript into the
-// shared workspace, hands the turn to the blocked Wait for the running run of
-// taskID, then BLOCKS until MarkEmitted releases it — guaranteeing
-// finish-agent-run is enqueued before it returns, so the stimulus's Settle()
-// waits for the whole turn.
-func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, exit int) error {
+// ... del in/<path> ... exit N }`). It writes the turn's out/ files, applies any
+// in/ deletions (an agent forgetting a memory, feature-memory.md), and writes a
+// transcript into the shared workspace, hands the turn to the blocked Wait for the
+// running run of taskID, then BLOCKS until MarkEmitted releases it — guaranteeing
+// finish-agent-run is enqueued before it returns, so the stimulus's Settle() waits
+// for the whole turn. deletions are in/-box-relative paths ("memory/reply-style.md").
+func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, deletions []string, exit int) error {
 	// Wait for the run to register: after a restart the agent-watch subscription
 	// auto-registers the resumed run in its own goroutine, which can lag the
 	// `agent` stimulus. The caller already found a running run in the model, so
@@ -161,6 +162,11 @@ func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, exit int) e
 
 	if err := h.work.WriteOut(taskID, outParts); err != nil {
 		return fmt.Errorf("agents: DeliverTurn: write out: %w", err)
+	}
+	for _, rel := range deletions {
+		if err := h.work.DeleteIn(taskID, rel); err != nil {
+			return fmt.Errorf("agents: DeliverTurn: delete in/%s: %w", rel, err)
+		}
 	}
 	transcript := []byte(fmt.Sprintf(`{"task":%d,"run":%d,"exit":%d}`+"\n", taskID, lr.runID, exit))
 	if err := h.work.WriteTranscript(taskID, lr.runID, transcript); err != nil {

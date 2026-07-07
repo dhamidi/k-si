@@ -1,0 +1,46 @@
+# t/research/memory-forget.test — forgetting is deletion (feature-memory.md). An
+# agent drops a memory by DELETING the copy it was handed in in/memory/; the harvest
+# diffs this run's provisioned set against the survivors and records a forget. The
+# diff is per-name: a sibling memory the agent kept is untouched.
+
+send allow-sender { address kasi@decode.ee }
+
+# Two facts käsi already knows (seeded directly, as the /memory page would).
+memory write reply-style   [fixture memory/reply-style.md]
+memory write owner-banking [fixture memory/owner-banking.md]
+
+# Task 1 is handed both.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "draft"
+    body    "draft a reply to the vendor about the overdue invoice"
+}
+task 1 status is awaiting-agent
+task 1 input memory/reply-style.md   matches "*Lead with the answer*"
+task 1 input memory/owner-banking.md matches "*Handelsbanken*"
+
+# During the task the agent decides the reply-style note no longer applies and
+# deletes the copy it was given — that deletion is the whole forget gesture. It
+# keeps owner-banking.
+agent {
+    out reply.txt "Drafted the reply."
+    del in/memory/reply-style.md
+}
+task 1 status is awaiting-user
+
+# owner-banking survives in the collection; reply-style was forgotten (a per-name
+# diff, not wholesale).
+memory owner-banking matches "*Wise*"
+
+# A brand-new task is handed only what remains — owner-banking, never the forgotten
+# reply-style. The inputs set is the negative proof: no memory/reply-style.md.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay this"
+    body    "pay the attached invoice"
+}
+task 2 status is awaiting-agent
+task 2 input memory/owner-banking.md matches "*Handelsbanken*"
+task 2 inputs are {MEMORY.md body.txt memory/owner-banking.md}

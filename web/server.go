@@ -120,6 +120,19 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.GET("skills.file", "/skills/{name}/files/{+path}", http.HandlerFunc(s.showSkillFile)); err != nil {
 		return nil, err
 	}
+	// The memory curation UI (docs/08, feature-memory.md): GET lists every
+	// remembered fact with an add/edit form; POST /memory is the owner's remember
+	// (add or edit); POST /memory/{name}/forget removes one. Host-gated, no token
+	// (decision-006) — the same trust model as the task/skill browse pages.
+	if err := s.router.GET("memory.index", "/memory", http.HandlerFunc(s.showMemory)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("memory.save", "/memory", http.HandlerFunc(s.saveMemory)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("memory.forget", "/memory/{name}/forget", http.HandlerFunc(s.forgetMemory)); err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }

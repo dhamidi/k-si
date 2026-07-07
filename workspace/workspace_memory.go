@@ -29,6 +29,11 @@ type tree struct {
 	out         map[string]file  // relative path -> file, the out/ box
 	skills      map[string]file  // relative path -> file, the skills/ box (Flow D)
 	transcripts map[int64][]byte // runID -> transcript bytes
+	// provisionedMemory is this run's pinned memory name set, recorded by
+	// WriteMemory and read by ProvisionedMemory (feature-memory.md). It is
+	// workspace-private: filesLocked never lists it, so archival ignores it. Like
+	// the tree itself, it survives a simulated crash (the struct outlives the App).
+	provisionedMemory []string
 }
 
 // file is a stored file's bytes plus the per-part metadata carried across the
@@ -91,6 +96,56 @@ func (m *Memory) WriteSkills(taskID int64, parts []mime.Part) error {
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
 	return writeInto(SkillsBox, t.skills, parts)
+}
+
+// WriteMemory provisions the memory collection into in/: each note at
+// memory/<name>.md (raw Content) plus the MEMORY.md index (feature-memory.md),
+// and records this run's provisioned name set workspace-private. Same
+// overwrite/append-by-path semantics as LayIn for the in/ files; the manifest is
+// held apart from the tree so Files never surfaces it.
+func (m *Memory) WriteMemory(taskID int64, mems []MemoryFile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.ensure(taskID)
+	t.provisionedMemory = memoryNames(mems)
+	// An empty collection lays nothing — no notes, no index — so a run with no
+	// memories has an unchanged in/ box (feature-memory.md: the index rides with the
+	// notes it lists). The provisioned set is still recorded (empty), so the harvest
+	// diff finds nothing to forget.
+	if len(mems) == 0 {
+		return nil
+	}
+	return writeInto("in", t.in, memoryParts(mems))
+}
+
+// ProvisionedMemory returns this run's pinned provisioned memory names — a copy,
+// so callers can't mutate the tree (feature-memory.md).
+func (m *Memory) ProvisionedMemory(taskID int64) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.trees[taskID]
+	if !ok {
+		return nil, nil
+	}
+	return append([]string(nil), t.provisionedMemory...), nil
+}
+
+// DeleteIn removes a file from the in/ box by its box-relative path — an agent
+// forgetting a memory (feature-memory.md). Absent file is a no-op; the path is
+// validated to stay inside the box (decision-011).
+func (m *Memory) DeleteIn(taskID int64, rel string) error {
+	name, err := validBoxPath("in", rel)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.trees[taskID]
+	if !ok {
+		return nil
+	}
+	delete(t.in, name)
+	return nil
 }
 
 // Harvest reads out/ into parts, reply.txt first (if present) and the rest in

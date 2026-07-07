@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/skilltree"
+	"github.com/dhamidi/k-si/workspace"
 )
 
 // "start-agent-run" — start or resume the worker harness in the task workspace
@@ -20,6 +22,12 @@ type StartAgentRunPayload struct {
 	// SecretRefs maps an env-var name to a secret:// URL, resolved into the run
 	// environment at the harness edge (Flow C, docs/06). Carry-through only here.
 	SecretRefs map[string]string `json:"secret_refs"`
+	// Memory is the whole memory collection to provision into this run's in/ box
+	// (feature-memory.md). Read from the model by the spawn handler and carried
+	// through to the workspace edge here. This is a TRANSIENT effect input — a Cmd
+	// payload, never appended to the log — so it may carry the raw note bytes
+	// (provisioning the full collection each run must not grow the log).
+	Memory []memory.Memory `json:"memory,omitempty"`
 }
 
 func NewStartAgentRun(p StartAgentRunPayload) runtime.Cmd {
@@ -51,6 +59,18 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 	// starts — the single choke point every run passes through, so skills authored
 	// by any task are laid into every future run by default (Flow D, decision-009).
 	if err := provisionSkills(e, p.TaskID); err != nil {
+		return err
+	}
+
+	// Provision the whole memory collection into this run's in/ box beside the
+	// skills — the same spawn choke point, so every run is handed käsi's durable
+	// facts as ordinary files (in/memory/<name>.md + the in/MEMORY.md index) and its
+	// provisioned name set is pinned for the harvest's deletion diff (feature-memory.md).
+	mems := make([]workspace.MemoryFile, len(p.Memory))
+	for i, m := range p.Memory {
+		mems[i] = workspace.MemoryFile{Name: m.Name, Content: m.Content, Description: m.Description}
+	}
+	if err := e.Work.WriteMemory(p.TaskID, mems); err != nil {
 		return err
 	}
 

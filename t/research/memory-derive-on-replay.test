@@ -1,0 +1,45 @@
+# t/research/memory-derive-on-replay.test — the description is DERIVED, never stored
+# (feature-memory.md). A memory's frontmatter uses a folded block scalar
+# (description: >-), so the one-line description exists only as the reducer's reading
+# of the raw file. This asserts the FULL folded description — folded to a single line,
+# joined with spaces — reaches in/MEMORY.md and the /memory page. Because the gate
+# refolds the whole log to prove replay convergence, a passing run also proves the
+# derivation survives a fold with no migration.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "banking"
+    body    "note the owner's banking setup for future payments"
+}
+task 1 status is awaiting-agent
+agent {
+    out reply.txt                "Noted the banking setup."
+    out memory/owner-banking.md  [fixture memory/owner-banking.md]
+}
+task 1 status is awaiting-user
+
+# The description was DERIVED by the reducer parsing the YAML — a folded (>-) scalar
+# joins its wrapped lines with SPACES. The literal single space in
+# "Handelsbanken (a SEK current account)" spans a fold point, so it proves real YAML
+# folding, not a naive first-line read.
+memory owner-banking description matches "*Handelsbanken (a SEK current account)*"
+memory owner-banking description matches "*never reuse an OCR across invoices*"
+
+# The full folded description reaches the käsi-authored index laid into the next run.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay"
+    body    "pay the EU invoice attached"
+}
+task 2 status is awaiting-agent
+task 2 input MEMORY.md matches "*(memory/owner-banking.md)*"
+task 2 input MEMORY.md matches "*Handelsbanken (a SEK current account)*"
+task 2 input MEMORY.md matches "*never reuse an OCR across invoices.*"
+
+# ...and the /memory curation page (the real web edge) renders the same derivation.
+visit /memory matches "*owner-banking*"
+visit /memory matches "*Handelsbanken (a SEK current account)*"

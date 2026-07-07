@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,8 @@ import (
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/link"
+	"github.com/dhamidi/k-si/memory"
+	memorymsg "github.com/dhamidi/k-si/memory/msg"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
@@ -119,6 +122,16 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		return storeVocab(inst, args)
 	}
 
+	// memory seeds and observes the durable memory collection (feature-memory.md),
+	// the replayable model slice memory.All reads. Two forms:
+	//   memory write <name> <content> — seed a memory, sending remember through the
+	//     app exactly as the owner's /memory form or a harvested out/memory/ file would.
+	//   memory <name> [description]   — read a stored memory's raw content (default)
+	//     or its DERIVED description back, for is/matches.
+	v["memory"] = func(in *testlang.Interp, args []string) (string, error) {
+		return memoryVocab(inst, args)
+	}
+
 	// visit / post drive the REAL web.Server in-process (decision-008): visit
 	// GETs a page and returns the rendered HTML for matches/is assertions; post
 	// issues the Stop action's POST and returns the redirect Location, settling
@@ -137,10 +150,27 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 
 	v["post"] = func(in *testlang.Interp, args []string) (string, error) {
 		read, verb := splitVerb(args)
-		if len(read) != 1 {
-			return "", fmt.Errorf("post needs a single path, e.g. `post /tasks/1/runs/2/stop`")
+		// Two forms: a bare POST (the Stop / forget action, no body), or a form POST
+		// carrying a `{ field value ... }` body (the remember form). The optional
+		// block rides as the second read word.
+		if len(read) < 1 || len(read) > 2 {
+			return "", fmt.Errorf("post needs a path and an optional form block, e.g. `post /tasks/1/runs/2/stop` or `post /memory { name x; content \"…\" }`")
 		}
-		result, err := inst.webPOST(read[0])
+		var body url.Values
+		if len(read) == 2 {
+			lines, err := blockLines(in, read[1])
+			if err != nil {
+				return "", err
+			}
+			body = url.Values{}
+			for _, words := range lines {
+				if len(words) < 2 {
+					return "", fmt.Errorf("post: form field needs a name and a value, got %q", strings.Join(words, " "))
+				}
+				body.Set(words[0], strings.Join(words[1:], " "))
+			}
+		}
+		result, err := inst.webPOST(read[0], body)
 		if err != nil {
 			return "", err
 		}
@@ -213,6 +243,54 @@ func storeVocab(inst *instance, args []string) (string, error) {
 		return "", fmt.Errorf("store %s: %w", read[0], err)
 	}
 	return finishRead("store "+read[0], string(b), verb)
+}
+
+// --- memory (the durable memory collection, feature-memory.md) ---------------
+
+// memoryVocab implements the `memory` read/write vocabulary against the
+// replayable memory model slice (memory.All).
+//
+//	memory write <name> <content> — seed a memory: send remember through the app,
+//	                                the same directive the /memory form and the
+//	                                out/memory/ harvest emit.
+//	memory <name> [description]    — read a stored memory's raw content (default) or
+//	                                its derived description back for is/matches.
+func memoryVocab(inst *instance, args []string) (string, error) {
+	if len(args) >= 1 && args[0] == "write" {
+		if len(args) != 3 {
+			return "", fmt.Errorf("memory write needs a name and content, e.g. `memory write reply-style \"…\"`")
+		}
+		inst.app.Send(memorymsg.NewRemember(memorymsg.RememberPayload{
+			Name:    args[1],
+			Content: []byte(args[2]),
+		}))
+		inst.app.Settle()
+		return "", nil
+	}
+
+	read, verb := splitVerb(args)
+	if len(read) < 1 || len(read) > 2 {
+		return "", fmt.Errorf("memory read is `memory <name> [content|description]`")
+	}
+	name := read[0]
+	field := "content"
+	if len(read) == 2 {
+		field = read[1]
+	}
+	for _, m := range memory.All(inst.app.View()) {
+		if m.Name != name {
+			continue
+		}
+		switch field {
+		case "content":
+			return finishRead("memory "+strings.Join(read, " "), string(m.Content), verb)
+		case "description":
+			return finishRead("memory "+strings.Join(read, " "), m.Description, verb)
+		default:
+			return "", fmt.Errorf("memory %s: unknown field %q (content|description)", name, field)
+		}
+	}
+	return "", fmt.Errorf("memory %s: no such memory", name)
 }
 
 // --- deliver -----------------------------------------------------------------
@@ -413,6 +491,7 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 	}
 
 	var out []mime.Part
+	var deletions []string
 	exit := 0
 	for _, words := range lines {
 		switch words[0] {
@@ -425,6 +504,15 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 				ContentType: contentTypeFor(words[1]),
 				Bytes:       []byte(words[2]),
 			})
+		case "del":
+			// The agent forgets a memory by deleting the copy it was handed in in/
+			// (feature-memory.md). The path is in/-box-relative; `del in/memory/x.md`
+			// and `del memory/x.md` both name the same file, so strip a leading "in/".
+			if len(words) != 2 {
+				return fmt.Errorf("agent: del needs a single in/ path, e.g. `del in/memory/reply-style.md`")
+			}
+			rel := strings.TrimPrefix(words[1], "in/")
+			deletions = append(deletions, rel)
 		case "exit":
 			exit, err = strconv.Atoi(arg(words))
 			if err != nil {
@@ -447,7 +535,7 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 	// agent (live) is authoritative, so out/exit go unused.
 	switch inst.world.ring {
 	case "sim":
-		if err := inst.world.sim.DeliverTurn(taskID, out, exit); err != nil {
+		if err := inst.world.sim.DeliverTurn(taskID, out, deletions, exit); err != nil {
 			return fmt.Errorf("agent: %w", err)
 		}
 	case "recorded":
@@ -938,16 +1026,24 @@ func (inst *instance) webGET(path string) (string, error) {
 	return body, nil
 }
 
-// webPOST issues a form POST (the Stop action) through the real router, settles
-// the app so the handler's emitted stop-agent-run has fully applied, and returns
-// the redirect Location (a 303 See Other) or, absent one, the status code.
-func (inst *instance) webPOST(path string) (string, error) {
+// webPOST issues a POST through the real router, settles the app so the handler's
+// emitted message has fully applied, and returns the redirect Location (a 303 See
+// Other) or, absent one, the status code. A nil body is a bare POST (the Stop /
+// forget action); a non-nil url.Values is form-urlencoded (the remember form).
+func (inst *instance) webPOST(path string, body url.Values) (string, error) {
 	s, err := inst.webServer()
 	if err != nil {
 		return "", err
 	}
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+	var req *http.Request
+	if body != nil {
+		req = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		req = httptest.NewRequest(http.MethodPost, path, nil)
+	}
+	s.ServeHTTP(rec, req)
 	inst.app.Settle()
 	if loc := rec.Header().Get("Location"); loc != "" {
 		return loc, nil

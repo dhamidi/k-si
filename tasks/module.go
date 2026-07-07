@@ -30,6 +30,7 @@ func Module(e Edges) *runtime.Module {
 	registerArchiveTask(mod)
 	registerSetReplyFrom(mod)
 	registerStoreSkill(mod)
+	registerCaptureMemory(mod)
 	return mod
 }
 

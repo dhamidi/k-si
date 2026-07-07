@@ -1,0 +1,36 @@
+# t/web/memory.test — the owner curates memory through the real web edge
+# (feature-memory.md, decision-006/008). The /memory page lists every fact with its
+# derived description; the remember form adds and edits (upsert by name); a per-row
+# forget removes one. Both the form and the forget action emit the SAME directives
+# the harvest does — one log, two interfaces onto it. Host-gated, no token.
+
+send allow-sender { address kasi@decode.ee }
+
+# A fact käsi already knows shows on the page with its derived description.
+memory write reply-style [fixture memory/reply-style.md]
+visit /memory matches "*reply-style*"
+visit /memory matches "*terse, plain-text replies*"
+
+# The owner adds a new memory through the real form → a remember directive. The name
+# and the derived description appear on the reloaded page.
+post /memory {
+    name    owner-timezone
+    content [fixture memory/owner-timezone.md]
+}
+visit /memory matches "*owner-timezone*"
+visit /memory matches "*the owner is in Europe/Berlin*"
+memory owner-timezone matches "*Europe/Berlin*"
+
+# Editing is the same act with the same name — upsert, not a duplicate. The derived
+# description updates from the new raw body.
+post /memory {
+    name    owner-timezone
+    content [fixture memory/owner-timezone-moved.md]
+}
+visit /memory matches "*the owner moved to Europe/Stockholm*"
+memory owner-timezone description is "the owner moved to Europe/Stockholm; schedule and phrase times accordingly"
+
+# The owner forgets a memory → a forget directive; it leaves the page while the
+# others remain.
+post /memory/reply-style/forget
+visit /memory matches "*owner-timezone*"

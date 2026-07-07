@@ -17,6 +17,17 @@ import (
 	"github.com/dhamidi/k-si/mime"
 )
 
+// MemoryFile is one memory to provision, as a workspace-LOCAL value — so this edge
+// stays free of the memory domain and imports only the mime object model and the
+// standard library (the interface doc). The agents effect maps memory.Memory onto
+// it: Name is the note's slug, Content its raw bytes, Description the already-derived
+// one-line entry the MEMORY.md index renders (the edge never parses frontmatter).
+type MemoryFile struct {
+	Name        string
+	Content     []byte
+	Description string
+}
+
 // Workspace is the filesystem edge for a task's ephemeral scratch directory,
 // laid out as $WORKDIR/task-<id>/{in,out}/ plus per-run transcripts (docs/05).
 //
@@ -49,6 +60,25 @@ type Workspace interface {
 	// WriteOut writes parts into out/ — how the (sim) harness deposits a turn's
 	// output. Appends across turns, overwriting same-named files.
 	WriteOut(taskID int64, parts []mime.Part) error
+	// WriteMemory provisions the memory collection into this run's in/ box
+	// (feature-memory.md): each memory to in/memory/<name>.md (its raw Content), a
+	// käsi-authored index at in/MEMORY.md (never written by the agent), and the
+	// provisioned name SET for this run, recorded workspace-private so the harvest's
+	// deletion diff can pin against exactly what this run was given. The manifest is
+	// NOT an in/ file — Files never lists it, so archival ignores it. The notes and
+	// index ARE in/ files (ordinary inputs), laid with LayIn's overwrite/append
+	// semantics.
+	WriteMemory(taskID int64, mems []MemoryFile) error
+	// ProvisionedMemory returns the memory names WriteMemory last recorded for this
+	// run — the pinned "provisioned" set the harvest diffs surviving in/memory/
+	// against (forgotten = provisioned − survivors − rewritten). Absent (no memory
+	// provisioned) yields an empty list, no error.
+	ProvisionedMemory(taskID int64) ([]string, error)
+	// DeleteIn removes a file from the in/ box by its box-relative path
+	// ("memory/reply-style.md") — the way an agent forgets a memory, deleting the
+	// copy it was handed (feature-memory.md). An absent file is a no-op. The path is
+	// validated to stay inside the box (decision-011).
+	DeleteIn(taskID int64, rel string) error
 	// WriteSkills provisions skill trees into the SkillsBox (Flow D, decision-009).
 	// The box is .claude/skills/ — the location the Claude CLI discovers project
 	// skills from, relative to its cwd (the task dir) — so a run finds
@@ -86,6 +116,64 @@ type Workspace interface {
 // relative to its cwd (the task dir) — so a provisioned skill is surfaced to the
 // agent natively (progressive disclosure), not left in a directory it never reads.
 const SkillsBox = ".claude/skills"
+
+// MemoryDir is the in/ box subdirectory the memory notes are provisioned into,
+// one file per note (feature-memory.md). MemoryIndexName is the käsi-authored
+// index at the in/ box root, listing every note.
+const (
+	MemoryDir       = "memory"
+	MemoryIndexName = "MEMORY.md"
+)
+
+// memoryParts renders the in/ box files a memory provisioning lays down: one note
+// per memory at memory/<name>.md (its RAW Content) plus the MEMORY.md index. Both
+// twins lay these identically, so the projection is byte-for-byte the same on disk
+// and in memory (the twin rule, decision-012).
+func memoryParts(mems []MemoryFile) []mime.Part {
+	parts := make([]mime.Part, 0, len(mems)+1)
+	for _, m := range mems {
+		parts = append(parts, mime.Part{
+			Filename:    MemoryDir + "/" + m.Name + ".md",
+			ContentType: "text/markdown; charset=utf-8",
+			Bytes:       append([]byte(nil), m.Content...),
+		})
+	}
+	parts = append(parts, mime.Part{
+		Filename:    MemoryIndexName,
+		ContentType: "text/markdown; charset=utf-8",
+		Bytes:       memoryIndex(mems),
+	})
+	return parts
+}
+
+// memoryIndex renders in/MEMORY.md from the collection — the index käsi keeps in
+// step with in/memory/, never written by the agent (feature-memory.md). One line
+// per memory: its name linked to memory/<name>.md, then its (derived) description.
+func memoryIndex(mems []MemoryFile) []byte {
+	var b strings.Builder
+	b.WriteString("# Memory\n\nDurable facts käsi has learned. Each links to a note in ./memory/.\n")
+	if len(mems) > 0 {
+		b.WriteString("\n")
+	}
+	for _, m := range mems {
+		fmt.Fprintf(&b, "- [%s](%s/%s.md)", m.Name, MemoryDir, m.Name)
+		if m.Description != "" {
+			fmt.Fprintf(&b, " — %s", m.Description)
+		}
+		b.WriteString("\n")
+	}
+	return []byte(b.String())
+}
+
+// memoryNames lists the provisioned memory names in collection order — the pinned
+// set ProvisionedMemory returns for the harvest's deletion diff.
+func memoryNames(mems []MemoryFile) []string {
+	names := make([]string, 0, len(mems))
+	for _, m := range mems {
+		names = append(names, m.Name)
+	}
+	return names
+}
 
 func validBoxPath(box, filename string) (string, error) {
 	name := path.Clean(filepath.ToSlash(filename))

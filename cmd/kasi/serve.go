@@ -27,6 +27,7 @@ import (
 	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
 	emailmsg "github.com/dhamidi/k-si/email/msg"
+	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
@@ -109,6 +110,7 @@ func runServe(args []string) int {
 	}
 
 	app := runtime.New(
+		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),

@@ -1,0 +1,54 @@
+# t/research/memory-crosstask.test — a fact learned by ONE task is laid into a
+# DIFFERENT task's run by default (feature-memory.md). A run writes out/memory/<name>.md;
+# the harvest emits remember; start-agent-run provisions the whole collection into
+# every future run's in/memory/ + in/MEMORY.md index. käsi's durable facts reach
+# future tasks automatically — the memory sibling of skills-crosstask.
+
+send allow-sender { address kasi@decode.ee }
+
+# Task 1 reconciles a transfer and remembers the recipients (worked example).
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "reconcile"
+    body    "reconcile the wise transfer and remember the recipients"
+}
+task 1 status is awaiting-agent
+
+# The very first task has an empty collection, so nothing is laid into in/memory/ and
+# no index is written yet — the notes and their index appear only once a fact exists.
+task 1 inputs are {body.txt}
+
+agent {
+    out reply.txt                  "Reconciled. Cached your recipients for next time."
+    out memory/wise-recipients.md  [fixture memory/wise-recipients.md]
+}
+task 1 status is awaiting-user
+
+# The fact is in the collection now; its description was DERIVED by the reducer from
+# the raw file's frontmatter (never carried in the directive).
+memory wise-recipients matches "*cached in ./store/wise.db*"
+memory wise-recipients description is "the owner's saved Wise recipients, cached in ./store/wise.db"
+
+# The reply still sent and carried NO memory attachment — a memory is a directive,
+# never emailed.
+outbound count is 1
+outbound last attachments is ""
+
+# Task 2 is a brand-new, unrelated task that never authored anything. Its run must
+# still find the fact provisioned — laid in at start-agent-run from the collection.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay this"
+    body    "pay the attached invoice"
+}
+task 2 status is awaiting-agent
+
+# The note itself is in in/memory/, its raw content intact.
+task 2 input memory/wise-recipients.md matches "*cached in ./store/wise.db*"
+task 2 input memory/wise-recipients.md matches "*Bredband2 AB*"
+
+# The käsi-authored index lists it: name linked to its file, then its description.
+task 2 input MEMORY.md matches "*(memory/wise-recipients.md)*"
+task 2 input MEMORY.md matches "*the owner's saved Wise recipients, cached in ./store/wise.db*"

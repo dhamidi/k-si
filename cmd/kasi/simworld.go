@@ -15,6 +15,7 @@ import (
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
+	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/skills"
@@ -151,6 +152,7 @@ func (w *simWorld) crash() {
 // whose isolated SimEdges never drive an effect.
 func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 	return []*runtime.Module{
+		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
