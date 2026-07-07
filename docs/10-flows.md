@@ -254,6 +254,64 @@ delivering the reply exactly once (the pre-generated `Message-ID` guards against
 duplicates ([04](./04-email.md))). This is why effects are
 described-then-interpreted and outbound sending is a durable, idempotent queue.
 
+## Flow F — The agent remembers: a persistent store across tasks
+
+A task's workspace is ephemeral — archived, then deleted, when the task completes
+([05](./05-agents-and-tasks.md)). Skills survive that because they are packed into
+the `skill` table and re-provisioned ([07](./07-skills-and-tools.md)). But an agent
+also needs **live working data** — a SQLite database of cached results, a scratch
+script — that it mutates in place and must not re-fetch every task. Packing a live
+database into a blob and unpacking it each run is the wrong shape. So käsi gives the
+agent a **store**: one persistent directory, `$STATE/store/`, created once and never
+deleted with a task, symlinked into every run's workspace as `./store/`.
+
+The store is **agent-owned and deliberately outside the event log** — käsi
+provisions and persists the directory but does not track or event-source its
+contents, exactly as it does not event-source Fastmail's or Wise's data. It is
+external mutable state reached through an edge, like the mail edge. Because it is a
+symlink, archive-before-delete skips it: completing a task never touches another
+task's data. Concurrent tasks share it — SQLite's WAL handles the concurrency, käsi
+does not serialise. **The worker prompt tells the agent** the store is its durable
+memory at `./store/`, persistent across tasks, so it caches rather than re-fetches.
+
+*Prerequisites (some deferred): a tool like `wise-cli` provisioned via mise
+([07](./07-skills-and-tools.md)); the Wise API token as a `secret://`
+([06](./06-secrets.md), Flow C). New here: the store and its provisioning at spawn.*
+
+### Task 1 — "Pull my recipients and transactions from Wise and remember them."
+
+1. **Provision.** route → `create-task` → at spawn the run's workspace gets
+   `wise-cli` (mise), the Wise token (`secret://` → env), the skill registry into
+   `.claude/skills/`, and the store symlinked at `./store/`.
+2. **Fetch.** The agent runs `wise-cli recipients` / `wise-cli transactions`.
+3. **Cache.** It opens `./store/wise.db`, creates the tables, upserts the rows, and
+   stamps a `fetched_at`. It may also author a reusable `wise-sync` **skill** (the
+   fetch+upsert logic in `scripts/`, Flow D) so refreshing is one command.
+4. **Reply.** `out/reply.txt`: "Cached 12 recipients and 340 transactions from Wise
+   (as of …). Ask me anything about them." → `finish-agent-run` → the reply sends.
+5. **Complete.** The task is archived and its workspace deleted — but `./store/` was
+   a symlink, so `$STATE/store/wise.db` **persists**.
+
+### Task 2 (later) — "How much did I send to Alice in June?"
+
+1. A new task, a new workspace; `./store/` is symlinked again — `wise.db` is already
+   populated and the `wise-sync` skill is provisioned.
+2. The agent **queries `./store/wise.db` directly — no re-fetch** — and answers from
+   the cache.
+3. If `fetched_at` is stale it runs `wise-sync` to pull only what is new, then
+   answers. `out/reply.txt` with the figure.
+
+käsi hit Wise once; every later task answers from the local database, refreshing
+only when stale. **This is how the agent accumulates and remembers** — the store is
+the durable, never-packed complement to the packed, versioned skill registry.
+
+### Store and crash/restart
+
+Unlike everything in Flow E, the store is **not rebuilt by replay** — it is not in
+the log. On restart it persists on disk as the last run left it, like the content
+database. Replay rebuilds käsi's model; the store is the agent's, and was never
+model state.
+
 ## What every flow demonstrates
 
 - **Imperative, complete messages → commands → effects → messages**, folded by
@@ -269,5 +327,8 @@ described-then-interpreted and outbound sending is a durable, idempotent queue.
   agents and kept in SQLite, input gathered on demand through agent-raised web
   requests ([04](./04-email.md), [05](./05-agents-and-tasks.md),
   [08](./08-web-ui.md)).
+- **Durable agent memory outside the log** — a persistent store, symlinked into
+  every workspace and skipped by archival, where the agent keeps live databases it
+  mutates and reuses across tasks (Flow F).
 - **One task ⇔ one thread ⇔ one session**, from first email to completion
   ([05](./05-agents-and-tasks.md)).
