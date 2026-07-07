@@ -34,6 +34,7 @@ func Module(e Edges) *runtime.Module {
 	registerRunHarvest(mod)
 	registerMarkHarvested(mod)
 	runtime.Subscribe(mod, harvestReconcileSubs)
+	registerNotifyUser(mod)
 	return mod
 }
 

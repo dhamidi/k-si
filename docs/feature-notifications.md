@@ -11,7 +11,8 @@ a Smart-ID prompt: a code, and a sixty-second countdown to approve it on your
 phone. "I'll tell you when I'm done" is useless here. The agent has to get the
 code in front of you now, and keep going.
 
-Status: this is the design of record. The implementation is being built to it.
+Status: built (decision-014). `kasi notify` is live; the control endpoint, the
+per-run token, and the fire-and-forget send are all in place and gate-covered.
 
 ## Notification vs. request
 

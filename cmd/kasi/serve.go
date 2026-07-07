@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -115,7 +116,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content}),
+		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -228,6 +229,23 @@ func mintToken() string {
 		panic("kasi serve: crypto/rand: " + err.Error())
 	}
 	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// controlURL derives the loopback origin an in-run agent POSTs notifications to
+// from the server's listen address (feature-notifications.md). A wildcard host
+// (empty, 0.0.0.0, or ::) is rewritten to 127.0.0.1 so the agent reaches the
+// server over loopback; a real host is kept. On a parse failure it falls back to
+// the address verbatim.
+func controlURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return (&url.URL{Scheme: "http", Host: addr}).String()
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return (&url.URL{Scheme: "http", Host: net.JoinHostPort(host, port)}).String()
 }
 
 func firstAddr(header string) string {

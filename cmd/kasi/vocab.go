@@ -509,6 +509,7 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 
 	var out []mime.Part
 	var deletions []string
+	var notifies []string
 	exit := 0
 	for _, words := range lines {
 		switch words[0] {
@@ -530,6 +531,15 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 			}
 			rel := strings.TrimPrefix(words[1], "in/")
 			deletions = append(deletions, rel)
+		case "notify":
+			// The agent sends a one-way mid-run notification (feature-notifications.md).
+			// Collected here, fired below WHILE the run is still live (before DeliverTurn
+			// finishes it) through the REAL control endpoint — exactly what `kasi notify`
+			// does from inside the agent.
+			if len(words) != 2 {
+				return fmt.Errorf("agent: notify needs a single message, e.g. `notify \"Smart-ID code 4271\"`")
+			}
+			notifies = append(notifies, words[1])
 		case "exit":
 			exit, err = strconv.Atoi(arg(words))
 			if err != nil {
@@ -545,6 +555,31 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 		return fmt.Errorf("agent: no agent run is currently running")
 	}
 	taskID := running[0].TaskID
+
+	// Fire any mid-run notifications through the real /control/notify endpoint while
+	// the run is still running (the token is minted at the start-agent-run edge and
+	// read from the model here), so the scenario drives the true endpoint, token
+	// validation, and fire-and-forget send — not a shortcut (feature-notifications.md).
+	for _, message := range notifies {
+		token := running[0].NotifyToken
+		for _, r := range running {
+			if r.TaskID == taskID {
+				token = r.NotifyToken
+				break
+			}
+		}
+		status, err := inst.webPOST("/control/notify", url.Values{
+			"task_id": {strconv.FormatInt(taskID, 10)},
+			"token":   {token},
+			"message": {message},
+		})
+		if err != nil {
+			return fmt.Errorf("agent: notify: %w", err)
+		}
+		if status != "200" {
+			return fmt.Errorf("agent: notify: control endpoint returned %s, not 200", status)
+		}
+	}
 
 	// The dispatch branches per ring (docs/13, docs/14). In sim the block's
 	// out/exit ARE the turn. In recorded and live the block is parsed only to
@@ -1116,6 +1151,12 @@ func (inst *instance) webPOST(path string, body url.Values) (string, error) {
 	// visit. Any other >=400 is a genuine failure and fails the scenario loudly.
 	if rec.Code == http.StatusUnprocessableEntity {
 		return rec.Body.String(), nil
+	}
+	// A 403 from the control endpoint (/control/notify) is likewise an EXPECTED
+	// outcome — a rejected per-run token, not a broken route — so return the status
+	// for `is 403` assertions (feature-notifications.md).
+	if rec.Code == http.StatusForbidden {
+		return strconv.Itoa(rec.Code), nil
 	}
 	if rec.Code >= 400 {
 		return "", fmt.Errorf("post %s: status %d", path, rec.Code)

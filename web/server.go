@@ -16,6 +16,7 @@ import (
 	"github.com/dhamidi/dispatch"
 	"github.com/dhamidi/htmlc"
 
+	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/runtime"
@@ -144,8 +145,67 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.POST("memory.forget", "/memory/{name}/forget", http.HandlerFunc(s.forgetMemory)); err != nil {
 		return nil, err
 	}
+	// The control endpoint (feature-notifications.md): `kasi notify` POSTs a mid-run
+	// one-liner here. Host-gated (decision-006), and the per-run notify token is the
+	// credential — the same trust model as the capability links, but for a one-way
+	// mid-run signal rather than a round trip.
+	if err := s.router.POST("control.notify", "/control/notify", http.HandlerFunc(s.notify)); err != nil {
+		return nil, err
+	}
 
 	return s, nil
+}
+
+// notify is the host-gated control endpoint behind `kasi notify` (feature-
+// notifications.md): it validates the per-run token against the live AgentRun for
+// the task, constant-time, then injects a notify-user message that emails the
+// initiator a mid-run one-liner. The token is the only credential; a missing run
+// and a wrong token both return 403, so the endpoint never leaks whether a task
+// exists.
+func (s *Server) notify(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.ParseInt(r.FormValue("task_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	token := r.FormValue("token")
+	message := r.FormValue("message")
+	if message == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Find the live run for this task and validate the token constant-time. Not
+	// found, empty token, or mismatch all return 403 — never a signal that the
+	// task exists.
+	var run agents.AgentRun
+	found := false
+	for _, candidate := range agents.RunningRuns(s.app.View()) {
+		if candidate.TaskID == taskID {
+			run = candidate
+			found = true
+			break
+		}
+	}
+	if !found || token == "" ||
+		subtle.ConstantTimeCompare([]byte(run.NotifyToken), []byte(token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// App.Send blocks until applied; the mail fires fire-and-forget from the
+	// reducer (feature-notifications.md).
+	s.app.Send(taskmsg.NewNotifyUser(taskmsg.NotifyUserPayload{
+		TaskID: taskID,
+		RunID:  int64(run.ID),
+		Body:   message,
+	}))
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "ok")
 }
 
 // finishTask handles the completion link in an email reply (docs/04, docs/08):

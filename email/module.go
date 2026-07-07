@@ -32,6 +32,7 @@ func Module(e Edges) *runtime.Module {
 	registerSendEmail(mod)
 	runtime.Subscribe(mod, outboxReconcileSubs)
 	registerSendOutbox(mod)
+	registerSendNotification(mod)
 	return mod
 }
 

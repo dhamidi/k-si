@@ -1,0 +1,28 @@
+# t/research/notify-reject.test — /control/notify refuses a bad per-run token even
+# when a run is live for the task (decision-014). The token minted at the
+# start-agent-run edge is the ONLY credential, validated constant-time against the
+# running AgentRun; a wrong token is a 403 and injects nothing, so no mail goes out.
+# This is the negative control for notify.test's happy path.
+
+send allow-sender { address dario@example.test }
+
+deliver {
+    from    dario@example.test
+    to      research@kasi.test
+    subject "portal"
+    body    "log in"
+}
+
+# The run for task 1 is now live (awaiting-agent), so a rejection here is the token
+# check firing, not a missing run.
+task 1 status is awaiting-agent
+set id [task 1 id]
+
+post /control/notify {
+    task_id $id
+    token   not-the-real-token
+    message sneaky
+} is 403
+
+# The rejection happened before any injection, so nothing was ever sent.
+outbound count is 0

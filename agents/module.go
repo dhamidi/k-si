@@ -22,6 +22,11 @@ type Edges struct {
 	// Content is read at run start to provision every learned skill into the
 	// workspace skills/ box (Flow D, decision-009).
 	Content store.Content
+	// ControlURL is the loopback origin (e.g. http://127.0.0.1:8787) the agent
+	// POSTs notifications to; injected into the run env as KASI_CONTROL_URL
+	// (feature-notifications.md). A plain config string, not an interface edge —
+	// mirrors email.Edges.BaseURL.
+	ControlURL string
 }
 
 // Module bundles harness invocation, agent runs, and transcripts (docs/01).
@@ -34,6 +39,7 @@ func Module(e Edges) *runtime.Module {
 	registerStartAgentRun(mod)
 	registerSignalAgentRun(mod)
 	runtime.Subscribe(mod, agentWatchSubs)
+	registerRecordNotifyToken(mod)
 	return mod
 }
 
@@ -52,5 +58,7 @@ func SimEdges() Edges {
 		Work:    work,
 		Secrets: secrets.NewSim(),
 		Content: store.NewMemoryContent(),
+		// A harmless placeholder; sim runs don't POST through it.
+		ControlURL: "http://127.0.0.1:0",
 	}
 }

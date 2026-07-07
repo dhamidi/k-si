@@ -52,6 +52,8 @@ func main() {
 		os.Exit(runProbe(os.Args[2:]))
 	case "capture-inbox":
 		os.Exit(runCaptureInbox(os.Args[2:]))
+	case "notify":
+		os.Exit(runNotify(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -66,5 +68,6 @@ Commands:
   test    run test scripts: kasi test [-n N] [--log memory|sqlite] [--record] [--cassettes] [--selftest] [path ...]
   secret  manage the secrets store: kasi secret <set secret://ns/key | ls> [-state ./data]  (set reads the value from stdin)
   probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)
-  capture-inbox  capture REAL inbound mail into the parse corpus: kasi capture-inbox [-n 10] [-state ./data] [-dir t/fixtures/mime]  (reads the live inbox, read-only)`)
+  capture-inbox  capture REAL inbound mail into the parse corpus: kasi capture-inbox [-n 10] [-state ./data] [-dir t/fixtures/mime]  (reads the live inbox, read-only)
+  notify  send a mid-run notification from inside an agent run: kasi notify "<message>"  (reads KASI_* env, POSTs to the control endpoint)`)
 }

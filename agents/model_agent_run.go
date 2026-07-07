@@ -17,6 +17,9 @@ type AgentRun struct {
 	Session        string     `json:"session"`
 	TranscriptPath string     `json:"transcript_path"`
 	Exit           int        `json:"exit"`
+	// NotifyToken is the per-run capability token the /control/notify endpoint
+	// validates before injecting a notify-user (feature-notifications.md).
+	NotifyToken string `json:"notify_token"`
 }
 
 // Run status values (docs/05 lifecycle): a run is "running" while the harness

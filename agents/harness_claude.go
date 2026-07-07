@@ -49,6 +49,12 @@ If you need more from the user, you have two channels — pick by what you need:
 Use the form (not reply.txt) whenever a secret is involved: it is the only way to
 collect one without it landing in an email.
 
+To send the user a one-way message mid-task — something they need NOW that can't
+wait for the reply and needs nothing back (e.g. a two-factor code with a countdown)
+— run` + " `kasi notify \"your message\"`" + `. It emails them immediately and
+returns at once, so you keep working in the same turn. Use a REPLY or a web-form
+REQUEST when you need something back from the user; use notify when you don't.
+
 ./store/ is your durable, private memory — a real directory that PERSISTS across
 tasks, unlike the rest of this workspace, which is wiped the moment a task
 finishes. Keep SQLite databases, caches, and scratch scripts there, and read from

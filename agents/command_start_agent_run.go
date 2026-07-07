@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/mime"
@@ -55,6 +56,20 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		env[field] = plaintext
 	}
 
+	// Mint the per-run notify token and inject the notification env vars, so an
+	// agent can POST `kasi notify` to the host-gated control endpoint mid-run
+	// (feature-notifications.md). The token is minted at the edge and recorded on
+	// the AgentRun via record-notify-token BELOW — emitted before the harness even
+	// starts, so the model holds the token before the agent could ever call notify.
+	if env == nil {
+		env = map[string]string{}
+	}
+	notifyToken := mintToken()
+	env["KASI_TASK_ID"] = strconv.FormatInt(p.TaskID, 10)
+	env["KASI_NOTIFY_TOKEN"] = notifyToken
+	env["KASI_CONTROL_URL"] = e.ControlURL
+	emit(NewRecordNotifyToken(RecordNotifyTokenPayload{TaskID: p.TaskID, RunID: p.RunID, Token: notifyToken}))
+
 	// Provision every learned skill into this run's workspace before the harness
 	// starts — the single choke point every run passes through, so skills authored
 	// by any task are laid into every future run by default (Flow D, decision-009).
@@ -84,7 +99,8 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 
 	// Register the live run and return immediately; the agent-watch
 	// subscription emits finish-agent-run when the turn completes (docs/05).
-	// No emit here — results leave only via that subscription.
+	// The only emit here is record-notify-token above (the minted per-run token);
+	// the run's RESULTS still leave only via that subscription.
 	var err error
 	if p.Resume {
 		_, err = e.Harness.Resume(ctx, p.TaskID, p.RunID, sessionFor(p.TaskID), env)

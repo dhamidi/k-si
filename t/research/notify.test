@@ -1,0 +1,40 @@
+# t/research/notify.test — the notifications feature (docs/feature-notifications.md,
+# decision-014). An agent, mid-run, sends a one-way message that needs nothing back
+# (the Smart-ID two-factor case): `kasi notify` POSTs to the host-gated /control/notify
+# with its per-run token; the endpoint validates it and injects notify-user; the tasks
+# reducer emails the initiator a threaded one-liner FIRE-AND-FORGET — no completion
+# link — and the task keeps running to its normal end-of-run reply. The sim `notify`
+# directive drives the REAL endpoint with the run's minted token while the run is still
+# live, so this exercises token validation and the send, not a shortcut.
+
+send allow-sender { address dario@example.test }
+
+deliver {
+    from    dario@example.test
+    to      research@kasi.test
+    subject "log into the bank portal"
+    body    "Log into the portal and download this month's statement."
+}
+
+task 1 status is awaiting-agent
+
+agent {
+    notify "Smart-ID code 4271 — approve on your phone within 60s."
+    out reply.txt "Done — statement downloaded."
+}
+
+task 1 status is awaiting-user
+
+# Two mails went out: the mid-run notification FIRST, then the end-of-run reply.
+outbound count is 2
+
+# The notification — addressed to the initiator, the one-liner verbatim, threaded and
+# marked X-Kasi-Notify, and crucially carrying NO completion link (it is not a reply).
+outbound 1 to is dario@example.test
+outbound 1 body matches "*Smart-ID code 4271*"
+outbound 1 completion-link is ""
+outbound 1 raw matches "*X-Kasi-Notify*"
+
+# The reply is the separate, normal end-of-run mail, and it DOES carry the link.
+outbound last body matches "*Done — statement downloaded.*"
+outbound last completion-link matches "*http*"

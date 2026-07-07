@@ -1,0 +1,80 @@
+# notify.kit — the notifications feature (docs/feature-notifications.md).
+#
+# Two cross-module contracts scaffolded here; the rest (per-run token mint + env
+# injection, the /control/notify endpoint, the `kasi notify` client, the agents
+# ControlURL edge + readers, serve wiring, the sim `notify` vocab, and scenarios)
+# is hand-filled against the implementation spec. Apply with:
+#
+#   kit manifest apply providers/kasi/notify.kit
+#
+# then implement each `intent` per the spec.
+
+kasi message {
+	module tasks
+	tag notify-user
+	contract true
+	fields {
+		task_id int64
+		run_id int64
+		body string
+	}
+	description "injected by the control endpoint; email the task initiator a mid-run one-liner"
+	intent {
+		Read the Task (tasks.Get by task_id); if absent, no-op (return s, nil).
+		Derive a notification mail from it WITHOUT changing task state: To =
+		t.Participants, From = s.ReplyFrom (fall back to routeAddr(t.Route)),
+		Subject = mime.ReplySubject(t.Subject), InReplyTo = t.LastMessageID,
+		References = t.References, MessageID =
+		emailmsg.NotifyMessageID(task_id, meta.Offset, mime.Domain(from)) for a
+		unique-per-notification threaded id. Return one
+		emailmsg.NewSendNotification(...) command carrying those fields + body +
+		run_id. Do NOT complete the task, mark a reply, or add a completion link:
+		a notification is one-way (docs/feature-notifications.md).
+	}
+}
+
+kasi command {
+	module email
+	tag send-notification
+	contract true
+	fields {
+		to []string
+		from string
+		subject string
+		in_reply_to string
+		references []string
+		message_id string
+		body string
+		task_id int64
+		run_id int64
+	}
+	description "send a threaded one-line notification mail, fire-and-forget (no outbox, no completion link)"
+	intent {
+		Build a threaded RFC 5322 message with mime.Build: headers From/To/
+		Subject/Message-ID/In-Reply-To/References plus X-Kasi-Task and
+		X-Kasi-Agent-Run (task_id/run_id) and an X-Kasi-Notify marker; body is
+		the one-line message verbatim, NO completion link, NO attachments. Send
+		it DIRECTLY via e.Mail.Submit(ctx, raw) — deliberately fire-and-forget,
+		NOT the outbox/reconcile path: a notification is time-sensitive and
+		one-way, so a stale re-send after a restart is worse than a drop (the
+		inverse of decision-013). Emit nothing. On replay the effect is
+		suppressed, so it never re-sends.
+	}
+}
+
+kasi message {
+	module agents
+	tag record-notify-token
+	fields {
+		task_id int64
+		run_id int64
+		token string
+	}
+	description "record the per-run notify token on the AgentRun (set by start-agent-run at the edge)"
+	intent {
+		Find the AgentRun whose ID == run_id (copy-on-write over s.Runs) and set
+		its NotifyToken = token. The web control endpoint validates a kasi-notify
+		POST against this, constant-time, for the live run named by task_id. No
+		commands returned.
+	}
+}
