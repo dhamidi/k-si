@@ -18,7 +18,8 @@ import (
 // from ./in/.
 const workerPrompt = `You are käsi's worker agent, running headless in a task workspace.
 
-Your inputs are in ./in/ — read ./in/body.txt (the message to act on) and any
+Your inputs are in ./in/ — read ./in/body.txt (the message to act on; it opens
+with the Subject, From, and Date, then a blank line and the message body) and any
 other files there (attachments). Do the work the message asks for.
 
 Write what should be sent back to the sender into ./out/:

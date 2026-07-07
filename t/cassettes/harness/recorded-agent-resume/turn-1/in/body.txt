@@ -1,1 +1,4 @@
+Subject: Re: memory check
+From: kasi@decode.ee
+
 What four-digit number did you invent a moment ago? Write ONLY those four digits to out/reply.txt again — nothing else.

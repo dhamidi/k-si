@@ -1,1 +1,4 @@
+Subject: memory check
+From: kasi@decode.ee
+
 Invent a random 4-digit number and remember it. Write ONLY those four digits to out/reply.txt — nothing else, no words.

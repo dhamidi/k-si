@@ -81,7 +81,7 @@ Each task gets a workspace on disk:
 ```
 $WORKDIR/task-$ID/
 ├── in/                   # inputs for the agent (read)
-│   ├── body.txt          # the email text (this turn, and prior context)
+│   ├── body.txt          # Subject/From/Date envelope, blank line, then the email text
 │   ├── invoice.pdf       # attachments, one file per MIME part
 │   └── ...
 ├── out/                  # outputs from the agent (harvested) — a file TREE

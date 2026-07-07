@@ -1,10 +1,10 @@
 {
   "kind": "mail-exchange",
-  "recorded_at": "2026-07-06T11:48:42.261018715Z",
+  "recorded_at": "2026-07-07T15:53:03.51462215Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/agent-resume.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "de185d1"
+    "git": "a076b58"
   }
 }

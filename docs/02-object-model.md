@@ -135,7 +135,8 @@ The lifecycle of a task's content, all in MIME terms:
    and store it in the inbox. Attachments are recognised as parts.
 2. **Lay-in.** When the task's workspace is created, the message's text part(s)
    and attachment parts are written into `in/` as files (`in/body.txt`,
-   `in/invoice.pdf`, …). The agent sees plain files, not MIME.
+   `in/invoice.pdf`, …). `in/body.txt` opens with a Subject/From/Date envelope
+   block, a blank line, then the text body. The agent sees plain files, not MIME.
 3. **Agent run.** The harness reads `in/`, does work, writes results into
    `out/`.
 4. **Harvest.** Whatever the agent left in `out/` is read back: each file

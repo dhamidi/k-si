@@ -64,7 +64,8 @@ Effects run concurrently in workers ([01](./01-architecture.md)):
 
 - `create-workspace` — *makes `$WORKDIR/task-$ID/` with `in/` and `out/`*
   ([05](./05-agents-and-tasks.md)).
-- `lay-in-inputs` — *writes the email text to `in/body.txt` and the PDF part to
+- `lay-in-inputs` — *writes the email to `in/body.txt` (a Subject/From/Date
+  envelope, a blank line, then the text body) and the PDF part to
   `in/invoice.pdf`* ([02](./02-object-model.md)).
 - `provision-workspace` — *lays the template's skills into `skills/`, writes
   `.mise.toml`, `mise trust`s the workspace, and `mise install`s the pinned tools

@@ -1,10 +1,10 @@
 {
   "kind": "mail-exchange",
-  "recorded_at": "2026-07-06T11:49:05.246677218Z",
+  "recorded_at": "2026-07-07T15:53:21.82053784Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/mail-roundtrip.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "de185d1"
+    "git": "a076b58"
   }
 }
