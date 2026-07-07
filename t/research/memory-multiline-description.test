@@ -1,0 +1,35 @@
+# t/research/memory-multiline-description.test — a derived description is ALWAYS one
+# physical line (feature-memory.md, Fix 3). A memory whose frontmatter uses a YAML
+# literal block scalar (`|`) keeps its interior newlines; unfolded, those newlines
+# would break in/MEMORY.md (one line per memory) into stray fragments and shred the
+# entry that follows. käsi folds the description to a single line, so the index stays
+# a clean list.
+
+send allow-sender { address kasi@decode.ee }
+
+# Seed the multiline-description memory FIRST, then a plain one — model order is the
+# index order, so `second-note` is the entry laid immediately after `multiline-desc`.
+memory write multiline-desc [fixture memory/multiline-desc.md]
+memory write second-note    [fixture memory/second-note.md]
+
+# The reducer derived the block scalar's three lines folded to ONE, joined with
+# single spaces (never a naive first-line read, never the raw newlines).
+memory multiline-desc description is "First line of the description. Second line that must fold in. Third line."
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay"
+    body    "pay the EU invoice attached"
+}
+task 1 status is awaiting-agent
+
+# The käsi-authored index carries that whole description on ONE physical line: the
+# space-joined form appears verbatim (it can't, if the newlines had leaked through).
+task 1 input MEMORY.md matches "*— First line of the description. Second line that must fold in. Third line.*"
+
+# ...and the entry AFTER it is still a proper `- [...]` list item: the multiline
+# entry's line ends right at "Third line." and the very next physical line is
+# second-note's list item — no fragment wedged between them.
+task 1 input MEMORY.md matches {*Third line.
+- [second-note](memory/second-note.md) — *}

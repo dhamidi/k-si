@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/dhamidi/k-si/memory"
 	msg "github.com/dhamidi/k-si/memory/msg"
 	"github.com/dhamidi/k-si/runtime"
 )
@@ -26,21 +27,32 @@ type RememberForm struct {
 
 // BindRememberForm reads the submitted values. Binding never fails — bad
 // input becomes field errors in Validate, not an HTTP error.
+//
+// The name is trimmed (a slug carries no surrounding space). The content is only
+// CRLF→LF normalised, NOT trimmed: browsers submit a <textarea> with CRLF line
+// endings, and an owner re-saving an agent-authored (LF) note must store the SAME
+// raw bytes the agent did — trimming the trailing newline or leaving CRLF in would
+// drift the collection between its two interfaces (feature-memory.md: one
+// collection, byte-identical through both faces).
 func BindRememberForm(r *http.Request) RememberForm {
 	return RememberForm{
 		Name:    strings.TrimSpace(r.FormValue("name")),
-		Content: strings.TrimSpace(r.FormValue("content")),
+		Content: strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n"),
 		Errors:  FormErrors{},
 	}
 }
 
 // Validate returns the form with any field errors recorded — a memory needs a
-// name (its identity/slug) and a body (first error per field wins).
+// valid slug name (its identity/file name/index token) and a non-empty body (first
+// error per field wins).
 func (f RememberForm) Validate() RememberForm {
-	if f.Name == "" {
+	switch {
+	case f.Name == "":
 		f.Errors.Set("name", "a name is required")
+	case !memory.ValidName(f.Name):
+		f.Errors.Set("name", "a name is a slug: letters, digits, dashes, dots, underscores")
 	}
-	if f.Content == "" {
+	if strings.TrimSpace(f.Content) == "" {
 		f.Errors.Set("content", "the memory body is required")
 	}
 	return f

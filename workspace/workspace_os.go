@@ -76,6 +76,19 @@ func (o *OS) WriteSkills(taskID int64, parts []mime.Part) error {
 // file kept OUTSIDE task-<id>/ — so the archival walk (Files, rooted at
 // task-<id>/) never surfaces it, exactly as the sim twin holds it off the tree.
 func (o *OS) WriteMemory(taskID int64, mems []MemoryFile) error {
+	// Drop any box-unsafe name (defense in depth) so a single poisoned entry never
+	// errors the whole provisioning; everything below runs off the survivors.
+	mems = provisionableMemories(mems)
+
+	// Prune stale in/memory/ notes so the box exactly equals the CURRENT collection —
+	// on a resume, a memory forgotten since an earlier turn must not linger as
+	// in/memory/<name>.md and be re-handed to the agent (feature-memory.md: no
+	// resurrection). Only what already exists is pruned, so a brand-new, empty run
+	// still writes nothing and its in/ box stays byte-identical to a fresh workspace.
+	if err := o.pruneStaleMemory(taskID, mems); err != nil {
+		return err
+	}
+
 	// An empty collection lays nothing — no notes, no index — so a run with no
 	// memories has an unchanged in/ box (feature-memory.md: the index rides with the
 	// notes it lists). The provisioned manifest is still written (empty) so the
@@ -93,6 +106,44 @@ func (o *OS) WriteMemory(taskID int64, mems []MemoryFile) error {
 		return err
 	}
 	return os.WriteFile(o.memoryManifestPath(taskID), b, 0o644)
+}
+
+// pruneStaleMemory removes in/memory/<name>.md files whose name is not in the
+// current collection, and — when the collection is empty — the in/MEMORY.md index,
+// so a resume leaves in/ EXACTLY the current set (Fix 4, feature-memory.md). It only
+// removes what exists: a fresh workspace has no in/memory/, so nothing is created
+// or touched, keeping the empty-collection run byte-identical to before.
+func (o *OS) pruneStaleMemory(taskID int64, mems []MemoryFile) error {
+	keep := make(map[string]bool, len(mems))
+	for _, m := range mems {
+		keep[m.Name] = true
+	}
+	memDir := filepath.Join(o.taskDir(taskID), "in", MemoryDir)
+	entries, err := os.ReadDir(memDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name, ok := strings.CutSuffix(e.Name(), ".md")
+		if !ok || keep[name] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(memDir, e.Name())); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	// An empty collection lists nothing; drop a stale index so a resume that forgot
+	// the last memory leaves no orphaned MEMORY.md. A non-empty run rewrites it below.
+	if len(mems) == 0 {
+		idx := filepath.Join(o.taskDir(taskID), "in", MemoryIndexName)
+		if err := os.Remove(idx); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // ProvisionedMemory returns this run's pinned provisioned memory names, read from

@@ -20,6 +20,14 @@ import (
 type Memory struct {
 	mu    sync.Mutex
 	trees map[int64]*tree
+	// failProvisioned scripts the next N ProvisionedMemory reads to fail — the
+	// harvest's fault-injection knob, mirroring SimMail.failSend (docs/13). Only
+	// capture-memory reads ProvisionedMemory, so failing it leaves that harvest
+	// entirely un-emitted, which is the crash-mid-harvest a scenario needs to
+	// exercise HarvestPending reconciliation. Like the tree, it survives a
+	// simulated crash (the struct outlives the App), so a harvest that failed stays
+	// failed until reconciliation retries it on restart.
+	failProvisioned int
 }
 
 // tree is one task-<id>/ directory: named files under in/, out/, and skills/,
@@ -104,15 +112,43 @@ func (m *Memory) WriteSkills(taskID int64, parts []mime.Part) error {
 // overwrite/append-by-path semantics as LayIn for the in/ files; the manifest is
 // held apart from the tree so Files never surfaces it.
 func (m *Memory) WriteMemory(taskID int64, mems []MemoryFile) error {
+	// Drop any box-unsafe name (defense in depth) so a single poisoned entry never
+	// errors the whole provisioning; the manifest and the in/ files run off survivors.
+	mems = provisionableMemories(mems)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t := m.ensure(taskID)
 	t.provisionedMemory = memoryNames(mems)
+
+	// Prune stale memory/ notes so in/ exactly equals the CURRENT collection — on a
+	// resume a memory forgotten since an earlier turn must not linger as
+	// memory/<name>.md and be re-handed to the agent (Fix 4, feature-memory.md). Only
+	// keys that already exist are removed, so a fresh, empty run touches nothing and
+	// its in/ box stays byte-identical to before.
+	keep := make(map[string]bool, len(mems))
+	for _, mem := range mems {
+		keep[mem.Name] = true
+	}
+	prefix := MemoryDir + "/"
+	for key := range t.in {
+		rel, ok := strings.CutPrefix(key, prefix)
+		if !ok || strings.Contains(rel, "/") {
+			continue
+		}
+		name, ok := strings.CutSuffix(rel, ".md")
+		if !ok || keep[name] {
+			continue
+		}
+		delete(t.in, key)
+	}
+
 	// An empty collection lays nothing — no notes, no index — so a run with no
 	// memories has an unchanged in/ box (feature-memory.md: the index rides with the
-	// notes it lists). The provisioned set is still recorded (empty), so the harvest
-	// diff finds nothing to forget.
+	// notes it lists). Drop a stale index so a resume that forgot the last memory
+	// leaves no orphaned MEMORY.md; the provisioned set stays recorded (empty).
 	if len(mems) == 0 {
+		delete(t.in, MemoryIndexName)
 		return nil
 	}
 	return writeInto("in", t.in, memoryParts(mems))
@@ -123,11 +159,35 @@ func (m *Memory) WriteMemory(taskID int64, mems []MemoryFile) error {
 func (m *Memory) ProvisionedMemory(taskID int64) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failProvisioned > 0 {
+		m.failProvisioned--
+		return nil, fmt.Errorf("workspace: simulated provisioned-memory failure")
+	}
 	t, ok := m.trees[taskID]
 	if !ok {
 		return nil, nil
 	}
-	return append([]string(nil), t.provisionedMemory...), nil
+	// A non-nil empty slice after an empty provision, matching the OS twin (whose
+	// manifest unmarshals `[]` into a non-nil empty slice) so the twins are
+	// byte-identical in behaviour (Fix 5, the twin rule): append to a nil base would
+	// yield nil when the set is empty.
+	names := make([]string, len(t.provisionedMemory))
+	copy(names, t.provisionedMemory)
+	return names, nil
+}
+
+// FailNext scripts the next n operations on an op to fail (docs/13). Only
+// "harvest" is meaningful today: it fails the ProvisionedMemory read the
+// capture-memory harvest depends on, so a scenario can drive a crash mid-harvest
+// and prove HarvestPending reconciliation recovers it. This is a sim-only test
+// hook (not on the Workspace interface), mirroring SimMail.FailNext.
+func (m *Memory) FailNext(op string, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if op == "harvest" {
+		m.failProvisioned += n
+	}
 }
 
 // DeleteIn removes a file from the in/ box by its box-relative path — an agent

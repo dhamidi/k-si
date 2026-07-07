@@ -124,8 +124,11 @@ func Unpack(tarBytes []byte) ([]mime.Part, error) {
 // closing "---" is parsed as YAML — so block scalars (">-", "|"), quoted and
 // multi-line values are all handled, not just single-line "key: value". It
 // tolerates absence and malformation: no frontmatter, no closing fence, a missing
-// key, or unparseable YAML each yield "". The description is space-trimmed so a
-// folded scalar's trailing newline doesn't reach the UI.
+// key, or unparseable YAML each yield "". The description is ALWAYS collapsed to a
+// single line (interior whitespace and newlines folded to single spaces): a folded
+// scalar carries a trailing newline, and a LITERAL block scalar ("|") keeps its
+// interior newlines — either would corrupt the one-line-per-entry in/MEMORY.md
+// index if it reached it verbatim (feature-memory.md).
 func Frontmatter(skillMD []byte) (name, description string) {
 	block, ok := frontmatterBlock(skillMD)
 	if !ok {
@@ -138,7 +141,7 @@ func Frontmatter(skillMD []byte) (name, description string) {
 	if err := yaml.Unmarshal(block, &fm); err != nil {
 		return "", ""
 	}
-	return strings.TrimSpace(fm.Name), strings.TrimSpace(fm.Description)
+	return strings.TrimSpace(fm.Name), strings.Join(strings.Fields(fm.Description), " ")
 }
 
 // frontmatterBlock returns the bytes between the opening and closing "---" fences.

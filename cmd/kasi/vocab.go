@@ -200,8 +200,17 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		switch args[0] {
 		case "mail":
 			inst.world.mail.FailNext(args[1], n)
+		case "work", "workspace":
+			// Fault-inject the sim workspace — today only `fail work harvest`, which
+			// fails the ProvisionedMemory read capture-memory depends on, so a scenario
+			// can crash mid-harvest and prove HarvestPending reconciliation recovers it.
+			failer, ok := inst.world.work.(interface{ FailNext(string, int) })
+			if !ok {
+				return "", fmt.Errorf("fail: workspace %T does not support fault injection", inst.world.work)
+			}
+			failer.FailNext(args[1], n)
 		default:
-			return "", fmt.Errorf("fail: unknown edge %q (mail)", args[0])
+			return "", fmt.Errorf("fail: unknown edge %q (mail, work)", args[0])
 		}
 		return "", nil
 	}
@@ -1047,6 +1056,12 @@ func (inst *instance) webPOST(path string, body url.Values) (string, error) {
 	inst.app.Settle()
 	if loc := rec.Header().Get("Location"); loc != "" {
 		return loc, nil
+	}
+	// A 422 is a form re-render on an invalid submit (decision-008) — an EXPECTED
+	// outcome, not a broken route — so return its HTML body for matches/is, mirroring
+	// visit. Any other >=400 is a genuine failure and fails the scenario loudly.
+	if rec.Code == http.StatusUnprocessableEntity {
+		return rec.Body.String(), nil
 	}
 	if rec.Code >= 400 {
 		return "", fmt.Errorf("post %s: status %d", path, rec.Code)

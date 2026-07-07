@@ -17,6 +17,16 @@ func registerRemember(mod *runtime.Module) {
 func handleRemember(v runtime.View, s Model, p msg.RememberPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	// Guard the name at the canonical write path: a name is a slug (ValidName), and a
+	// bad one — "../../evil" would wedge every future run's provisioning, a name with
+	// newlines/metacharacters would inject into in/MEMORY.md — is SKIPPED, never
+	// stored, whatever the source (harvest or the /memory form). Returning the model
+	// unchanged keeps a poisoned name out of both the model and the log's effect
+	// (feature-memory.md hardening).
+	if !ValidName(p.Name) {
+		return s, nil
+	}
+
 	// Derive the description from the RAW memory file HERE, in the pure reducer, so
 	// every replay re-parses it with the current parser — a parser fix or a new
 	// frontmatter-derived field is free on the next replay, no migration. The log

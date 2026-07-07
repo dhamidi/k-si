@@ -1,0 +1,59 @@
+# t/research/memory-restart-safety.test — the memory harvest is crash-safe
+# (docs/03), the memory sibling of crash-before-send's outbox. A finished run's
+# out/memory/ writes are recovered even when the capture-memory effect never
+# completes inline.
+#
+# agent-run-finished no longer emits capture-memory as a Cmd — a crash between
+# logging that message and the effect finishing would lose the harvest forever
+# (replay re-derives the Cmd but SUPPRESSES effects, and the remember was never
+# logged). Instead it records the run as a PENDING job on the tasks model. The
+# harvest-reconcile subscription turns each pending job into capture-memory; the
+# effect ends by emitting mark-harvested, which clears the job. A crash mid-harvest
+# leaves the job pending, and restart's replay rebuilds it so the source fires
+# again — exactly the guarantee email's pending outbox gives an unsent reply.
+#
+# This proves the FULL crash window, not just quiescence: the harvest's
+# ProvisionedMemory read is faulted so the effect errors before emitting anything,
+# the process crashes with the job still owed, and the restart recovers it.
+
+send allow-sender { address kasi@decode.ee }
+
+# The harvest's ProvisionedMemory read will fail on its first attempt (only
+# capture-memory reads it, so this fails the harvest and nothing else)...
+fail work harvest
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "banking"
+    body    "note the owner's banking setup for future payments"
+}
+task 1 status is awaiting-agent
+
+# ...so when the agent finishes, the harvest-reconcile source drives capture-memory
+# but the effect errors before emitting: nothing is remembered, and the
+# mark-harvested that would clear the job never comes.
+agent {
+    out reply.txt                "Noted the banking setup."
+    out memory/owner-banking.md  [fixture memory/owner-banking.md]
+}
+task 1 status is awaiting-user
+
+# The reply still sent — the harvest is orthogonal to delivery.
+outbound count is 1
+
+# The harvest did NOT land: the collection is empty...
+model memory memories is ""
+# ...and the run sits in the pending set, still owed a harvest. This is the crash
+# window: the fact would be lost forever if HarvestPending were not logged state.
+model tasks harvest_pending matches "*run_id*"
+
+# The process dies and comes back: full-log replay rebuilds HarvestPending, then the
+# harvest-reconcile subscription re-fires — this time ProvisionedMemory succeeds.
+crash
+restart
+
+task 1 status is awaiting-user                    # replay rebuilt the model
+memory owner-banking matches "*Handelsbanken*"    # the harvest was recovered
+memory owner-banking description matches "*never reuse an OCR across invoices*"
+model tasks harvest_pending is ""                 # mark-harvested cleared it — exactly once

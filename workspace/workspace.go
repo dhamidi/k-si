@@ -10,6 +10,7 @@ package workspace
 
 import (
 	"fmt"
+	"log"
 	"path"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,39 @@ const (
 	MemoryDir       = "memory"
 	MemoryIndexName = "MEMORY.md"
 )
+
+// safeMemoryName reports whether a memory name yields a note path that stays inside
+// the in/ box — a workspace-LOCAL guard (no memory-domain import, per the interface
+// doc) that reuses the very rule validBoxPath enforces. A name with a "/", a "..",
+// or anything path.Clean would rewrite is unsafe. WriteMemory drops such a name
+// rather than erroring the whole provisioning: one poisoned entry (should it ever
+// reach the edge past the domain's own guard) must never wedge every run
+// (feature-memory.md hardening, defense in depth).
+func safeMemoryName(name string) bool {
+	if name == "" || strings.ContainsRune(name, '/') {
+		return false
+	}
+	rel := MemoryDir + "/" + name + ".md"
+	cleaned, err := validBoxPath("in", rel)
+	return err == nil && cleaned == rel
+}
+
+// provisionableMemories keeps only the memories with a box-safe name, logging and
+// dropping the rest — so a bad entry is silently skipped, never an error out of
+// WriteMemory. Both memoryParts (the in/ files) and memoryNames (the pinned
+// ProvisionedMemory set) run off this filtered slice, so the harvest diff stays
+// consistent with what was actually written (feature-memory.md).
+func provisionableMemories(mems []MemoryFile) []MemoryFile {
+	out := make([]MemoryFile, 0, len(mems))
+	for _, m := range mems {
+		if !safeMemoryName(m.Name) {
+			log.Printf("workspace: skipping memory with unsafe name %q", m.Name)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
 
 // memoryParts renders the in/ box files a memory provisioning lays down: one note
 // per memory at memory/<name>.md (its RAW Content) plus the MEMORY.md index. Both

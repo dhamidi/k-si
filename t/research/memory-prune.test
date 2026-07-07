@@ -1,0 +1,51 @@
+# t/research/memory-prune.test — provisioning leaves in/memory/ EXACTLY the current
+# collection, even across turns of the SAME task (feature-memory.md, Fix 4). Task 1's
+# workspace persists across a resume; a memory forgotten while task 1 sits open must
+# not linger in in/memory/ from turn 1 and be re-handed to the agent on turn 2 (a
+# resurrection). käsi prunes the stale note and drops its index line on the resume.
+
+send allow-sender { address kasi@decode.ee }
+
+# Two facts käsi already knows (seeded as the /memory page would).
+memory write reply-style   [fixture memory/reply-style.md]
+memory write owner-banking [fixture memory/owner-banking.md]
+
+# Task 1 is provisioned BOTH — both notes land in its in/memory/ box on turn 1.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "draft"
+    body    "draft a reply to the vendor about the overdue invoice"
+}
+task 1 status is awaiting-agent
+task 1 input memory/reply-style.md   matches "*Lead with the answer*"
+task 1 input memory/owner-banking.md matches "*Handelsbanken*"
+
+# Turn 1 ends without touching memory; the task returns to the owner (awaiting-user),
+# but its workspace — in/memory/owner-banking.md and all — persists.
+agent {
+    out reply.txt "Drafted the reply."
+}
+task 1 status is awaiting-user
+
+# While task 1 sits open, the owner forgets owner-banking on the /memory page.
+post /memory/owner-banking/forget
+memory reply-style matches "*Lead with the answer*"
+
+# A threaded reply reopens task 1 — a RESUME into the SAME workspace. Provisioning
+# re-lays memory for turn 2 against the CURRENT collection {reply-style}.
+deliver {
+    from kasi@decode.ee
+    reply-to-last
+    body "one more thing — tighten the second paragraph"
+}
+task 1 status is awaiting-agent
+
+# Turn 2's in/ no longer carries the forgotten note: pruned, not left to resurrect.
+# The exact input set is the negative proof — memory/owner-banking.md is gone.
+task 1 inputs are {MEMORY.md body.txt memory/reply-style.md}
+task 1 input memory/reply-style.md matches "*Lead with the answer*"
+
+# The index was rewritten from the current collection: it lists reply-style and the
+# forgotten owner-banking's line does not survive it.
+task 1 input MEMORY.md matches {*- [reply-style](memory/reply-style.md) — *}

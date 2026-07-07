@@ -14,6 +14,47 @@ type Model struct {
 	// once via set-reply-from (docs/04). Empty falls back to the routeAddr
 	// placeholder, which is fine for the sim ring but not for real delivery.
 	ReplyFrom string `json:"reply_from"`
+	// HarvestPending is the set of finished runs whose memory harvest is still
+	// owed — the crash-safety marker (the memory sibling of email's pending outbox
+	// entry, docs/03). agent-run-finished appends a job; the harvest-reconcile
+	// subscription drives capture-memory for each; mark-harvested removes it once
+	// the effect has emitted all its remember/forget directives. A SLICE, never a
+	// map, so it marshals in a deterministic order and refolding the log converges
+	// byte-for-byte on the live model (BRIEF replay-convergence).
+	HarvestPending []HarvestJob `json:"harvest_pending"`
+}
+
+// HarvestJob is one finished run whose out/memory harvest has not yet been
+// captured — the pending-work marker the reconcile subscription turns back into a
+// capture-memory effect until mark-harvested clears it.
+type HarvestJob struct {
+	TaskID int64 `json:"task_id"`
+	RunID  int64 `json:"run_id"`
+}
+
+// withHarvestPending returns the pending set with job appended (copy-on-write),
+// skipping a duplicate RunID so a re-fold of the same agent-run-finished — or a
+// second finish for one run — never doubles the marker.
+func withHarvestPending(pending []HarvestJob, job HarvestJob) []HarvestJob {
+	for _, j := range pending {
+		if j.RunID == job.RunID {
+			return pending
+		}
+	}
+	return append(append([]HarvestJob(nil), pending...), job)
+}
+
+// withoutHarvestPending returns the pending set with the job for runID removed
+// (copy-on-write). An absent runID is a no-op, so mark-harvested is idempotent.
+func withoutHarvestPending(pending []HarvestJob, runID int64) []HarvestJob {
+	var out []HarvestJob
+	for _, j := range pending {
+		if j.RunID == runID {
+			continue
+		}
+		out = append(out, j)
+	}
+	return out
 }
 
 // slice reads the tasks Model out of a whole-model View — the typed accessor

@@ -31,6 +31,9 @@ func Module(e Edges) *runtime.Module {
 	registerSetReplyFrom(mod)
 	registerStoreSkill(mod)
 	registerCaptureMemory(mod)
+	registerRunHarvest(mod)
+	registerMarkHarvested(mod)
+	runtime.Subscribe(mod, harvestReconcileSubs)
 	return mod
 }
 

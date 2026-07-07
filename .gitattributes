@@ -1,0 +1,4 @@
+# The CRLF memory fixture must keep its literal \r\n bytes — it exists to prove the
+# remember form normalises browser CRLF to LF (feature-memory.md). Never let git's
+# EOL normalisation rewrite it, or the round-trip test loses its input.
+t/fixtures/memory/crlf-note.md -text
