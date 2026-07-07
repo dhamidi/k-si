@@ -10,6 +10,8 @@ import { Glob } from 'bun'
  * - subscription  subscription_<name>.go: state -> set of running sources
  * - view          web/view_<name>.vue + view_<name>.go: an htmlc view and its View struct
  * - form          web/form_<name>.go: bind + validate + construct the message; re-renders with errors
+ * - edge          a capability a module gets from the world: one field on its Edges,
+ *                 scaffolded AND wired across all five sites in one declaration (docs/12)
  *
  * Discovery is structural (ast-grep over Go source); generation emits the
  * canonical shapes from the pattern book, so generated code and documented
@@ -40,6 +42,7 @@ class KasiProvider {
 		yield new ViewType(this.kit)
 		yield new FormType(this.kit)
 		yield new ComponentType(this.kit)
+		yield new EdgeType(this.kit)
 	}
 
 	async *components() {
@@ -1091,6 +1094,207 @@ without JavaScript (docs/08). Do not refactor unrelated code.`,
 	}
 }
 
+// --- edge --------------------------------------------------------------------
+
+class EdgeType extends KasiType {
+	id() {
+		return 'edge'
+	}
+
+	description() {
+		return 'A module edge: one field on a module\'s Edges struct, scaffolded AND wired across all five sites (module.go real+sim twins, serve.go, simworld.go) in one declaration (docs/12)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			module: Type.Optional(
+				Type.String({
+					description: 'Domain module (Go package) whose Edges struct gains this field',
+					examples: ['agents', 'tasks', 'email'],
+					pattern: '^[a-z][a-z0-9]*$',
+					cli: false,
+				}),
+			),
+			name: Type.Optional(
+				Type.String({
+					description: 'PascalCase field name on the Edges struct',
+					examples: ['Store', 'Content', 'Mail'],
+					pattern: '^[A-Z][A-Za-z0-9]*$',
+					cli: false,
+				}),
+			),
+			type: Type.Optional(
+				Type.String({
+					description: 'Go type of the edge field; the import is derived from its leading package identifier',
+					examples: ['datastore.Store', 'store.Content', 'runtime.Clock'],
+					cli: false,
+				}),
+			),
+			sim: Type.Optional(
+				Type.String({
+					description: 'Sim-twin expression wired into SimEdges (and the shared sim world when shared)',
+					examples: ['datastore.NewSim()', 'store.NewMemoryContent()', 'runtime.SimClock()'],
+					cli: false,
+				}),
+			),
+			real: Type.Optional(
+				Type.String({
+					description: 'Expression wired at the serve.go assembly site; its identifiers must already exist there (the human wires the real value)',
+					examples: ['dataStore', 'content', 'clock'],
+					cli: false,
+				}),
+			),
+			shared: Type.Optional(
+				Type.Boolean({
+					description: 'true → the edge is shared across modules: also add a simWorld struct field + wire it in newSimWorld/newRecordedWorld/newLiveWorld, and reference w.<field> in assembleSim',
+					examples: [true],
+				}),
+			),
+			description: this.descriptionField(["the agent's persistent data store (Flow F)"]),
+		})
+	}
+
+	normalize(rawSpec) {
+		const module = rawSpec.module ?? rawSpec.parent
+		const name = rawSpec.name
+
+		if (module === undefined || !/^[a-z][a-z0-9]*$/.test(module)) {
+			throw new this.kit.UserError(`edge: module must be a lower-case Go package name, got ${JSON.stringify(module)}`)
+		}
+		if (RESERVED_DIRS.has(module)) {
+			throw new this.kit.UserError(`edge: ${module} is not a domain module`)
+		}
+		if (name === undefined || !/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+			throw new this.kit.UserError(`edge: name must be a PascalCase Go field name, got ${JSON.stringify(name)}`)
+		}
+		if (rawSpec.type === undefined || rawSpec.type === '') {
+			throw new this.kit.UserError('edge: type is required (the Go type of the field, e.g. datastore.Store)')
+		}
+		if (rawSpec.sim === undefined || rawSpec.sim === '') {
+			throw new this.kit.UserError('edge: sim is required (the sim-twin expression, e.g. "datastore.NewSim()")')
+		}
+		if (rawSpec.real === undefined || rawSpec.real === '') {
+			throw new this.kit.UserError('edge: real is required (the expression at the serve.go assembly site, e.g. "dataStore")')
+		}
+
+		return { ...rawSpec, module, name, shared: rawSpec.shared ?? false, field: camelCase(name) }
+	}
+
+	async *generate(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const gomod = await goModulePath(env)
+		const typePkg = leadingPackage(spec.type)
+		const simPkg = leadingPackage(spec.sim)
+
+		// Sites 1 + 2: <module>/module.go — the Edges struct field (with its
+		// description as a comment) and the SimEdges twin entry, plus imports.
+		yield* this.editModuleGo(spec, env, gomod, typePkg, simPkg)
+
+		// Sites 3 + 4 (+ 5): the assembly files under cmd/kasi — serve.go (REAL
+		// value) and simworld.go's assembleSim (the sim world; + the simWorld
+		// struct field and its constructors when the edge is shared).
+		yield* this.editAssembly(spec, env, gomod, typePkg, simPkg)
+
+		if (spec.intent !== undefined) {
+			yield this.plan(
+				spec,
+				`Implement the ${spec.module}.${spec.name} edge`,
+				[`${spec.module}/module.go`, 'cmd/kasi/serve.go', 'cmd/kasi/simworld.go'],
+				`Intent: ${spec.intent}
+
+The ${spec.name} edge is wired across all five sites (docs/12). Define the
+${spec.type} contract and its sim twin (${spec.sim}); make the real value
+(${spec.real}) exist at the serve.go assembly site. Do not refactor unrelated
+code.`,
+			)
+		}
+	}
+
+	async *editModuleGo(spec, env, gomod, typePkg, simPkg) {
+		const modulePath = `${spec.module}/module.go`
+
+		if (!(await Bun.file(modulePath).exists())) {
+			if (env.dryRun) {
+				yield this.kit.Event.fileEdited(modulePath)
+				return
+			}
+			yield this.kit.Event.error(
+				`${modulePath} does not exist; generate the module first: kit generate kasi module.${spec.module}`,
+			)
+			return
+		}
+
+		yield await env.editFile(modulePath, (source) => {
+			let s = source
+			s = addStructField(s, 'Edges', spec.name, spec.type, spec.description).source
+			s = addFieldToLiterals(s, 'return Edges{', spec.name, spec.sim).source
+			s = ensureImport(s, importPath(gomod, typePkg))
+			s = ensureImport(s, importPath(gomod, simPkg))
+			return s
+		})
+	}
+
+	async *editAssembly(spec, env, gomod, typePkg, simPkg) {
+		const anchor = `${spec.module}.Module(${spec.module}.Edges{`
+
+		const files = []
+		for await (const path of new Glob('cmd/kasi/*.go').scan({ cwd: process.cwd() })) {
+			files.push(path)
+		}
+		files.sort()
+
+		let sawReal = false
+		let sawSim = false
+		for (const path of files) {
+			const source = await env.readFile(path)
+			if (!source.includes(anchor)) {
+				continue
+			}
+
+			if (source.includes('func assembleSim(')) {
+				sawSim = true
+				yield await env.editFile(path, (s) => this.wireSimFile(s, spec, gomod, typePkg, simPkg, anchor))
+			} else {
+				sawReal = true
+				yield await env.editFile(path, (s) => addFieldToLiterals(s, anchor, spec.name, spec.real).source)
+			}
+		}
+
+		if (!sawReal) {
+			yield this.kit.Event.error(
+				`could not wire ${spec.module}.${spec.name}: no real assembly site (${anchor}…) found under cmd/kasi/ (docs/12)`,
+			)
+		}
+		if (!sawSim) {
+			yield this.kit.Event.error(
+				`could not wire ${spec.module}.${spec.name}: no assembleSim site (${anchor}…) found under cmd/kasi/ (docs/12)`,
+			)
+		}
+	}
+
+	/**
+	 * Wires the edge into the sim world file. assembleSim references w.<field>
+	 * for a SHARED edge (the value lives on the shared simWorld, so email/tasks
+	 * see the same instance) or the sim expression directly otherwise. A shared
+	 * edge also adds the field to the simWorld struct and sets it in every
+	 * constructor (newSimWorld/newRecordedWorld/newLiveWorld).
+	 */
+	wireSimFile(source, spec, gomod, typePkg, simPkg, anchor) {
+		let s = source
+		const assemblyExpr = spec.shared ? `w.${spec.field}` : spec.sim
+		s = addFieldToLiterals(s, anchor, spec.name, assemblyExpr).source
+
+		if (spec.shared) {
+			s = addStructField(s, 'simWorld', spec.field, spec.type, undefined).source
+			s = addFieldToLiterals(s, '&simWorld{', spec.field, spec.sim).source
+			s = ensureImport(s, importPath(gomod, typePkg))
+		}
+		s = ensureImport(s, importPath(gomod, simPkg))
+		return s
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1618,6 +1822,107 @@ function wireModuleIntoFile(source, name, gomod) {
 	}
 
 	return next
+}
+
+// --- Go-source surgery (edge wiring) ------------------------------------------
+
+/**
+ * The package identifier a qualified type/expression reaches for — the leading
+ * `pkg` of `pkg.Thing` or `pkg.Ctor()`. An unqualified type (a type local to
+ * the module) has none, so no import is derived.
+ */
+function leadingPackage(expr) {
+	return expr.match(/^\s*([a-z][A-Za-z0-9_]*)\s*\./)?.[1]
+}
+
+/** The Go import path for a package under this repo's module (docs/01). */
+function importPath(gomod, pkg) {
+	return pkg === undefined ? undefined : `${gomod}/${pkg}`
+}
+
+function escapeRegExp(text) {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Adds an import to a Go file's import block, idempotently. Handles the two
+ * shapes the generated code uses: a factored `import ( … )` block (append into
+ * it) and a single `import "x"` line (promote to a block). gofmt (run by the
+ * create wrapper) sorts the result, so insertion order does not matter.
+ */
+function ensureImport(source, path) {
+	if (path === undefined) return source
+	if (new RegExp(`"${escapeRegExp(path)}"`).test(source)) return source
+
+	if (/import \(\n/.test(source)) {
+		return source.replace(/import \(\n/, `import (\n\t"${path}"\n`)
+	}
+	const single = source.match(/import "([^"]+)"\n/)
+	if (single) {
+		return source.replace(/import "([^"]+)"\n/, `import (\n\t"$1"\n\t"${path}"\n)\n`)
+	}
+	return source.replace(/^(package \w+\n)/, `$1\nimport "${path}"\n`)
+}
+
+/**
+ * Adds `<fieldName> <goType>` (preceded by <description> as a // comment) inside
+ * `type <structName> struct { … }`, just after the opening brace. Idempotent: a
+ * struct that already declares the field is left untouched.
+ */
+function addStructField(source, structName, fieldName, goType, description) {
+	const openRe = new RegExp(`(type ${escapeRegExp(structName)} struct \\{\\n)`)
+	const open = source.match(openRe)
+	if (!open) return { source, found: false, changed: false }
+
+	const blockRe = new RegExp(`type ${escapeRegExp(structName)} struct \\{\\n([\\s\\S]*?)\\n\\}`)
+	const block = source.match(blockRe)
+	if (block && new RegExp(`(^|\\n)\\s*${escapeRegExp(fieldName)}\\s`).test(block[1])) {
+		return { source, found: true, changed: false }
+	}
+
+	const comment = description ? `\t// ${description}\n` : ''
+	return { source: source.replace(openRe, `$1${comment}\t${fieldName} ${goType}\n`), found: true, changed: true }
+}
+
+/**
+ * Adds `<name>: <expr>` to EVERY composite literal opened by <anchor> (a literal
+ * string ending in `{`), just after the brace — so `&simWorld{` hits all three
+ * constructors while a single assembly call hits its one literal. Idempotent per
+ * literal: one that already sets the key is skipped. Works for both a one-line
+ * literal (`Edges{Clock: c}`) and a multi-line one (`Edges{\n\tClock: c,\n}`);
+ * gofmt tidies the whitespace afterward.
+ */
+function addFieldToLiterals(source, anchor, name, expr) {
+	let changed = false
+	const starts = []
+	for (let i = source.indexOf(anchor); i !== -1; i = source.indexOf(anchor, i + anchor.length)) {
+		starts.push(i)
+	}
+
+	for (const start of starts.reverse()) {
+		const brace = start + anchor.length - 1
+		const close = matchBrace(source, brace)
+		if (close === -1) continue
+
+		const body = source.slice(brace + 1, close)
+		if (new RegExp(`(^|[\\s{,])${escapeRegExp(name)}:`).test(body)) continue
+
+		const insertion = source[brace + 1] === '\n' ? `\n\t${name}: ${expr},` : `${name}: ${expr}, `
+		source = source.slice(0, brace + 1) + insertion + source.slice(brace + 1)
+		changed = true
+	}
+
+	return { source, changed, found: starts.length > 0 }
+}
+
+/** Index of the `}` that closes the `{` at openIndex (brace-count; -1 if none). */
+function matchBrace(source, openIndex) {
+	let depth = 0
+	for (let i = openIndex; i < source.length; i++) {
+		if (source[i] === '{') depth++
+		else if (source[i] === '}' && --depth === 0) return i
+	}
+	return -1
 }
 
 // --- Naming -------------------------------------------------------------------

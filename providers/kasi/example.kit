@@ -59,6 +59,16 @@ kasi subscription {
 	description "watch harness processes; emit finish-agent-run on exit"
 }
 
+kasi edge {
+	module agents
+	name Store
+	type store.Store
+	sim "store.NewMemoryStore()"
+	real "agentStore"
+	shared true
+	description "the agent's persistent working store, symlinked into each run (Flow F, decision-012)"
+}
+
 kasi component {
 	name request-field
 	props {
