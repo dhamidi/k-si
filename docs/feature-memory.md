@@ -30,7 +30,10 @@ question, no summary of what you're about to do. Lead with the answer.
 
 - `name` — a short slug, and the file's name (`reply-style.md`). It's the memory's
   identity: writing the same name again *updates* that memory instead of adding a
-  second one.
+  second one. A name must be a slug — a letter or digit, then letters, digits,
+  dots, dashes, underscores (no slashes, spaces, or other punctuation), up to 128
+  characters. An invalid name is refused at the `/memory` form and skipped on
+  harvest, so it never reaches the collection.
 - `description` — one line saying what the memory holds and when it matters. This
   is what shows up in the index, so the agent can tell at a glance whether to open
   it.
