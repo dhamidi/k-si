@@ -22,11 +22,17 @@ reusable "how" that keeps task templates small and consistent.
   plus content stored durably in the `skill` table ([03](./03-persistence.md)).
 - **Registry.** The model holds the set of available skills; their content lives
   in SQLite. Skills are edited from the web UI ([08](./08-web-ui.md)).
-- **Provisioning.** When a run is spawned, the skills named by its template are
-  written into the workspace (e.g. `task-$ID/skills/`) in the layout the harness
-  expects, so the agent discovers and uses them.
+- **Provisioning.** When a run is spawned, every registered skill is written into
+  the workspace under `.claude/skills/<name>/` — where the Claude CLI discovers
+  project skills, relative to its cwd (the task dir) — so the agent finds and uses
+  them natively (decision-009). Per-route *selection* of skills is what task
+  templates will add; until then all skills are provisioned to every run, which the
+  Agent Skills progressive-disclosure model (name+description first, body on demand)
+  makes correct rather than noisy.
 - **Composability.** A template references skills by name; several templates can
-  share one skill. Improving a skill improves every route that uses it.
+  share one skill. Improving a skill improves every route that uses it. *(Templates
+  are not yet built — see [decision-009](./decision-009-flow-d-agent-authored-skills.md);
+  today every run gets every skill.)*
 
 Skills mirror the "skills" concept the Claude harness already understands, so the
 default adapter can surface them natively; other harness adapters map them to

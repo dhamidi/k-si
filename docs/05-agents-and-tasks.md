@@ -80,27 +80,44 @@ Each task gets a workspace on disk:
 
 ```
 $WORKDIR/task-$ID/
-├── in/            # inputs for the agent (read)
+├── in/                   # inputs for the agent (read)
 │   ├── body.txt          # the email text (this turn, and prior context)
 │   ├── invoice.pdf       # attachments, one file per MIME part
 │   └── ...
-├── out/           # outputs from the agent (harvested)
+├── out/                  # outputs from the agent (harvested) — a file TREE
 │   ├── reply.txt         # becomes the reply body
 │   ├── receipt.pdf       # becomes a reply attachment
-│   └── skills/           # any skill the agent authored, stored to SQLite ([07])
-├── skills/        # skills provisioned for this run ([07])
-├── .mise.toml     # tool versions for this workspace ([07])
+│   └── skills/pay/SKILL.md   # a skill the agent authored, nested (decision-011)
+├── .claude/skills/       # skills provisioned for this run ([07], decision-009)
+│   └── <name>/SKILL.md   #   where the Claude CLI discovers project skills
+├── store -> $STATE/store # the agent's persistent data store (Flow F, decision-012)
+├── .mise.toml            # tool versions for this workspace ([07])
 └── (harness working files, session/transcript)
 ```
 
 - **`in/`** is written by käsi before the run: the current email's text and
   attachment parts ([02](./02-object-model.md)), plus enough prior-turn context
   for the agent to continue the conversation.
-- **`out/`** is written by the agent and read by käsi after the run. Its text
+- **`out/`** is written by the agent and read by käsi after the run. It is a
+  file **tree**, not a flat directory: the agent may write nested paths (e.g.
+  `out/skills/<name>/SKILL.md`) and käsi harvests them by relative path
+  ([decision-011](./decision-011-nested-agent-output.md)). Its `reply.txt`
   becomes the reply body; its other files become attachments
   ([04](./04-email.md)). The contract is simple and file-based: *"put what you
   want to send back into `out/`."*
-- Skills and tool pins are provisioned per template ([07](./07-skills-and-tools.md)).
+- **`.claude/skills/`** is where skills are provisioned for the run — the
+  location the Claude CLI natively discovers project skills, relative to its
+  cwd (the task dir), so a run finds `./.claude/skills/<name>/SKILL.md`
+  ([07](./07-skills-and-tools.md),
+  [decision-009](./decision-009-flow-d-agent-authored-skills.md)). Skills and
+  tool pins are provisioned per template.
+- **`store`** is a symlink to the agent's persistent data store,
+  `$STATE/store`, linked in at spawn (Flow F,
+  [decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)).
+  It holds the agent's live working data — SQLite DBs, scratch scripts — that
+  must survive the workspace's deletion. Unlike everything else here it lives
+  **outside** the ephemeral workspace: the link makes it reachable during a run,
+  but its contents are neither harvested nor archived ([03](./03-persistence.md)).
 
 The workspace is **ephemeral** — it is deleted when the task is done. Nothing of
 lasting value may live only in the workspace; it must be archived first (below).
@@ -205,9 +222,12 @@ A run may **produce a skill** as part of its work — for example, working out h
 to reconcile a particular vendor's invoices and writing that know-how down for
 next time. The workflow is edge-does-I/O, model-stays-pure:
 
-1. The agent writes the skill into a designated place in its output (e.g.
-   `out/skills/<name>.md` with front-matter metadata). The file-based contract
-   mirrors the reply contract: *"leave a skill in `out/skills/` to teach käsi."*
+1. The agent writes the skill as an **Agent Skills directory** under
+   `out/skills/<name>/` — a `SKILL.md` (YAML frontmatter `name`+`description`, then
+   Markdown) plus any `scripts/`/`references/` files
+   ([decision-009](./decision-009-flow-d-agent-authored-skills.md)). The file-based
+   contract mirrors the reply contract: *"leave a skill in `out/skills/` to teach
+   käsi."*
 2. The `finish-agent-run` manifest flags it. The handler emits a `store-skill`
    command.
 3. The `store-skill` effect writes the skill's content to the `skill` table in

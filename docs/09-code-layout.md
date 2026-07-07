@@ -31,15 +31,17 @@ kasi/
 │   └── log.go                # append + full-log replay against message_log
 ├── email/               # Fastmail JMAP, inbox/outbox, routing ([04])
 ├── agents/              # harness invocation, agent runs, transcripts ([05])
-├── tasks/               # task lifecycle, workspaces ([05])
-├── requests/            # agent-raised UI requests: model, messages, form spec ([08])
+├── tasks/               # task lifecycle, workspaces, UI requests ([05], [08])
 ├── mime/                # MIME parse/build, part<->file mapping ([02])
 ├── skills/              # skill registry + provisioning ([07])
+├── skilltree/           # tar pack/unpack for skill trees ([07])
+├── transcript/          # Claude stream-json parser for the transcript view ([08])
 ├── tools/               # mise integration, tool registry ([07])
 ├── secrets/             # secrets DB, secret:// resolver ([06])
 ├── web/                 # dispatch routes, htmlc components, Turbo ([08])
 ├── control/             # loopback control interface: reads + message inject ([11])
 ├── testlang/            # test-script parser/evaluator, domain-agnostic ([14])
+├── datastore/           # the agent store edge: persistent dir, symlinked in ([03])
 └── store/               # SQLite access shared by domains ([03])
 ```
 
@@ -102,21 +104,30 @@ tasks/
 └── workspace.go                   # workspace path helpers
 ```
 
-And `requests/` (the agent-raised UI request, [08](./08-web-ui.md)):
+There is **no `requests/` package**. The agent-raised UI request (Flow C,
+[08](./08-web-ui.md)) is not its own domain: its *state and rules* belong to the
+task, so they live in `tasks/`, and only its *minting* — turning a raised
+request into a capability link on the reply — is email's job, so that one
+command lives in `email/`
+([decision-002](./decision-002-ui-requests-live-in-the-tasks-domain.md)):
 
 ```
-requests/
-├── model_ui_request.go            # UIRequest struct + form spec + status
-├── command_mint_ui_request.go     # "mint-ui-request": token, row, link  ([03])
-├── message_register_ui_request.go # "register-ui-request" + handler (drives reply)
-├── message_answer_ui_request.go   # "answer-ui-request" + handler (lay-in + resume)
-└── command_lay_in_answers.go      # write answers/uploads into in/  ([05])
+tasks/                                # (UI-request files, alongside the task files above)
+├── model_ui_request.go              # UIRequest struct + form spec + status (a task's model slice)
+├── model_ui_request_reader.go       # typed read (by run id) the web edge answers from ([08])
+├── message_register_ui_request.go   # "register-ui-request" + handler (record + drive reply)
+├── message_answer_ui_request.go     # "answer-ui-request" + handler (lay-in + resume)
+└── command_lay_in_answers.go        # write answers/uploads into in/  ([05])
+
+email/
+└── command_mint_ui_request.go       # "mint-ui-request": token + capability link ([03])
 ```
 
-The form itself is rendered and posted in `web/` (e.g. `view_request.vue` plus the
-token-validated GET/POST routes), which turns a submission into the
+The form itself is rendered and posted in `web/` (the `request_*.vue`
+components and `form_answer_request.go` plus the token-validated GET/POST
+routes), which turns a submission into the
 `answer-ui-request` message ([08](./08-web-ui.md)) — request *state and rules*
-live in `requests/`, request *rendering* lives in `web/`.
+live in `tasks/`, minting lives in `email/`, and *rendering* lives in `web/`.
 
 And the agent-run controls in `agents/` ([05](./05-agents-and-tasks.md)):
 

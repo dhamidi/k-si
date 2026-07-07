@@ -211,9 +211,15 @@ Small enough to list; the authoritative, current version is `kasi test help`.
 | Command | Does |
 |---------|------|
 | `deliver { from … to … }` | Mail arrives: the sim mail edge stores an inbox row and emits `route-email`, as production would ([04](./04-email.md)) |
+| `deliver { raw <file> }` | Mail arrives as **verbatim RFC 5322 bytes** from a fixture — headers read straight off the wire, no MIME built from fields (mutually exclusive with `from`/`to`/…); replays a captured real message ([04](./04-email.md)) |
 | `agent { out <file> <content>… [exit <code>] }` | The running agent turn completes with these outputs ([05](./05-agents-and-tasks.md)) |
+| `stop` | Signals the currently-running agent run to stop — the web Stop / supervisor path; a stopped run yields no reply and hands the task back to the human ([05](./05-agents-and-tasks.md)) |
 | `send <tag> { field value… }` | One runtime message enters the reducer; the block builds the payload |
 | `click <url>` | A capability link is followed through the web edge ([04](./04-email.md)) |
+| `answer <url> { text\|secret\|file … }` | Submits a UI-request form (Flow C): the web edge writes files to `archive` and secrets to the secrets DB, then emits `answer-ui-request` carrying only references ([05](./05-agents-and-tasks.md), [08](./08-web-ui.md)) |
+| `post <path>` | Drives the **real `web.Server`** POST in-process (the Stop action), returning the redirect Location and settling the app ([decision-008](./decision-008-web-render-is-tested-with-an-in-process-visit-vocab.md)) |
+| `store write <path> <content>` | Seeds the agent store, simulating the agent's write through the `./store` symlink (Flow F, [decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)) |
+| `seed-transcript <task> <run> [fixture]` | Seats a fixture transcript as a running run's in-progress bytes, so the transcript-render page has something to parse ([08](./08-web-ui.md)) |
 | `advance <duration>` | The virtual clock moves |
 | `crash` / `restart` | The process dies (model and goroutines gone; log and content tables kept) / comes back: full replay, then reconciliation ([01](./01-architecture.md)) |
 | `fail <edge> <op> [N]` | The next N operations on a simulated edge will fail (default 1) |
@@ -226,8 +232,14 @@ inside `[ … ]` otherwise:
 |------|------|
 | `model <module> <field…>` | The generic read: any module's slice, by field path — every other model read is a module-contributed sugar over it |
 | `task <id> <field…>`, `tasks <field…>` | The model's tasks |
+| `task <n> inputs`, `task <n> input <file>` | The files käsi laid into the run's `in/` box — the parser's actual output, so a scenario asserts the body and each attachment landed ([05](./05-agents-and-tasks.md)) |
+| `task <n> outputs`, `task <n> provisioned` | The run's `out/` artifact tree (nested paths, [decision-011](./decision-011-nested-agent-output.md)) and the skills provisioned into `.claude/skills/` ([decision-009](./decision-009-flow-d-agent-authored-skills.md)) |
+| `task <n> run-env <var>` | A var in the resolved run environment the sim harness was handed — proves a Flow C `secret://` was resolved into the agent's env at the edge ([06](./06-secrets.md)) |
+| `task <n> request-link`, `task <n> request-secret <field>` | The capability link the task's UI request minted, and a per-field `secret://` reference ([decision-003](./decision-003-request-links-mirror-the-completion-link-keyed-by-run-id.md)) |
 | `outbox <last\|N> <field>`, `archive <…>`, `skills <…>` | The model and content tables |
 | `outbound <last\|N\|count> [<field>]` | Mail the sim edge has sent: `to`, `subject`, `body`, `attachments`, `completion-link`, … |
+| `visit <path>` | Renders a page through the **real `web.Server`** GET in-process, returning the HTML for `is`/`matches` ([decision-008](./decision-008-web-render-is-tested-with-an-in-process-visit-vocab.md)) |
+| `store <path>` | Reads a file back from the agent store — asserted on its **observable contents**, since the store is an edge outside the model ([decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)) |
 | `commands`, `command <tag> <field>` | The drained command trace (`send` renders as `send:<tag>`) |
 | `dropped` | Messages sent but unhandled in this assembly — expected at a partial assembly's boundary, fatal in a full one ([13](./13-testing.md)) |
 

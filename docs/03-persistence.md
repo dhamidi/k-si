@@ -183,6 +183,32 @@ secret fields are written to the secrets database and referenced by `secret://`
 URL ([06](./06-secrets.md)). A secret provided through a request never lands in
 this table, the message log, or a workspace file as plaintext.
 
+## The agent store (on disk, not in a database)
+
+One piece of durable state lives in **neither** database and **not** in the
+event log: the **agent store**, a persistent directory at `$STATE/store/`
+holding the agent's live working data — SQLite databases it maintains, scratch
+scripts, whatever it accumulates across runs. käsi provisions it into a run by
+**symlink** (`store -> $STATE/store` in the workspace, Flow F,
+[05](./05-agents-and-tasks.md)), so it survives the workspace's deletion; the
+store is an **edge**, deliberately outside the log
+([decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)).
+
+It is worth contrasting with the two things it is *not*:
+
+- Unlike the **content tables** (inbox, outbox, archive) — heavy bytes the log
+  *references* by id, written through käsi's own effects — the store is
+  **reference-free**: nothing in the log points into it, and käsi never reads or
+  archives its contents.
+- Unlike the **`skill` table** — packed, versioned know-how käsi stores and
+  provisions — the store is **opaque and mutable**: the agent writes it directly
+  through the symlink, in whatever shape it likes, and mutates it in place.
+
+The division of labour is the whole point: **käsi persists the directory, the
+agent owns the contents.** Because it is external mutable state (like Fastmail
+or Wise, [06](./06-secrets.md)), it is persisted as-is on disk rather than
+event-sourced — there is nothing here for replay to rebuild ([01](./01-architecture.md)).
+
 ## Secrets database (separate file)
 
 Credentials live in their **own** SQLite database file, never mixed with the

@@ -102,7 +102,11 @@ scenario, rather than being individual tests — so they can never be forgotten:
 
 - **Replay convergence.** After a scenario finishes, the runner rebuilds the
   model by folding the instance's log from zero and asserts it equals the live
-  model. Every scenario is thereby also a replay test.
+  model. Every scenario is thereby also a replay test. The **agent store** sits
+  outside this check: it is an edge, not model state
+  ([decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)),
+  so a scenario that touches it (the `store` vocab, [14](./14-test-language.md))
+  asserts on the store's **observable contents**, never on a refolded model.
 - **No plaintext secrets.** The simulated secrets edge hands out sentinel
   values. The runner scans the message log, the model, and all durable tables
   for those sentinels; any hit fails the scenario. This mechanically enforces

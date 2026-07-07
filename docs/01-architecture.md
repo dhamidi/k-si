@@ -313,6 +313,14 @@ Consequences that make replay sound:
   handlers), or resolved secrets (a message may carry a `secret://` URL, never
   the plaintext — see [06](./06-secrets.md)).
 
+One piece of durable state is deliberately **not** rebuilt by replay: the
+**agent store** ([03](./03-persistence.md)). Replay reconstructs the *model*
+from the log, but the store is external, agent-owned state — like the Fastmail
+or Wise account behind an edge — persisted as a directory on disk and provisioned
+into runs by symlink, kept outside the log on purpose
+([decision-012](./decision-012-the-agent-store-is-an-edge-outside-the-log.md)).
+It is not model state, so there is nothing about it for the fold to reconstruct.
+
 ### Replay mode in detail
 
 There are **no snapshots**. The model is always rebuilt by folding the *entire*
