@@ -85,8 +85,10 @@ func storeSkillEffect(ctx context.Context, e Edges, p StoreSkillPayload,
 			continue
 		}
 
-		// The folder name is authoritative (it is the provisioning path); only the
-		// description is read from the frontmatter.
+		// The folder name is authoritative (it is the provisioning path). Derive the
+		// description for the content table — a MUTABLE projection, so a derived
+		// column there is fine (re-derivable in place). The LOG, by contrast, gets
+		// the raw SKILL.md below and derives on replay (never a frozen parse result).
 		_, description := skilltree.Frontmatter(skillMD)
 
 		tar, err := skilltree.Pack(tree)
@@ -120,13 +122,15 @@ func storeSkillEffect(ctx context.Context, e Edges, p StoreSkillPayload,
 			return err
 		}
 
+		// Carry the RAW SKILL.md into the log; the skills reducer derives the
+		// description from it on every replay (store raw, derive in the model).
 		emit(skillsmsg.NewRegisterSkill(skillsmsg.RegisterSkillPayload{
-			SkillID:     id,
-			OriginTask:  p.TaskID,
-			Name:        name,
-			Description: description,
-			Origin:      "agent",
-			Version:     row.Version,
+			SkillID:    id,
+			OriginTask: p.TaskID,
+			Name:       name,
+			SkillMD:    skillMD,
+			Origin:     "agent",
+			Version:    row.Version,
 		}))
 	}
 
