@@ -173,13 +173,18 @@ because the name already exists, käsi replaces that memory in place rather than
 adding a duplicate.
 
 > **Under the hood.** Harvesting `out/memory/foo.md` emits a `remember` directive
-> — `remember{name, description, content}` — into the log. `remember` is an
-> upsert keyed by `name`: a new name appends a memory, an existing name replaces
-> that one's content and description and bumps its version. Because the key is the
-> name, two tasks that remember *different* things never collide, even if they run
-> close together — each directive stands on its own. (This is the payoff over a
-> single shared `MEMORY.md` document, where two tasks editing the same file would
-> clobber one another.)
+> — `remember{name, content}` — into the log, where `content` is the raw memory
+> file, frontmatter and all. The description is **not** carried: it is *derived*
+> from the raw content by the reducer, on every replay. This is the same principle
+> the skills registry follows — store the raw fact in the log, derive everything
+> else in the pure reducer that runs on replay — so a change to how a description
+> (or the `MEMORY.md` index) is parsed corrects every memory on the next replay,
+> with no migration. `remember` is an upsert keyed by `name`: a new name appends a
+> memory, an existing name replaces that one's raw content and bumps its version.
+> Because the key is the name, two tasks that remember *different* things never
+> collide, even if they run close together — each directive stands on its own.
+> (This is the payoff over a single shared `MEMORY.md` document, where two tasks
+> editing the same file would clobber one another.)
 
 ---
 
