@@ -52,11 +52,8 @@ func Parse(raw []byte) (Message, error) {
 	// Decode an RFC 2047 encoded-word Subject once, here, so every reader sees
 	// legible UTF-8 instead of "=?UTF-8?Q?Faktura_fr=C3=A5n_E.ON?=". Store it back
 	// on the header (Header.Get does no decoding); the raw bytes stay on out.Raw.
-	// A non-encoded subject round-trips unchanged.
 	if subject := out.Header.Get("Subject"); subject != "" {
-		if decoded, err := (&mime.WordDecoder{}).DecodeHeader(subject); err == nil {
-			out.Header["Subject"] = []string{decoded}
-		}
+		out.Header["Subject"] = []string{DecodeSubject(subject)}
 	}
 
 	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
@@ -81,6 +78,19 @@ func Parse(raw []byte) (Message, error) {
 	}
 	out.Text = string(body)
 	return out, nil
+}
+
+// DecodeSubject decodes an RFC 2047 encoded-word subject to legible UTF-8,
+// idempotently: a plain (or already-decoded) subject returns unchanged, and a
+// malformed one returns as-is. Parse applies it so new tasks store a decoded
+// subject; the web applies it again when rendering, defensively, because tasks
+// logged before parse-time decoding still carry a raw "=?UTF-8?…?=" subject.
+func DecodeSubject(s string) string {
+	decoded, err := (&mime.WordDecoder{}).DecodeHeader(s)
+	if err != nil {
+		return s
+	}
+	return decoded
 }
 
 // readMultipart walks a multipart/mixed body: the first text/plain part without

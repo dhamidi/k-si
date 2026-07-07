@@ -6,6 +6,7 @@ import (
 
 	"github.com/dhamidi/htmlc"
 
+	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/tasks"
 )
 
@@ -71,7 +72,7 @@ func groupTasks(all []tasks.Task, showPath, markDonePath func(id int64) string) 
 		byStatus[t.Status] = append(byStatus[t.Status], TaskRow{
 			ID:           int64(t.ID),
 			Route:        t.Route,
-			Subject:      t.Subject,
+			Subject:      mime.DecodeSubject(t.Subject),
 			Status:       string(t.Status),
 			ShowPath:     showPath(int64(t.ID)),
 			MarkDonePath: done,

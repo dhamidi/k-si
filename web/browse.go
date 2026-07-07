@@ -9,6 +9,7 @@ import (
 
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
+	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/transcript"
@@ -47,7 +48,7 @@ func (s *Server) showTask(w http.ResponseWriter, r *http.Request) {
 	view := TaskView{
 		ID:           id,
 		Status:       string(task.Status),
-		Subject:      task.Subject,
+		Subject:      mime.DecodeSubject(task.Subject),
 		Route:        task.Route,
 		Participants: task.Participants,
 		Runs:         s.runRows(id, task),
