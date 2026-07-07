@@ -10,6 +10,7 @@ import (
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/tasks"
+	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/transcript"
 )
 
@@ -20,7 +21,7 @@ func (s *Server) showTasks(w http.ResponseWriter, r *http.Request) {
 	all := tasks.All(s.app.View())
 
 	skillsPath, _ := s.router.Path("skills.index", nil)
-	view := TasksView{Groups: groupTasks(all, s.taskShowPath), SkillsPath: skillsPath}
+	view := TasksView{Groups: groupTasks(all, s.taskShowPath, s.taskMarkDonePath), SkillsPath: skillsPath}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := RenderTasks(r.Context(), w, s.engine, view); err != nil {
@@ -224,6 +225,34 @@ func (s *Server) pathInt(w http.ResponseWriter, r *http.Request, name string) (i
 func (s *Server) taskShowPath(id int64) string {
 	p, _ := s.router.Path("tasks.show", dispatch.Params{"id": strconv.FormatInt(id, 10)})
 	return p
+}
+
+// taskMarkDonePath reverse-routes the list's "Done" POST target for a task id —
+// the completion pattern, driven host-gated from the UI (rule no-url-string-building).
+func (s *Server) taskMarkDonePath(id int64) string {
+	p, _ := s.router.Path("tasks.markdone", dispatch.Params{"id": strconv.FormatInt(id, 10)})
+	return p
+}
+
+// markDone finishes a task straight from the list — the host-gated UI counterpart
+// of the emailed completion link (decision-006, no token). It emits finish-task and
+// redirects back to the list; App.Send blocks until applied, so the redirected GET
+// shows the task moved to done. Idempotent: a done task is a no-op.
+func (s *Server) markDone(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathInt(w, r, "id")
+	if !ok {
+		return
+	}
+	task, found := tasks.Get(s.app.View(), tasks.TaskID(id))
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if task.Status != tasks.Done {
+		s.app.Send(taskmsg.NewFinishTask(taskmsg.FinishTaskPayload{TaskID: id}))
+	}
+	index, _ := s.router.Path("tasks.index", nil)
+	http.Redirect(w, r, index, http.StatusSeeOther)
 }
 
 func (s *Server) transcriptPath(taskID, runID int64) string {

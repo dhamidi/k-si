@@ -49,6 +49,16 @@ func Parse(raw []byte) (Message, error) {
 		Raw:    append([]byte(nil), raw...),
 	}
 
+	// Decode an RFC 2047 encoded-word Subject once, here, so every reader sees
+	// legible UTF-8 instead of "=?UTF-8?Q?Faktura_fr=C3=A5n_E.ON?=". Store it back
+	// on the header (Header.Get does no decoding); the raw bytes stay on out.Raw.
+	// A non-encoded subject round-trips unchanged.
+	if subject := out.Header.Get("Subject"); subject != "" {
+		if decoded, err := (&mime.WordDecoder{}).DecodeHeader(subject); err == nil {
+			out.Header["Subject"] = []string{decoded}
+		}
+	}
+
 	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
 	if err != nil || mediaType == "" {
 		mediaType = "text/plain" // absent/invalid Content-Type: treat as plain text

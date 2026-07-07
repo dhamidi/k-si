@@ -1,0 +1,12 @@
+# t/mail/encoded-subject.test — an RFC 2047 encoded-word Subject is decoded ONCE
+# during parsing, so the task (and every UI that reads it) shows legible UTF-8, not
+# "=?UTF-8?Q?…?=". The fixture's subject is "Faktura från E.ON" Q-encoded.
+
+send allow-sender { address sender@example.test }
+
+deliver {
+    raw t/fixtures/mime/encoded-subject.eml
+}
+
+task 1 status is awaiting-agent
+task 1 subject is "Faktura från E.ON"

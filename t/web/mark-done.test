@@ -1,0 +1,25 @@
+# t/web/mark-done.test — the task list carries a host-gated "Done" action
+# (decision-006, no token): a POST to the completion pattern finishes the task,
+# the browser counterpart of the emailed completion link. An already-done task
+# shows no Done button.
+
+send allow-sender { address a@b.test }
+
+deliver {
+    from    a@b.test
+    to      research@kasi.test
+    subject "handle this"
+    body    "please handle it"
+}
+task 1 status is awaiting-agent
+agent { out reply.txt "done" }
+task 1 status is awaiting-user
+
+set id [task 1 id]
+
+# The list offers the Done action (its POST target is the completion pattern).
+visit /tasks matches "*/tasks/$id/done*"
+
+# Click it (the host-gated POST) → the task finishes, redirecting back to the list.
+post /tasks/$id/done matches "*/tasks*"
+task 1 status is done

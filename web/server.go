@@ -77,6 +77,11 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.GET(link.CompletionRoute, link.CompletionPattern, http.HandlerFunc(s.finishTask)); err != nil {
 		return nil, err
 	}
+	// Same URL, POST: the host-gated "Done" action on the task list (decision-006,
+	// no token) — the browser counterpart of the emailed completion link.
+	if err := s.router.POST("tasks.markdone", link.CompletionPattern, http.HandlerFunc(s.markDone)); err != nil {
+		return nil, err
+	}
 	// The request link (Flow C): GET renders the spec-driven form (or the answered
 	// state); POST, same capability URL, submits the answer (decision-003/005).
 	if err := s.router.GET(link.RequestRoute, link.RequestPattern, http.HandlerFunc(s.showRequest)); err != nil {

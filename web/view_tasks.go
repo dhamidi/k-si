@@ -37,6 +37,10 @@ type TaskRow struct {
 	Subject  string
 	Status   string
 	ShowPath string
+	// MarkDonePath is the POST target of the row's "Done" action (host-gated, no
+	// token — decision-006). Empty for an already-done task, so the row omits the
+	// button.
+	MarkDonePath string
 }
 
 // statusOrder is the display order of the status groups (docs/08): the buckets
@@ -54,17 +58,23 @@ var statusOrder = []struct {
 // groupTasks buckets tasks by status in statusOrder, newest-first within each
 // (model order is creation order, so newest is the reverse). rows builds each
 // TaskRow, supplying the reverse-routed detail path. Empty groups are omitted.
-func groupTasks(all []tasks.Task, showPath func(id int64) string) []TaskGroup {
+func groupTasks(all []tasks.Task, showPath, markDonePath func(id int64) string) []TaskGroup {
 	byStatus := map[tasks.Status][]TaskRow{}
 	// Walk newest-first so each bucket ends up newest-first.
 	for i := len(all) - 1; i >= 0; i-- {
 		t := all[i]
+		// An already-done task gets no Done action.
+		done := ""
+		if t.Status != tasks.Done {
+			done = markDonePath(int64(t.ID))
+		}
 		byStatus[t.Status] = append(byStatus[t.Status], TaskRow{
-			ID:       int64(t.ID),
-			Route:    t.Route,
-			Subject:  t.Subject,
-			Status:   string(t.Status),
-			ShowPath: showPath(int64(t.ID)),
+			ID:           int64(t.ID),
+			Route:        t.Route,
+			Subject:      t.Subject,
+			Status:       string(t.Status),
+			ShowPath:     showPath(int64(t.ID)),
+			MarkDonePath: done,
 		})
 	}
 	var groups []TaskGroup
