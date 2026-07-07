@@ -11,6 +11,7 @@ import (
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
+	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 )
 
 // "assemble-reply" — harvest out/ into a threaded MIME reply with a completion link; write a pending outbox row
@@ -102,5 +103,14 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		MessageID: messageID,
 		InReplyTo: p.InReplyTo,
 	}))
+
+	// Clear the reply HarvestJob back in tasks (cross-module, the way mint-ui-request
+	// emits register-ui-request). This runs at the END of the effect, so a crash
+	// before it leaves the reply job pending for reconciliation. The deterministic
+	// Message-ID and idempotent AddOutbox make a re-drive queue the same row, not a
+	// second reply (decision-013). The request-reply path (register-ui-request, which
+	// is not reconciled) has no reply job, so this clears nothing there — a harmless,
+	// idempotent no-op.
+	emit(taskmsg.NewMarkHarvested(taskmsg.MarkHarvestedPayload{RunID: p.RunID, Kind: taskmsg.HarvestKindReply}))
 	return nil
 }

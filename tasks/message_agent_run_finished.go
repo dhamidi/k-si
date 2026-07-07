@@ -45,37 +45,34 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 		return s, []runtime.Cmd{capture}
 	}
 
-	// A successful run may ADDITIVELY author one or more skills (Flow D,
-	// decision-009): it wrote out/skills/<name>/SKILL.md. This is orthogonal to
-	// the reply/request branches — a run may author a skill and reply, and raise a
-	// request, or author with none of those — so store-skill rides alongside
-	// whatever else the run produced. capture stays first; store-skill next.
+	// The post-finish fan-out — store-skill, capture-memory, assemble-reply — is
+	// durable work that MUST survive a restart, so NONE of it is emitted as an
+	// inline Cmd here. An inline effect is lost on a crash between logging this
+	// agent-run-finished and the effect finishing: restart→replay re-derives the Cmd
+	// but replay SUPPRESSES effects, and the messages it would have emitted were
+	// never logged (decision-013). Instead each is recorded as a KIND-tagged PENDING
+	// job on the model (copy-on-write); the harvest-reconcile subscription turns each
+	// job into its effect, and the effect ends by emitting mark-harvested{Kind},
+	// which clears the job. A crash before that leaves the job pending, and restart's
+	// replay rebuilds it so the source fires again — the guarantee email's pending
+	// outbox gives an unsent reply (docs/03). Only capture-transcript stays inline:
+	// it is a re-derivable artifact, not durable user data (decision-013).
 	cmds := []runtime.Cmd{capture}
+
+	// A successful run may ADDITIVELY author one or more skills (Flow D,
+	// decision-009): it wrote out/skills/<name>/SKILL.md. Orthogonal to the
+	// reply/request branches, so the skill job rides alongside whatever else the run
+	// produced. store-skill is idempotent (AddSkill upsert-by-name + register-skill
+	// upsert), so re-driving it is safe.
 	if hasSkill(p.OutManifest) {
-		cmds = append(cmds, NewStoreSkill(StoreSkillPayload{TaskID: p.TaskID, RunID: p.RunID}))
+		s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID, Kind: HarvestSkill})
 	}
 
 	// Harvest memory on EVERY successful finish (feature-memory.md): out/memory/
 	// writes become remember directives, and an in/memory/ deletion becomes a forget
 	// — the deletion leaves no out/ artifact, so this cannot be gated on a manifest
 	// marker the way store-skill is.
-	//
-	// Do NOT emit capture-memory inline here. That is a Cmd/effect, and a crash
-	// between logging this agent-run-finished and the effect finishing would lose
-	// the harvest forever: restart→replay re-derives the capture-memory Cmd but
-	// replay suppresses effects, and the remember/forget were never logged. Instead
-	// record the harvest as PENDING WORK on the model (copy-on-write). The
-	// harvest-reconcile subscription turns each pending job into the capture-memory
-	// effect; the effect ends by emitting mark-harvested, which clears the job. A
-	// crash anywhere before mark-harvested leaves the job pending, and restart's
-	// replay rebuilds it so the source fires again — exactly the guarantee email's
-	// pending outbox gives an unsent reply (docs/03).
-	//
-	// NOTE: store-skill (above) and assemble-reply (below) are still emitted inline
-	// and share this SAME pre-existing crash-safety gap — a crash between logging
-	// agent-run-finished and those effects finishing loses them. The mechanism added
-	// here should be extended to cover them (supervisor to log a decision).
-	s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID})
+	s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID, Kind: HarvestMemory})
 
 	// A raised UI request takes precedence over reply.txt (Flow C): the run wrote
 	// out/request.json to ask the human for input via the web. reply.txt is
@@ -83,6 +80,11 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	// request-only run would be dropped. Hand off to email's mint-ui-request, which
 	// mints the token and link and emits register-ui-request — that handler drives
 	// the reply carrying the link. No normal reply here.
+	//
+	// mint-ui-request stays INLINE (not reconciled): its capability token is
+	// crypto/rand, unguessable by design, so a re-drive would mint a DIFFERENT token
+	// and register-ui-request appends a second UIRequest driving a second reply — it
+	// is not idempotent, and making it so is real design (decision-013 follow-up).
 	if hasRequest(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
@@ -110,25 +112,20 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	}
 
 	// Record the reply's deterministic Message-ID in References BEFORE the user
-	// can reply to it, so the next inbound threads back onto this task.
+	// can reply to it, so the next inbound threads back onto this task. This is pure
+	// model state and stays here even though the assemble effect is deferred — the
+	// reply harvest reconstructs its payload FROM these References (see replyCmds).
 	replyID := emailmsg.ReplyMessageID(p.TaskID, p.RunID, mime.Domain(from))
 	t.References = append(append([]string(nil), t.References...), replyID)
 	tasks[i] = t
 	s.Tasks = tasks
 
-	assemble := emailmsg.NewAssembleReply(emailmsg.AssembleReplyPayload{
-		TaskID:          p.TaskID,
-		RunID:           p.RunID,
-		From:            from,
-		To:              t.Participants,
-		Subject:         mime.ReplySubject(t.Subject),
-		InReplyTo:       t.LastMessageID,
-		References:      t.References,
-		CompletionToken: t.CompletionToken,
-		OutManifest:     p.OutManifest,
-	})
+	// Defer assemble-reply to a reply harvest job. assemble-reply is now idempotent
+	// (deterministic Message-ID + AddOutbox idempotent on it), so re-driving it never
+	// queues a second reply.
+	s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID, Kind: HarvestReply})
 
-	return s, append(cmds, assemble)
+	return s, cmds
 }
 
 // hasReply reports whether the agent left the reply body käsi sends. Its absence

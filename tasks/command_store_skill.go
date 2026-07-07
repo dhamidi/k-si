@@ -13,6 +13,7 @@ import (
 	skillsmsg "github.com/dhamidi/k-si/skills/msg"
 	"github.com/dhamidi/k-si/skilltree"
 	"github.com/dhamidi/k-si/store"
+	"github.com/dhamidi/k-si/tasks/msg"
 )
 
 // "store-skill" — a run authored one or more Agent Skills directories under
@@ -134,6 +135,10 @@ func storeSkillEffect(ctx context.Context, e Edges, p StoreSkillPayload,
 		}))
 	}
 
+	// Clear the skill HarvestJob LAST, once every register-skill is emitted. AddSkill
+	// (upsert-by-name) and register-skill (upsert) are idempotent, so a crash mid-store
+	// leaves the job pending and restart re-drives the whole store safely (decision-013).
+	emit(msg.NewMarkHarvested(msg.MarkHarvestedPayload{RunID: p.RunID, Kind: HarvestSkill}))
 	return nil
 }
 

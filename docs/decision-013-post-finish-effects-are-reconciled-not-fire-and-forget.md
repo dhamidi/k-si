@@ -56,24 +56,48 @@ subscription that re-drives it until a logged completion clears it. Fire-and-for
 is acceptable only when the loss is tolerable, or the work is independently
 reconciled downstream.
 
-## Scope and follow-ups
+## Generalized across the fan-out (built)
 
-The same crash window still exists, pre-existing, for the other `agent-run-finished`
-effects (flagged in `tasks/message_agent_run_finished.go`):
+The `HarvestJob` is now KIND-tagged (`{TaskID, RunID, Kind}`, Kind ∈
+`"memory" | "skill" | "reply"`); identity is `(RunID, Kind)`. `harvestReconcileSubs`
+sources one `harvest:<kind>:<run>` per job, emitting `run-harvest{TaskID, RunID, Kind}`;
+`handleRunHarvest` DISPATCHES by kind to `capture-memory`, `store-skill`, or a
+reconstructed `assemble-reply`; each effect ends by emitting
+`mark-harvested{RunID, Kind}`, which clears only the matching job. `agent-run-finished`
+appends a job per kind instead of emitting the effect inline.
 
-- **`store-skill`** — idempotent already (`AddSkill` upsert-by-name +
-  `register-skill` upsert). Extend the same reconciliation: a skill-harvest pending
-  marker driven to completion. Low risk; recommended next.
-- **`assemble-reply`** — **not** idempotent: re-driving it would queue a *second*
-  reply. The *send* is already reconciled (the outbox), but the pre-assemble window
-  is exposed. It needs run-keyed idempotency (assemble at most once per run — e.g.
-  keyed on the run id / a pre-minted Message-ID) before it can be reconciled.
-- **`capture-transcript`** — rewrites the same transcript; effectively idempotent,
-  lowest priority.
+- **`store-skill`** — reconciled. Already idempotent (`AddSkill` upsert-by-name +
+  `register-skill` upsert). It now ends with `mark-harvested{skill}`. A crash
+  mid-store leaves the skill job pending; restart re-drives the whole store.
+- **`assemble-reply`** — reconciled, after being made idempotent. `AddOutbox` is now
+  idempotent on `message_id` (pre-check + `UNIQUE`, exactly like `AddInbox`), and
+  `mark-reply-queued` dedups by outbox id / message id, so a re-driven assemble
+  queues the SAME row — never a second reply. The deterministic Message-ID
+  (`ReplyMessageID(task, run, domain)`) is the idempotency key. The reply harvest's
+  effect runs in the EMAIL module, so it clears its tasks-side job cross-module via
+  `tasks/msg.MarkHarvested` (the way `mint-ui-request` emits `register-ui-request`);
+  the payload is reconstructed from the logged `Task` in `handleRunHarvest`.
 
-Until then, a crash in that narrow window can still drop a skill or a reply. Making
-the whole fan-out reconcilable is the way to hold "restarts always safe" across all
-of it, not just memory.
+Proven by `t/research/skill-restart-safety.test` and `t/research/reply-restart-safety.test`,
+each faulting the harvest's scoped read (`content.AddSkill` for the skill harvest —
+the only op unique to `store-skill`; `Work.Harvest` for the reply harvest) and
+recovering across `crash`/`restart`, with a negative control.
+
+## Still fire-and-forget (deferred, with reason)
+
+- **`mint-ui-request`** — its capability token is `crypto/rand`, unguessable by
+  design, so it is NOT idempotent under re-drive, and `register-ui-request` appends a
+  `UIRequest` without dedup, so re-driving would register a *second* request and
+  drive a *second* reply. A model-check ("this run already registered a UI request →
+  skip re-mint") is feasible, but the request's own reply chain
+  (`register-ui-request` → `assemble-reply`) would need its own reconciliation to be
+  safe. Real design; deferred. The request's *send* is already outbox-reconciled once
+  `register-ui-request` is logged; only the mint→register window is exposed.
+- **`capture-transcript`** — `AddArchive` is a plain INSERT (archival dedup is
+  itself deferred, below), so re-driving would duplicate the archive row: not cleanly
+  idempotent. Left inline and low-harm — the transcript is a re-derivable artifact
+  (still in the workspace), not durable user data. Folding it in should wait on the
+  content-addressed archival fix.
 
 ## Also decided in the memory review pass (logged here)
 

@@ -25,12 +25,35 @@ type MemoryContent struct {
 	nextArch   int64
 	skills     []SkillRow
 	nextSkill  int64
+
+	// failAddSkill scripts the next N AddSkill calls to fail — the skill harvest's
+	// fault-injection knob (decision-013), the store twin of workspace.Memory's
+	// failProvisioned. AddSkill is the FIRST durable write store-skill makes and the
+	// only op unique to it (its Files/WriteSkills reads are shared with other
+	// effects), so failing it leaves the whole store errored before register-skill,
+	// which is the crash-mid-store a scenario needs to exercise HarvestPending
+	// reconciliation. Like the tables, it survives a simulated crash.
+	failAddSkill int
 }
 
 var _ Content = (*MemoryContent)(nil)
 
 func NewMemoryContent() *MemoryContent {
 	return &MemoryContent{}
+}
+
+// FailNext scripts the next n calls to an op to fail (docs/13) — a sim-only test
+// hook mirroring workspace.Memory.FailNext and SimMail.FailNext. Only "skill" is
+// meaningful today: it fails AddSkill, the op unique to store-skill, so a scenario
+// can crash the skill harvest mid-store and prove HarvestPending reconciliation
+// recovers it (decision-013).
+func (c *MemoryContent) FailNext(op string, n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if op == "skill" {
+		c.failAddSkill += n
+	}
 }
 
 // AddInbox is idempotent on MessageID: a row whose Message-ID already exists
@@ -65,9 +88,20 @@ func (c *MemoryContent) Inbox(id int64) (InboxRow, error) {
 	return InboxRow{}, fmt.Errorf("inbox %d: not found", id)
 }
 
+// AddOutbox is idempotent on MessageID (the twin of the SQLite pre-check,
+// decision-013): a row whose Message-ID already exists returns that row's id and
+// inserts nothing, so a re-driven assemble-reply queues no duplicate reply.
 func (c *MemoryContent) AddOutbox(row OutboxRow) (int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if row.MessageID != "" {
+		for _, r := range c.outbox {
+			if r.MessageID == row.MessageID {
+				return r.ID, nil
+			}
+		}
+	}
 
 	c.nextOutbox++
 	row.ID = c.nextOutbox
@@ -161,6 +195,11 @@ func (c *MemoryContent) ArchiveCount(taskID int64, kind string) (int, error) {
 func (c *MemoryContent) AddSkill(row SkillRow) (int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.failAddSkill > 0 {
+		c.failAddSkill--
+		return 0, fmt.Errorf("store: simulated add-skill failure")
+	}
 
 	for i := range c.skills {
 		if c.skills[i].Name == row.Name {

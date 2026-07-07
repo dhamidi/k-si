@@ -201,16 +201,23 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		case "mail":
 			inst.world.mail.FailNext(args[1], n)
 		case "work", "workspace":
-			// Fault-inject the sim workspace — today only `fail work harvest`, which
-			// fails the ProvisionedMemory read capture-memory depends on, so a scenario
-			// can crash mid-harvest and prove HarvestPending reconciliation recovers it.
+			// Fault-inject the sim workspace: `fail work harvest` fails the
+			// ProvisionedMemory read the memory harvest depends on, and `fail work reply`
+			// fails the out/ Harvest read the reply harvest depends on — each scoped to
+			// one post-finish harvest so a scenario can crash it mid-flight and prove
+			// HarvestPending reconciliation recovers it (decision-013).
 			failer, ok := inst.world.work.(interface{ FailNext(string, int) })
 			if !ok {
 				return "", fmt.Errorf("fail: workspace %T does not support fault injection", inst.world.work)
 			}
 			failer.FailNext(args[1], n)
+		case "content", "store":
+			// Fault-inject the content store — `fail content skill` fails AddSkill, the
+			// op unique to store-skill, so a scenario can crash the SKILL harvest
+			// mid-store (its workspace reads are shared, so this is its only clean seam).
+			inst.world.content.FailNext(args[1], n)
 		default:
-			return "", fmt.Errorf("fail: unknown edge %q (mail, work)", args[0])
+			return "", fmt.Errorf("fail: unknown edge %q (mail, work, content)", args[0])
 		}
 		return "", nil
 	}

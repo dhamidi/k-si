@@ -1,30 +1,26 @@
 package tasks
 
-import "github.com/dhamidi/k-si/runtime"
+import (
+	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/tasks/msg"
+)
 
-// "mark-harvested" — remove a HarvestJob once the capture-memory effect has
-// emitted all its remember/forget directives (docs/03). It is the harvest's
-// mark-email-sent: the pending marker clears only here, at the END of the effect,
-// so a crash before it leaves the job pending for reconciliation to re-drive.
-const MarkHarvested = "mark-harvested"
-
-type MarkHarvestedPayload struct {
-	RunID int64 `json:"run_id"`
-}
-
-func NewMarkHarvested(p MarkHarvestedPayload) runtime.Msg {
-	return runtime.NewMsg(MarkHarvested, p)
-}
+// "mark-harvested" — remove the (RunID, Kind) HarvestJob once its post-finish
+// effect has emitted all its logged directives (decision-013). The message and its
+// payload live in the tasks contract package so the reply harvest's email-side
+// effect can clear its job cross-module; this is its reducer.
 
 func registerMarkHarvested(mod *runtime.Module) {
-	runtime.HandleMsg(mod, MarkHarvested, handleMarkHarvested)
+	runtime.HandleMsg(mod, msg.MarkHarvested, handleMarkHarvested)
 }
 
-func handleMarkHarvested(v runtime.View, s Model, p MarkHarvestedPayload,
+func handleMarkHarvested(v runtime.View, s Model, p msg.MarkHarvestedPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
-	// An absent RunID is a no-op, so a replay that re-folds mark-harvested — or a
-	// second mark-harvested from a re-driven harvest — is idempotent (copy-on-write).
-	s.HarvestPending = withoutHarvestPending(s.HarvestPending, p.RunID)
+	// An absent (RunID, Kind) is a no-op, so a replay that re-folds mark-harvested —
+	// or a second mark-harvested from a re-driven harvest — is idempotent
+	// (copy-on-write). Only the matching kind clears; the run's other pending kinds
+	// stay owed.
+	s.HarvestPending = withoutHarvestPending(s.HarvestPending, p.RunID, p.Kind)
 	return s, nil
 }

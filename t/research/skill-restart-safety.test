@@ -1,0 +1,90 @@
+# t/research/skill-restart-safety.test — the SKILL harvest is crash-safe
+# (decision-013), the skill sibling of the memory harvest's crash safety. A
+# finished run's authored Agent Skill (out/skills/<name>/) is recovered even when
+# store-skill never completes inline.
+#
+# agent-run-finished no longer emits store-skill as a Cmd — a crash between logging
+# that message and the effect finishing would lose the skill forever (replay
+# re-derives the Cmd but SUPPRESSES effects, and register-skill was never logged).
+# Instead it records the run as a PENDING skill job on the tasks model. The
+# harvest-reconcile subscription turns each pending job into store-skill; the effect
+# ends by emitting mark-harvested{skill}, which clears the job. A crash mid-store
+# leaves the job pending, and restart's replay rebuilds it so the source fires
+# again. store-skill is idempotent (AddSkill upsert-by-name + register-skill
+# upsert), so re-running the whole store is safe.
+#
+# This proves the FULL crash window: store-skill's AddSkill is faulted so the
+# effect errors before emitting register-skill, the process crashes with the job
+# still owed, and the restart recovers it. `fail content skill` targets AddSkill,
+# the op UNIQUE to store-skill (its Files read is shared with capture-memory, its
+# WriteSkills with agent provisioning) — so the memory and reply harvests are
+# undisturbed.
+
+send allow-sender { address kasi@decode.ee }
+
+# --- Faulted run: store-skill's AddSkill fails before register-skill. ---
+# No skills exist yet, so nothing is provisioned into this run at start — the
+# provisioned box starts empty, isolating the skill the run authors.
+fail content skill
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "learn"
+    body    "figure out how to pay invoices and remember it"
+}
+task 1 status is awaiting-agent
+
+agent {
+    out reply.txt                             "Learned it — saved a skill."
+    out skills/pay-invoice/SKILL.md           [fixture skills/pay-invoice/SKILL.md]
+    out skills/pay-invoice/scripts/extract.sh [fixture skills/pay-invoice/scripts/extract.sh]
+}
+task 1 status is awaiting-user
+
+# The reply still sent — the skill harvest is orthogonal to delivery, and only the
+# skill harvest was faulted.
+outbound count is 1
+
+# The skill did NOT land: the registry is empty...
+model skills skills is ""
+# ...and the run sits with a pending SKILL job, still owed a store. This is the
+# crash window: the skill would be lost forever if HarvestPending were not logged.
+model tasks harvest_pending matches "*skill*"
+# ...and pay-invoice is NOT provisioned into the run's skills/ box — the whole store
+# errored at AddSkill, before WriteSkills.
+task 1 provisioned are ""
+
+# The process dies and comes back: full-log replay rebuilds the pending skill job
+# (the logged mark-harvested{memory,reply} clear those, but the skill job's never
+# came), then the harvest-reconcile source re-fires — this time AddSkill succeeds.
+crash
+restart
+
+task 1 status is awaiting-user                     # replay rebuilt the model
+model skills skills matches "*pay-invoice*"         # the skill was recovered
+task 1 provisioned are {pay-invoice/SKILL.md pay-invoice/scripts/extract.sh}
+model tasks harvest_pending is ""                   # mark-harvested{skill} cleared it — exactly once
+outbound count is 1                                 # no second reply — the reply job stayed cleared
+
+# --- Negative control: no fault → the skill lands inline, registered at once. ---
+# pay-invoice is now registered, so it provisions into this run at start; the run
+# additionally authors billogram, which store-skill lands with no crash.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "learn billogram"
+    body    "learn how to read Billogram invoices and remember it"
+}
+task 2 status is awaiting-agent
+
+agent {
+    out reply.txt                              "Saved it."
+    out skills/billogram-invoice-ocr/SKILL.md  [fixture skills/billogram-invoice-ocr/SKILL.md]
+}
+task 2 status is awaiting-user
+
+# The skill harvest completed inline: billogram is registered, and nothing is owed.
+model skills skills matches "*billogram-invoice-ocr*"
+model tasks harvest_pending is ""
+outbound count is 2

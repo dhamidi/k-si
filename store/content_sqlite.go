@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS inbox (
 CREATE TABLE IF NOT EXISTS outbox (
   id          INTEGER PRIMARY KEY,
   task_id     INTEGER NOT NULL,
-  message_id  TEXT    NOT NULL,         -- our generated Message-ID
+  message_id  TEXT    NOT NULL UNIQUE,  -- our generated Message-ID; idempotency key (decision-013)
   in_reply_to TEXT,                     -- threads the reply
   raw         BLOB    NOT NULL,         -- assembled MIME, ready to send
   status      TEXT    NOT NULL,         -- 'pending' | 'sent' | 'failed'
@@ -138,7 +138,23 @@ func (c *SQLiteContent) Inbox(id int64) (InboxRow, error) {
 	return row, nil
 }
 
+// AddOutbox is idempotent on message_id, exactly like AddInbox: a row whose
+// (deterministic, per run) Message-ID already exists returns that row's id and
+// inserts nothing. This makes a re-driven assemble-reply queue the SAME row rather
+// than a duplicate that would send a second copy — the pre-assemble crash window
+// decision-013 closes.
 func (c *SQLiteContent) AddOutbox(row OutboxRow) (int64, error) {
+	if row.MessageID != "" {
+		var id int64
+		err := c.db.QueryRow(`SELECT id FROM outbox WHERE message_id = ?`, row.MessageID).Scan(&id)
+		if err == nil {
+			return id, nil
+		}
+		if err != sql.ErrNoRows {
+			return 0, fmt.Errorf("lookup outbox %q: %w", row.MessageID, err)
+		}
+	}
+
 	result, err := c.db.Exec(
 		`INSERT INTO outbox (task_id, message_id, in_reply_to, raw, status, created_at, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		row.TaskID, row.MessageID, nullableString(row.InReplyTo), row.Raw, row.Status,

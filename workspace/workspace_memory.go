@@ -21,13 +21,21 @@ type Memory struct {
 	mu    sync.Mutex
 	trees map[int64]*tree
 	// failProvisioned scripts the next N ProvisionedMemory reads to fail — the
-	// harvest's fault-injection knob, mirroring SimMail.failSend (docs/13). Only
-	// capture-memory reads ProvisionedMemory, so failing it leaves that harvest
+	// memory harvest's fault-injection knob, mirroring SimMail.failSend (docs/13).
+	// Only capture-memory reads ProvisionedMemory, so failing it leaves that harvest
 	// entirely un-emitted, which is the crash-mid-harvest a scenario needs to
 	// exercise HarvestPending reconciliation. Like the tree, it survives a
 	// simulated crash (the struct outlives the App), so a harvest that failed stays
 	// failed until reconciliation retries it on restart.
 	failProvisioned int
+	// failReplyHarvest is the same knob for the reply harvest (decision-013): it
+	// fails the out/ Harvest read, which ONLY assemble-reply (and mint-ui-request)
+	// calls — never store-skill, capture-memory, nor provisioning — so a scenario can
+	// crash the reply harvest mid-flight without disturbing the others, even though
+	// all three harvests run concurrently. (The skill harvest's scoped fault lives on
+	// the content store's AddSkill, the only op unique to store-skill: its Files read
+	// is shared with capture-memory and its WriteSkills with agent provisioning.)
+	failReplyHarvest int
 }
 
 // tree is one task-<id>/ directory: named files under in/, out/, and skills/,
@@ -176,17 +184,26 @@ func (m *Memory) ProvisionedMemory(taskID int64) ([]string, error) {
 	return names, nil
 }
 
-// FailNext scripts the next n operations on an op to fail (docs/13). Only
-// "harvest" is meaningful today: it fails the ProvisionedMemory read the
-// capture-memory harvest depends on, so a scenario can drive a crash mid-harvest
-// and prove HarvestPending reconciliation recovers it. This is a sim-only test
-// hook (not on the Workspace interface), mirroring SimMail.FailNext.
+// FailNext scripts the next n operations on an op to fail (docs/13). Each op names
+// a read UNIQUE to one post-finish harvest so a scenario can crash exactly that
+// kind mid-harvest and prove HarvestPending reconciliation recovers it, without
+// disturbing the others (decision-013):
+//
+//	"harvest" — ProvisionedMemory, the memory harvest (capture-memory)
+//	"reply"   — Harvest, the reply harvest (assemble-reply)
+//
+// The skill harvest's fault lives on the content store instead (AddSkill), since no
+// workspace read is unique to store-skill. This is a sim-only test hook (not on the
+// Workspace interface), mirroring SimMail.FailNext.
 func (m *Memory) FailNext(op string, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if op == "harvest" {
+	switch op {
+	case "harvest":
 		m.failProvisioned += n
+	case "reply":
+		m.failReplyHarvest += n
 	}
 }
 
@@ -214,6 +231,10 @@ func (m *Memory) DeleteIn(taskID int64, rel string) error {
 func (m *Memory) Harvest(taskID int64) ([]mime.Part, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failReplyHarvest > 0 {
+		m.failReplyHarvest--
+		return nil, fmt.Errorf("workspace: simulated reply-harvest failure")
+	}
 	t, ok := m.trees[taskID]
 	if !ok {
 		return nil, fmt.Errorf("workspace: task %d: no workspace", taskID)

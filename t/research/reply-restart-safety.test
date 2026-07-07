@@ -1,0 +1,80 @@
+# t/research/reply-restart-safety.test — the REPLY harvest is crash-safe
+# (decision-013), the reply sibling of the memory harvest's crash safety. A
+# finished run's email reply is recovered even when assemble-reply never completes
+# inline — and it is delivered EXACTLY once, never twice.
+#
+# agent-run-finished no longer emits assemble-reply as a Cmd — a crash between
+# logging that message and the effect finishing would lose the reply (replay
+# re-derives the Cmd but SUPPRESSES effects, and mark-reply-queued was never
+# logged). Instead it records the run as a PENDING reply job on the tasks model.
+# The harvest-reconcile subscription reconstructs the AssembleReplyPayload from the
+# logged Task and drives assemble-reply; the effect ends by emitting
+# mark-harvested{reply} (cross-module, from email back to tasks), which clears the
+# job. A crash before that leaves the job pending, and restart's replay rebuilds it
+# so the source fires again.
+#
+# Exactly-once is what makes re-driving safe: the reply's Message-ID is
+# deterministic (per task+run+domain), and AddOutbox is now idempotent on it, so a
+# re-driven assemble-reply queues the SAME outbox row — never a second send. This
+# proves the FULL crash window: assemble-reply's out/ Harvest read is faulted so the
+# effect errors before queuing anything, the process crashes with the job owed, and
+# the restart recovers it into ONE outbound. `fail work reply` targets the Harvest
+# read, which only assemble-reply calls, so the memory and skill harvests are
+# undisturbed.
+
+send allow-sender { address kasi@decode.ee }
+
+# --- Faulted run: assemble-reply's Harvest fails before it queues the reply. ---
+fail work reply
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "banking"
+    body    "how should I pay this invoice?"
+}
+task 1 status is awaiting-agent
+
+agent {
+    out reply.txt "Pay it through the approved channel."
+}
+task 1 status is awaiting-user
+
+# NOTHING went out — the reply harvest errored before AddOutbox, so no outbox row,
+# no send.
+outbound count is 0
+# ...and the run sits with a pending REPLY job, still owed its reply. This is the
+# crash window: the reply would be lost forever if HarvestPending were not logged.
+model tasks harvest_pending matches "*reply*"
+
+# The process dies and comes back: full-log replay rebuilds the pending reply job
+# (the run's References already carry the deterministic reply Message-ID, logged by
+# agent-run-finished), then the harvest-reconcile source re-fires — this time
+# Harvest succeeds, and the run-harvest handler reconstructs the same reply payload
+# from the Task model.
+crash
+restart
+
+task 1 status is awaiting-user                     # replay rebuilt the model
+outbound count is 1                                 # recovered — and EXACTLY one
+outbound last body matches "*approved channel*"     # it is the run's reply.txt
+model tasks harvest_pending is ""                   # mark-harvested{reply} cleared it — exactly once
+
+# --- Negative control: no fault → the reply lands inline, sent at once. ---
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "timezone"
+    body    "what timezone am I in?"
+}
+task 2 status is awaiting-agent
+
+agent {
+    out reply.txt "You are in Europe/Stockholm."
+}
+task 2 status is awaiting-user
+
+# The second reply went straight out — total two, each run's reply exactly once.
+outbound count is 2
+outbound last body matches "*Stockholm*"
+model tasks harvest_pending is ""

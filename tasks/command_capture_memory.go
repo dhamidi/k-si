@@ -7,6 +7,7 @@ import (
 	"github.com/dhamidi/k-si/memory"
 	memorymsg "github.com/dhamidi/k-si/memory/msg"
 	"github.com/dhamidi/k-si/runtime"
+	"github.com/dhamidi/k-si/tasks/msg"
 )
 
 // "capture-memory" — harvest the memory gestures a finished run left in its
@@ -99,8 +100,8 @@ func captureMemoryEffect(ctx context.Context, e Edges, p CaptureMemoryPayload,
 	// Clear the pending marker LAST, once every remember/forget is emitted. Because
 	// remember (upsert) and forget (no-op-if-absent) are idempotent, re-running the
 	// whole effect on restart is safe; the only requirement is that a completed run
-	// always ends by clearing its HarvestPending job (docs/03).
-	emit(NewMarkHarvested(MarkHarvestedPayload{RunID: p.RunID}))
+	// always ends by clearing its memory HarvestPending job (docs/03).
+	emit(msg.NewMarkHarvested(msg.MarkHarvestedPayload{RunID: p.RunID, Kind: HarvestMemory}))
 	return nil
 }
 

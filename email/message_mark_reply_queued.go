@@ -23,6 +23,17 @@ func registerMarkReplyQueued(mod *runtime.Module) {
 func handleMarkReplyQueued(v runtime.View, s Model, p MarkReplyQueuedPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	// Dedup: a re-driven assemble-reply (the reply harvest re-firing after a crash)
+	// hands AddOutbox the same deterministic Message-ID, which returns the EXISTING
+	// row id — so this OutboxID/MessageID may already be pending here. Appending it
+	// again would declare a second send source for one row. Skip the duplicate so
+	// reconciliation stays exactly-once (decision-013).
+	for _, e := range s.Outbox {
+		if e.OutboxID == p.OutboxID || (p.MessageID != "" && e.MessageID == p.MessageID) {
+			return s, nil
+		}
+	}
+
 	// Record the queued reply as pending. The outbox-reconcile subscription then
 	// sees a pending entry and emits send-email — the single send path, so a
 	// crash that loses the in-flight send is recovered by replay rebuilding this
