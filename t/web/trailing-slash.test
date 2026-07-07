@@ -1,0 +1,13 @@
+# t/web/trailing-slash.test — a trailing slash on a browse route redirects to the
+# canonical slashless URL instead of 404ing (dispatch SlashRedirect, web/server.go).
+# Driven through the REAL web.Server in-process (decision-008); with SlashIgnore
+# (the dispatch default käsi used to take) /tasks/ matched no route and 404'd. The
+# redirect fires in the router before any handler, so no data need be seeded — a
+# booted app is enough. `visit` reports the redirect Location the same way `post`
+# does, so `is <target>` asserts where the slash form lands.
+
+send allow-sender { address kasi@decode.ee }
+
+visit /tasks/ is /tasks
+visit /skills/ is /skills
+visit /memory/ is /memory

@@ -1066,9 +1066,12 @@ func (inst *instance) webServer() (*web.Server, error) {
 	return inst.server, nil
 }
 
-// webGET renders a page through the real router+handlers and returns the body.
-// A non-2xx status is a loud failure (a broken route must fail the scenario, not
-// silently return an empty body) — the body is included for diagnosis.
+// webGET renders a page through the real router+handlers and returns the body,
+// or — when the route redirects (e.g. a trailing-slash canonicalisation) — the
+// redirect Location, mirroring webPOST so `visit /tasks/ is /tasks` asserts the
+// redirect target. A non-2xx, non-3xx status is a loud failure (a broken route
+// must fail the scenario, not silently return an empty body) — the body is
+// included for diagnosis.
 func (inst *instance) webGET(path string) (string, error) {
 	s, err := inst.webServer()
 	if err != nil {
@@ -1077,6 +1080,9 @@ func (inst *instance) webGET(path string) (string, error) {
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	body := rec.Body.String()
+	if loc := rec.Header().Get("Location"); loc != "" {
+		return loc, nil
+	}
 	if rec.Code >= 400 {
 		return "", fmt.Errorf("visit %s: status %d\n%s", path, rec.Code, body)
 	}

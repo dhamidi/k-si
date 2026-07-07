@@ -64,7 +64,18 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 		return nil, err
 	}
 
-	s := &Server{app: app, engine: engine, router: dispatch.New(), secrets: secrets, content: content, work: work}
+	// SlashRedirect canonicalises a trailing slash: GET /tasks/ 308-redirects to
+	// /tasks rather than 404ing (dispatch defaults to SlashIgnore, which treats the
+	// two as distinct and matches neither). 308 (not the library's default 301)
+	// preserves method and body, so a POST that arrives with a stray trailing slash
+	// re-issues as a POST, not a GET.
+	s := &Server{
+		app: app, engine: engine, secrets: secrets, content: content, work: work,
+		router: dispatch.New(
+			dispatch.WithDefaultSlashPolicy(dispatch.SlashRedirect),
+			dispatch.WithDefaultRedirectCode(http.StatusPermanentRedirect),
+		),
+	}
 
 	if err := s.router.GET("counter.show", "/", http.HandlerFunc(s.showCounter)); err != nil {
 		return nil, err
