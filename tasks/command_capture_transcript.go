@@ -6,6 +6,7 @@ import (
 
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
+	"github.com/dhamidi/k-si/tasks/msg"
 )
 
 // "capture-transcript" — copy a run's session transcript from the workspace into the archive
@@ -32,13 +33,24 @@ func captureTranscriptEffect(ctx context.Context, e Edges, p CaptureTranscriptPa
 	if err != nil {
 		return err
 	}
-	_, err = e.Content.AddArchive(store.ArchiveRow{
+	// AddArchive is idempotent on (task_id, filename), so a re-driven harvest
+	// re-archives no duplicate row — the property that makes this reconcilable
+	// (decision-013).
+	if _, err := e.Content.AddArchive(store.ArchiveRow{
 		TaskID:      p.TaskID,
 		AgentRun:    p.RunID,
 		Kind:        "transcript",
 		Filename:    fmt.Sprintf("transcript-%d.jsonl", p.RunID),
 		ContentType: "application/jsonl",
 		Bytes:       b,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+
+	// Clear the transcript HarvestJob LAST, once the archive write landed. A crash
+	// before this leaves the job pending, so restart's replay rebuilds it and the
+	// harvest-reconcile source re-drives the capture — recovering a transcript that
+	// an inline effect would have lost forever (decision-013).
+	emit(msg.NewMarkHarvested(msg.MarkHarvestedPayload{RunID: p.RunID, Kind: HarvestTranscript}))
+	return nil
 }

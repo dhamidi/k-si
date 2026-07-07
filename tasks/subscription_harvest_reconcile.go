@@ -19,8 +19,9 @@ import (
 // drives) — a crash that loses the in-flight effect is recovered on restart, where
 // replay rebuilds the pending job and this source fires again. Every kind's effect
 // emits idempotently (memory remember/forget, store-skill upsert, assemble-reply's
-// deterministic Message-ID + idempotent AddOutbox), so re-running the whole effect
-// is safe.
+// deterministic Message-ID + idempotent AddOutbox, capture-transcript's
+// content-addressed AddArchive keyed on (task_id, filename)), so re-running the
+// whole effect is safe.
 func harvestReconcileSubs(v runtime.View, s Model) []runtime.Sub {
 	var subs []runtime.Sub
 	for _, job := range s.HarvestPending {

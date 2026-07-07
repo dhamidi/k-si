@@ -1,0 +1,80 @@
+# t/research/transcript-restart-safety.test — the TRANSCRIPT harvest is crash-safe
+# (decision-013), the last post-finish effect to be reconciled. A finished run's
+# session transcript is archived even when capture-transcript never completes inline.
+#
+# capture-transcript was the last fire-and-forget effect: agent-run-finished emitted
+# it as an inline Cmd. A crash between logging that message and the archive write
+# lost the transcript forever — replay re-derives the Cmd but SUPPRESSES effects, and
+# archive-task's transcript special-case SKIPS re-archiving it at finish, so nothing
+# backstopped it. Now that AddArchive is content-addressed and idempotent on
+# (task_id, filename), a re-drive re-archives no duplicate, so the transcript is
+# reconciled like the rest of the fan-out: agent-run-finished records a PENDING
+# transcript job; the harvest-reconcile source drives capture-transcript; the effect
+# ends with mark-harvested{transcript}, which clears the job.
+#
+# This proves the FULL crash window: capture-transcript's AddArchive is faulted so
+# the effect errors before emitting mark-harvested, the process crashes with the job
+# still owed, and the restart recovers it. `fail content archive` targets AddArchive,
+# the durable write UNIQUE to capture-transcript in the fan-out (its ReadTranscript
+# is a workspace read) — so the memory and reply harvests are undisturbed.
+
+send allow-sender { address kasi@decode.ee }
+
+# --- Faulted run: capture-transcript's AddArchive fails before mark-harvested. ---
+fail content archive
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "reconcile"
+    body    "reconcile the transfer"
+}
+task 1 status is awaiting-agent
+
+agent {
+    out reply.txt "Reconciled."
+}
+task 1 status is awaiting-user
+
+# The reply still sent — the transcript harvest is orthogonal to delivery, and only
+# the transcript harvest was faulted.
+outbound count is 1
+
+# The transcript did NOT land: no transcript row for the task...
+archive count task 1 transcript is 0
+# ...and the run sits with a pending TRANSCRIPT job, still owed a capture. This is
+# the crash window: the transcript would be lost forever if HarvestPending were not
+# logged state.
+model tasks harvest_pending matches "*transcript*"
+
+# The process dies and comes back: full-log replay rebuilds the pending transcript
+# job (the logged mark-harvested{memory,reply} cleared those; the transcript job's
+# never came), then the harvest-reconcile source re-fires — this time AddArchive
+# succeeds.
+crash
+restart
+
+task 1 status is awaiting-user                   # replay rebuilt the model
+archive count task 1 transcript is 1             # the transcript was recovered — exactly once
+model tasks harvest_pending is ""                # mark-harvested{transcript} cleared it
+outbound count is 1                              # no second reply — the reply job stayed cleared
+
+# --- Negative control: no fault → the transcript is archived at once. ---
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "again"
+    body    "another transfer"
+}
+task 2 status is awaiting-agent
+
+agent {
+    out reply.txt "Done."
+}
+task 2 status is awaiting-user
+
+# The transcript harvest completed inline (via the reconcile source, no crash):
+# archived once, nothing owed.
+archive count task 2 transcript is 1
+model tasks harvest_pending is ""
+outbound count is 2

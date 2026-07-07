@@ -79,8 +79,11 @@ type OutboxRow struct {
 	SentAt    time.Time
 }
 
-// ArchiveRow is one row of the archive table (docs/03): a file kept before its
-// task's workspace is deleted. SHA256 content-hashing enables dedup.
+// ArchiveRow is one row of the archive index (docs/03): a file kept before its
+// task's workspace is deleted. Storage is content-addressed (decision-013) — the
+// bytes live ONCE in the blob table keyed by SHA256, and the index references them;
+// but this struct carries Bytes at the API boundary (callers still pass and receive
+// bytes), so the blob/index split stays internal to the store.
 type ArchiveRow struct {
 	ID          int64
 	TaskID      int64

@@ -1,0 +1,72 @@
+# t/research/archive-dedup.test — archival is content-addressed (decision-013): a
+# blob is stored ONCE regardless of how many tasks archive it, while each task keeps
+# its own archive index row and resolves its own file's bytes.
+#
+# Before this, the archive stored `bytes` inline per row, so the whole memory
+# collection provisioned into every run was duplicated into every task's archive —
+# unbounded growth (tasks × collection). Now AddArchive stores the bytes once in the
+# blob table keyed by sha256 and inserts a per-task index row referencing it. Two
+# tasks that both archive the SAME provisioned memory file share ONE blob but keep
+# TWO index rows.
+
+send allow-sender { address kasi@decode.ee }
+
+# Seed a durable memory. start-agent-run provisions the whole collection into every
+# future run's in/memory/ box, so BOTH tasks below get owner-banking.md laid in with
+# byte-identical content — the shared content the dedup collapses.
+memory write owner-banking [fixture memory/owner-banking.md]
+
+# --- Task 1: finishes, then the owner clicks completion → archive-then-delete. ---
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "one"
+    body    "first task"
+}
+task 1 status is awaiting-agent
+# The seeded memory is provisioned into this run.
+task 1 input memory/owner-banking.md matches "*Handelsbanken*"
+
+agent {
+    out reply.txt "done one"
+}
+task 1 status is awaiting-user
+click [outbound last completion-link]
+task 1 status is done
+
+# --- Task 2: a brand-new task, gets the SAME memory provisioned, archives it too. ---
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "two"
+    body    "second task"
+}
+task 2 status is awaiting-agent
+task 2 input memory/owner-banking.md matches "*Handelsbanken*"
+
+agent {
+    out reply.txt "done two"
+}
+task 2 status is awaiting-user
+click [outbound last completion-link]
+task 2 status is done
+
+# --- Dedup proof: one blob, two index rows for the shared memory file. ---
+# The provisioned note is byte-identical across both tasks, so it is stored ONCE...
+archive blobs in/memory/owner-banking.md is 1
+# ...yet BOTH tasks' archive indexes list it (one row each).
+archive rows in/memory/owner-banking.md is 2
+# The MEMORY.md index käsi lays in (at the in/ box root) is likewise identical
+# across tasks — one blob, two index rows.
+archive blobs in/MEMORY.md is 1
+archive rows in/MEMORY.md is 2
+
+# Each task still resolves its OWN file's bytes back through the blob JOIN — the
+# dedup is invisible at the read boundary.
+archive task 1 file in/memory/owner-banking.md matches "*Handelsbanken*"
+archive task 2 file in/memory/owner-banking.md matches "*never reuse an OCR*"
+
+# Sanity: each task's transcript is unique (run-tagged), so those are NOT deduped —
+# dedup collapses identical content, it does not lose distinct content.
+archive count task 1 transcript is 1
+archive count task 2 transcript is 1

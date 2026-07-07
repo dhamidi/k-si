@@ -37,6 +37,16 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
 	switch p.Kind {
+	case HarvestTranscript:
+		// capture-transcript reads the transcript by (TaskID, RunID) itself
+		// (Work.ReadTranscript), so the payload needs nothing more than the run
+		// identity — the old TranscriptPath was never used. AddArchive is now
+		// idempotent on (task_id, filename), so a re-drive re-archives no duplicate.
+		return s, []runtime.Cmd{NewCaptureTranscript(CaptureTranscriptPayload{
+			TaskID: p.TaskID,
+			RunID:  p.RunID,
+		})}
+
 	case HarvestMemory:
 		return s, []runtime.Cmd{NewCaptureMemory(CaptureMemoryPayload{
 			TaskID: p.TaskID,

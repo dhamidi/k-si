@@ -212,9 +212,10 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 			}
 			failer.FailNext(args[1], n)
 		case "content", "store":
-			// Fault-inject the content store — `fail content skill` fails AddSkill, the
-			// op unique to store-skill, so a scenario can crash the SKILL harvest
-			// mid-store (its workspace reads are shared, so this is its only clean seam).
+			// Fault-inject the content store — `fail content skill` fails AddSkill (the
+			// op unique to store-skill) and `fail content archive` fails AddArchive (the
+			// durable write unique to capture-transcript in the fan-out), so a scenario
+			// can crash the SKILL or TRANSCRIPT harvest mid-flight at its only clean seam.
 			inst.world.content.FailNext(args[1], n)
 		default:
 			return "", fmt.Errorf("fail: unknown edge %q (mail, work, content)", args[0])
@@ -987,25 +988,65 @@ func taskRequest(inst *instance, n int) (uiRequest, error) {
 
 // --- archive -----------------------------------------------------------------
 
-// archive count task <n> <kind> — how many archive rows of a kind a task has.
+// archiveRead observes the content-addressed archive (decision-013). Four forms:
+//
+//	archive count task <n> <kind>    — how many index rows of a kind a task has.
+//	archive blobs <filename>         — how many DISTINCT blobs the archive stores
+//	                                   for that filename across ALL tasks (dedup: 1
+//	                                   when many tasks archive identical bytes).
+//	archive rows <filename>          — how many index rows reference that filename
+//	                                   across ALL tasks (both tasks' indexes list it).
+//	archive task <n> file <filename> — the reconstituted bytes of that task's file,
+//	                                   proving each task resolves its own bytes back
+//	                                   through the blob JOIN.
 func archiveRead(inst *instance, args []string) (string, error) {
 	read, verb := splitVerb(args)
-	if len(read) != 4 || read[0] != "count" || read[1] != "task" {
-		return "", fmt.Errorf("archive read is `archive count task <n> <kind>`")
+
+	switch {
+	case len(read) == 4 && read[0] == "count" && read[1] == "task":
+		n, err := strconv.Atoi(read[2])
+		if err != nil {
+			return "", fmt.Errorf("archive: task ordinal must be a number, got %q", read[2])
+		}
+		id, err := nthTaskID(inst, n)
+		if err != nil {
+			return "", err
+		}
+		count, err := inst.world.content.ArchiveCount(id, read[3])
+		if err != nil {
+			return "", err
+		}
+		return finishRead("archive "+strings.Join(read, " "), strconv.Itoa(count), verb)
+
+	case len(read) == 2 && read[0] == "blobs":
+		return finishRead("archive "+strings.Join(read, " "), strconv.Itoa(inst.world.content.BlobsForFile(read[1])), verb)
+
+	case len(read) == 2 && read[0] == "rows":
+		return finishRead("archive "+strings.Join(read, " "), strconv.Itoa(inst.world.content.RowsForFile(read[1])), verb)
+
+	case len(read) == 4 && read[0] == "task" && read[2] == "file":
+		n, err := strconv.Atoi(read[1])
+		if err != nil {
+			return "", fmt.Errorf("archive: task ordinal must be a number, got %q", read[1])
+		}
+		id, err := nthTaskID(inst, n)
+		if err != nil {
+			return "", err
+		}
+		rows, err := inst.world.content.ArchiveByTask(id)
+		if err != nil {
+			return "", err
+		}
+		for _, r := range rows {
+			if r.Filename == read[3] {
+				return finishRead("archive "+strings.Join(read, " "), string(r.Bytes), verb)
+			}
+		}
+		return "", fmt.Errorf("archive task %d file %q: not archived", n, read[3])
+
+	default:
+		return "", fmt.Errorf("archive read is `archive count task <n> <kind>`, `archive blobs <filename>`, `archive rows <filename>`, or `archive task <n> file <filename>`")
 	}
-	n, err := strconv.Atoi(read[2])
-	if err != nil {
-		return "", fmt.Errorf("archive: task ordinal must be a number, got %q", read[2])
-	}
-	id, err := nthTaskID(inst, n)
-	if err != nil {
-		return "", err
-	}
-	count, err := inst.world.content.ArchiveCount(id, read[3])
-	if err != nil {
-		return "", err
-	}
-	return finishRead("archive "+strings.Join(read, " "), strconv.Itoa(count), verb)
 }
 
 // --- visit / post / seed-transcript (the real web edge, driven offline) ------

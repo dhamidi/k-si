@@ -59,10 +59,11 @@ reconciled downstream.
 ## Generalized across the fan-out (built)
 
 The `HarvestJob` is now KIND-tagged (`{TaskID, RunID, Kind}`, Kind ∈
-`"memory" | "skill" | "reply"`); identity is `(RunID, Kind)`. `harvestReconcileSubs`
-sources one `harvest:<kind>:<run>` per job, emitting `run-harvest{TaskID, RunID, Kind}`;
-`handleRunHarvest` DISPATCHES by kind to `capture-memory`, `store-skill`, or a
-reconstructed `assemble-reply`; each effect ends by emitting
+`"memory" | "skill" | "reply" | "request" | "transcript"`); identity is `(RunID,
+Kind)`. `harvestReconcileSubs` sources one `harvest:<kind>:<run>` per job, emitting
+`run-harvest{TaskID, RunID, Kind}`; `handleRunHarvest` DISPATCHES by kind to
+`capture-memory`, `store-skill`, `capture-transcript`, a reconstructed
+`assemble-reply`, or `mint-ui-request`; each effect ends by emitting
 `mark-harvested{RunID, Kind}`, which clears only the matching job. `agent-run-finished`
 appends a job per kind instead of emitting the effect inline.
 
@@ -95,22 +96,39 @@ Proven by `t/research/skill-restart-safety.test`, `reply-restart-safety.test`, a
 for reply and for the mint) and recovering across `crash`/`restart`, with a negative
 control.
 
-## Still fire-and-forget (one left, deferred with reason)
+## The whole fan-out is now reconciled (built)
 
-- **`capture-transcript`** — `AddArchive` is a plain INSERT (archival dedup is
-  itself deferred, below), so re-driving would duplicate the archive row: not cleanly
-  idempotent. Left inline and low-harm — the transcript is a re-derivable artifact
-  (still in the workspace), not durable user data. Folding it in should wait on the
-  content-addressed archival fix.
+- **`capture-transcript`** — reconciled, after `AddArchive` was made idempotent (see
+  below). `agent-run-finished` records a `transcript` HarvestJob for EVERY finished
+  run (successful, stopped, or failed) instead of firing capture-transcript inline;
+  `handleRunHarvest` dispatches the `transcript` kind to capture-transcript, which
+  ends with `mark-harvested{transcript}`. This closed a real gap, not just a
+  theoretical one: an inline capture lost on a crash between logging
+  `agent-run-finished` and the archive write was never re-driven (replay suppresses
+  effects), AND `archive-task`'s transcript special-case SKIPS re-archiving it at
+  finish — so nothing backstopped it and the transcript was gone. Proven by
+  `t/research/transcript-restart-safety.test`, which faults capture-transcript's
+  `AddArchive` (`fail content archive`, the write unique to it in the fan-out) and
+  recovers it across `crash`/`restart`, with a negative control.
 
 ## Also decided in the memory review pass (logged here)
 
-- **Archival duplication (deferred).** `Files()` surfaces `in/memory/*` and
-  provisioned `.claude/skills/*`, so every task archives a full copy of the whole
-  memory collection (and skills) — `AddArchive` is a plain INSERT and `archive.sha256`
-  is not UNIQUE. Unbounded growth (tasks × collection). The fix is systemic
-  content-addressed archival (dedup by content hash), covering attachments, skills,
-  and memory alike — its own task, not memory-specific.
+- **Archival duplication (RESOLVED — content-addressed archival, built).** `Files()`
+  surfaces `in/memory/*` and provisioned `.claude/skills/*`, so every task used to
+  archive a full copy of the whole memory collection (and skills) — `AddArchive` was a
+  plain INSERT with no dedup, unbounded growth (tasks × collection). Storage is now
+  content-addressed: a `blob(sha256 PRIMARY KEY, bytes)` table holds each unique
+  byte-string ONCE, and `archive` is a per-task index referencing it by sha256, with
+  `UNIQUE(task_id, filename)` making `AddArchive` idempotent (a re-archived file for
+  the same task is a no-op — the property that let capture-transcript be reconciled,
+  above). `ArchiveRow` still carries `Bytes` at the API boundary; the blob/index split
+  is internal, and readers JOIN blob to reconstitute bytes. Both twins
+  (`SQLiteContent`, `MemoryContent`) implement the same semantics. A minimal
+  `PRAGMA user_version`-keyed migration runner (the project had none) upgrades an
+  existing DB in place — v0→v1 dedups the inline bytes into `blob`, rebuilds `archive`
+  without `bytes`, and `VACUUM`s to reclaim the freed pages; a fresh DB is stamped v1
+  and skips it. Proven by `t/research/archive-dedup.test` (one blob, two index rows for
+  a memory both tasks archive).
 - **Collection size cap (deferred).** No bound on the number/size of memories, all
   carried into every run and logged. A per-note and per-collection guard is a
   scaling refinement, not a correctness bug.
