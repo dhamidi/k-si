@@ -54,6 +54,14 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		return err
 	}
 
+	// Symlink the persistent store into this run's workspace at ./store/ — the
+	// same spawn choke point that provisions skills (Flow F, decision-012). The
+	// store lives outside the workspace and the event log; the link makes it live
+	// for the agent, and archival skips it so completing a task never touches it.
+	if err := e.Store.Link(p.TaskID); err != nil {
+		return err
+	}
+
 	// Register the live run and return immediately; the agent-watch
 	// subscription emits finish-agent-run when the turn completes (docs/05).
 	// No emit here — results leave only via that subscription.

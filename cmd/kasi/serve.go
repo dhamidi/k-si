@@ -24,6 +24,7 @@ import (
 
 	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/counter"
+	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
 	emailmsg "github.com/dhamidi/k-si/email/msg"
 	"github.com/dhamidi/k-si/mime"
@@ -89,6 +90,14 @@ func runServe(args []string) int {
 
 	clock := runtime.RealClock{}
 	work := workspace.NewOS(*workdir)
+	// The agent's persistent store: one directory under $STATE, symlinked into
+	// every run's workspace at ./store/ and persisting across tasks — outside the
+	// event log, like the mail edge (Flow F, decision-012). It lives beside the
+	// workspace root (*workdir) so completing a task never touches it.
+	dataStore, err := datastore.NewOS(filepath.Join(*state, "store"), *workdir)
+	if err != nil {
+		return fail("kasi serve:", err)
+	}
 	// One JMAP client serves both real-world directions. Outbound defaults to the
 	// spool sender — replies written to <spool>/*.eml for inspection — while -send
 	// submits them through Fastmail for real. Sending real mail is outward-facing,
@@ -104,7 +113,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content}),
+		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

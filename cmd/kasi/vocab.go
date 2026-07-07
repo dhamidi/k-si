@@ -11,6 +11,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,6 +108,17 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		return "", answer(in, inst, args[0], args[1])
 	}
 
+	// store observes and seeds the agent's persistent store (Flow F,
+	// decision-012), the sim twin the edge type wired onto simWorld. Two forms:
+	//   store write <path> <content> — seed the store, simulating the agent's
+	//     cache write through the ./store symlink.
+	//   store <path>                 — read a store file back for is/matches.
+	// The store is outside the log and not replayable model state, so scenarios
+	// assert on its OBSERVABLE contents here, not on a rebuilt model.
+	v["store"] = func(in *testlang.Interp, args []string) (string, error) {
+		return storeVocab(inst, args)
+	}
+
 	// visit / post drive the REAL web.Server in-process (decision-008): visit
 	// GETs a page and returns the rendered HTML for matches/is assertions; post
 	// issues the Stop action's POST and returns the redirect Location, settling
@@ -163,6 +175,44 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		}
 		return "", nil
 	}
+}
+
+// --- store (the agent's persistent store edge, Flow F) -----------------------
+
+// storeVocab implements the `store` read/write vocabulary against the sim store
+// on inst.world.store — the datastore.Sim the edge type wired onto simWorld. It
+// is an edge outside the event log (decision-012), so scenarios assert on its
+// OBSERVABLE contents here, never on a rebuilt model.
+//
+//	store write <path> <content> — seed the store (simulating the agent's cache
+//	                               write through the ./store symlink).
+//	store <path>                 — read a store file back for is/matches.
+func storeVocab(inst *instance, args []string) (string, error) {
+	if len(args) >= 1 && args[0] == "write" {
+		if len(args) != 3 {
+			return "", fmt.Errorf("store write needs a path and content, e.g. `store write wise.db \"…\"`")
+		}
+		writer, ok := inst.world.store.(interface {
+			Write(string, []byte) error
+		})
+		if !ok {
+			return "", fmt.Errorf("store write: the store does not support seeding (only the sim store does)")
+		}
+		if err := writer.Write(args[1], []byte(args[2])); err != nil {
+			return "", fmt.Errorf("store write %s: %w", args[1], err)
+		}
+		return "", nil
+	}
+
+	read, verb := splitVerb(args)
+	if len(read) != 1 {
+		return "", fmt.Errorf("store read needs a single path, e.g. `store wise.db is \"…\"`")
+	}
+	b, err := fs.ReadFile(inst.world.store, read[0])
+	if err != nil {
+		return "", fmt.Errorf("store %s: %w", read[0], err)
+	}
+	return finishRead("store "+read[0], string(b), verb)
 }
 
 // --- deliver -----------------------------------------------------------------

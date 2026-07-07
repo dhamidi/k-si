@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
@@ -10,6 +11,8 @@ import (
 // Edges is everything agents touches in the world. Real implementations are
 // wired in cmd/kasi/main.go; simulated twins live in this package (docs/12).
 type Edges struct {
+	// the agent's persistent data store, symlinked into every run (Flow F)
+	Store   datastore.Store
 	Clock   runtime.Clock
 	Harness Harness
 	Work    workspace.Workspace
@@ -43,6 +46,7 @@ func Module(e Edges) *runtime.Module {
 func SimEdges() Edges {
 	work := workspace.NewMemory()
 	return Edges{
+		Store:   datastore.NewSim(),
 		Clock:   runtime.SimClock(),
 		Harness: NewSimHarness(work),
 		Work:    work,

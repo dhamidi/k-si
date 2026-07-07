@@ -13,6 +13,7 @@ import (
 	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/cassette"
 	"github.com/dhamidi/k-si/counter"
+	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
@@ -29,6 +30,7 @@ import (
 // and live drives the real Claude harness (wrapped in the recording decorator)
 // against a real OS tree, capturing a cassette as it goes.
 type simWorld struct {
+	store   datastore.Store
 	ring    string
 	content *store.MemoryContent
 	mail    *email.SimMail
@@ -61,6 +63,7 @@ func newSimWorld() *simWorld {
 	sim := agents.NewSimHarness(work)
 	mail := email.NewSimMail(content)
 	return &simWorld{
+		store:    datastore.NewSim(),
 		ring:     "sim",
 		content:  content,
 		mail:     mail,
@@ -84,6 +87,7 @@ func newRecordedWorld(c cassette.HarnessCassette, mc cassette.MailCassette, hasM
 	recorded := agents.NewRecordedHarness(work, c)
 	mail := email.NewSimMail(content)
 	w := &simWorld{
+		store:    datastore.NewSim(),
 		ring:     "recorded",
 		content:  content,
 		mail:     mail,
@@ -112,6 +116,7 @@ func newLiveWorld(workdir string, sec secrets.Secrets) *simWorld {
 	recording := agents.NewRecordingHarness(agents.NewClaude(workdir), work)
 	recordingMail := email.NewRecordingMail(sec, "secret://fastmail/api-token")
 	return &simWorld{
+		store:         datastore.NewSim(),
 		ring:          "live",
 		content:       content,
 		mail:          email.NewSimMail(content),
@@ -150,6 +155,6 @@ func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
-		agents.Module(agents.Edges{Clock: clock, Harness: w.harness, Work: w.work, Secrets: w.secrets, Content: w.content}),
+		agents.Module(agents.Edges{Store: w.store, Clock: clock, Harness: w.harness, Work: w.work, Secrets: w.secrets, Content: w.content}),
 	}
 }

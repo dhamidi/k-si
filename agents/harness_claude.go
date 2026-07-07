@@ -48,6 +48,12 @@ If you need more from the user, you have two channels — pick by what you need:
 Use the form (not reply.txt) whenever a secret is involved: it is the only way to
 collect one without it landing in an email.
 
+./store/ is your durable, private memory — a real directory that PERSISTS across
+tasks, unlike the rest of this workspace, which is wiped the moment a task
+finishes. Keep SQLite databases, caches, and scratch scripts there, and read from
+it before re-fetching anything you may have cached before. It is shared across all
+your tasks, so use it to remember.
+
 To teach yourself for future runs, you may write a reusable SKILL as an Agent
 Skills directory under ./out/skills/<name>/ — a ./out/skills/<name>/SKILL.md with
 YAML frontmatter (a "name:" matching the folder <name> and a "description:" of

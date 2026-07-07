@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -166,6 +167,14 @@ func (o *OS) Files(taskID int64) ([]mime.Part, error) {
 			return err
 		}
 		if d.IsDir() {
+			return nil
+		}
+		// Skip a symlink entry — the persistent store is symlinked in at ./store
+		// (Flow F, decision-012). Archival must never follow it (that would read,
+		// archive, and — via Delete's archived-check — let it block deletion of
+		// another task's live data). WalkDir does not descend into a symlinked
+		// directory, so returning nil here elides the link entirely.
+		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)

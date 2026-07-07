@@ -1,0 +1,44 @@
+# t/research/store-persists.test — Flow F (docs/10), decision-012: the agent's
+# persistent store survives task-workspace deletion and is shared across tasks.
+# The store is an EDGE outside the event log (like the mail edge), so we assert on
+# its observable contents, never on a rebuilt model — it was never model state.
+
+send allow-sender { address kasi@decode.ee }
+
+# Task 1: the agent caches data into ./store during its run, then replies.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "remember my Wise data"
+    body    "pull my recipients and transactions and remember them"
+}
+task 1 status is awaiting-agent
+
+agent {
+    out reply.txt "Cached your recipients and transactions. Ask me anything."
+}
+
+# The agent wrote wise.db into ./store/ during the turn (simulated: the store is
+# an edge, opaque to käsi, mutated directly through the symlink).
+store write wise.db "recipients+txns"
+store wise.db is "recipients+txns"
+
+task 1 status is awaiting-user
+
+# The user clicks the completion link — task 1 is archived and its workspace is
+# DELETED. The store was symlinked in, so archival skipped it: the cache persists.
+click [outbound last completion-link]
+task 1 status is done
+store wise.db is "recipients+txns"
+
+# Task 2: a brand-new task, a brand-new workspace, never authored anything. Its
+# run gets ./store symlinked again — and wise.db is already there, proving the
+# store survived task 1's deletion AND is shared across tasks (no re-fetch).
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "how much did I send to Alice?"
+    body    "how much did I send to Alice in June?"
+}
+task 2 status is awaiting-agent
+store wise.db is "recipients+txns"
