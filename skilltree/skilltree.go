@@ -2,8 +2,9 @@
 // reads it back (decision-010). A skill is a directory — a required SKILL.md plus
 // optional scripts/, references/, assets/, and any files — stored atomically as
 // one tar in the store's `skill` table's single content BLOB, provisioned and
-// versioned as a unit. Pure: only the mime object model and the standard library
-// (archive/tar) are imported; nothing here touches the runtime.
+// versioned as a unit. Pure: the mime object model, the standard library
+// (archive/tar), and a YAML parser for the SKILL.md frontmatter are imported;
+// nothing here touches the runtime.
 package skilltree
 
 import (
@@ -13,6 +14,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"go.yaml.in/yaml/v4"
 
 	"github.com/dhamidi/k-si/mime"
 )
@@ -116,43 +119,40 @@ func Unpack(tarBytes []byte) ([]mime.Part, error) {
 	return parts, nil
 }
 
-// Frontmatter is a MINIMAL YAML-frontmatter reader for a SKILL.md: if the content
-// opens with a "---" line it scans to the closing "---" and pulls the single-line
-// "name:" and "description:" values, trimming surrounding quotes and space. It
-// tolerates absence — no frontmatter, or a missing key, yields "". No YAML
-// dependency: only these two scalar fields are needed (decision-009).
+// Frontmatter reads a SKILL.md's YAML frontmatter and returns its "name" and
+// "description". If the content opens with a "---" line, the block up to the
+// closing "---" is parsed as YAML — so block scalars (">-", "|"), quoted and
+// multi-line values are all handled, not just single-line "key: value". It
+// tolerates absence and malformation: no frontmatter, no closing fence, a missing
+// key, or unparseable YAML each yield "". The description is space-trimmed so a
+// folded scalar's trailing newline doesn't reach the UI.
 func Frontmatter(skillMD []byte) (name, description string) {
-	lines := strings.Split(string(skillMD), "\n")
-	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
+	block, ok := frontmatterBlock(skillMD)
+	if !ok {
 		return "", ""
 	}
-	for _, raw := range lines[1:] {
-		line := strings.TrimRight(raw, "\r")
-		if line == "---" {
-			break
-		}
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "name":
-			name = trimScalar(val)
-		case "description":
-			description = trimScalar(val)
-		}
+	var fm struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
 	}
-	return name, description
+	if err := yaml.Unmarshal(block, &fm); err != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(fm.Name), strings.TrimSpace(fm.Description)
 }
 
-// trimScalar strips surrounding whitespace and a single layer of matching quotes
-// from a frontmatter scalar value.
-func trimScalar(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			s = s[1 : len(s)-1]
+// frontmatterBlock returns the bytes between the opening and closing "---" fences.
+// ok is false if the content does not open with a "---" line or has no closing
+// fence — either way there is no frontmatter to parse.
+func frontmatterBlock(md []byte) (block []byte, ok bool) {
+	lines := strings.Split(string(md), "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
+		return nil, false
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimRight(lines[i], "\r") == "---" {
+			return []byte(strings.Join(lines[1:i], "\n")), true
 		}
 	}
-	return s
+	return nil, false
 }

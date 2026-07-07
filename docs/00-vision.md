@@ -130,6 +130,9 @@ Deliberately small. Anything not here should be questioned.
 - **Go standard library**, including `net/mail` / `mime` for MIME and
   `net/http` for the web and JMAP clients.
 - **SQLite** via `mattn/go-sqlite3` — the only datastore.
+- **YAML** via [`go.yaml.in/yaml/v4`](https://pkg.go.dev/go.yaml.in/yaml/v4) —
+  parses the YAML frontmatter of skills (and memories): block scalars (`>-`,
+  `|`), quoting, and multi-line values that a line-based reader gets wrong.
 - **mise** — installs and pins the CLI tools that agent runs need.
 - **The agent harness** — the Claude CLI/SDK by default; other official
   harnesses are pluggable.

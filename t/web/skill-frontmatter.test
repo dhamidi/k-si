@@ -1,0 +1,29 @@
+# t/web/skill-frontmatter.test — a skill whose SKILL.md describes itself with a
+# YAML folded block scalar (">-", a realistic multi-line description). A line-based
+# frontmatter reader stored the literal ">-"; the yaml parser folds the whole
+# value. Assert the frontpage renders the description in full — first words AND last
+# words — proving the multi-line block scalar was captured, not the indicator or a
+# single line. Driven through the real web.Server in-process (decision-008).
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "learn billogram"
+    body    "learn how to read Billogram invoices and remember it"
+}
+task 1 status is awaiting-agent
+
+agent {
+    out reply.txt                              "Saved it."
+    out skills/billogram-invoice-ocr/SKILL.md  [fixture skills/billogram-invoice-ocr/SKILL.md]
+}
+task 1 status is awaiting-user
+
+# The registry list shows the skill and its FULL folded description — the opening
+# words and the closing words both render, so the block scalar was folded, not
+# truncated to ">-" or its first physical line.
+visit /skills matches "*billogram-invoice-ocr*"
+visit /skills matches "*Extract the payment details*"
+visit /skills matches "*Pairs with the pay-wise-bill skill*"
