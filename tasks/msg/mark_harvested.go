@@ -17,9 +17,10 @@ const MarkHarvested = "mark-harvested"
 // part of the mark-harvested contract because the reply kind is cleared by the
 // email module, so both sides must agree on the string.
 const (
-	HarvestKindMemory = "memory" // capture-memory: out/memory writes and forgets
-	HarvestKindSkill  = "skill"  // store-skill: authored Agent Skills trees
-	HarvestKindReply  = "reply"  // assemble-reply: the threaded email reply
+	HarvestKindMemory  = "memory"  // capture-memory: out/memory writes and forgets
+	HarvestKindSkill   = "skill"   // store-skill: authored Agent Skills trees
+	HarvestKindReply   = "reply"   // assemble-reply: the threaded email reply
+	HarvestKindRequest = "request" // mint-ui-request: the Flow C web request/secret mint
 )
 
 type MarkHarvestedPayload struct {

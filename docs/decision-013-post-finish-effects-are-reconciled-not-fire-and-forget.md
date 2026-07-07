@@ -78,21 +78,25 @@ appends a job per kind instead of emitting the effect inline.
   `tasks/msg.MarkHarvested` (the way `mint-ui-request` emits `register-ui-request`);
   the payload is reconstructed from the logged `Task` in `handleRunHarvest`.
 
-Proven by `t/research/skill-restart-safety.test` and `t/research/reply-restart-safety.test`,
-each faulting the harvest's scoped read (`content.AddSkill` for the skill harvest —
-the only op unique to `store-skill`; `Work.Harvest` for the reply harvest) and
-recovering across `crash`/`restart`, with a negative control.
+- **`mint-ui-request`** (Flow C) — reconciled. The `crypto/rand` token was a red
+  herring: it rides into the log via `register-ui-request` (replay-stable), and the
+  reconcile source re-drives only an *incomplete* mint — one where nothing was ever
+  registered or sent — so a fresh token on re-drive is correct, not a duplicate.
+  `register-ui-request` clears the request job **atomically** with recording the
+  `UIRequest` (marker-present ⟺ not-yet-registered), so there is no partial-emit
+  window and no dedup is needed. It also stopped driving its reply with an inline
+  `assemble-reply` — the last un-reconciled one — and now enqueues a `reply` job;
+  `replyCmds` derives the `RequestLink` from the recorded `UIRequest`, so one reply
+  reconstruction serves both a normal and a request reply.
 
-## Still fire-and-forget (deferred, with reason)
+Proven by `t/research/skill-restart-safety.test`, `reply-restart-safety.test`, and
+`request-restart-safety.test`, each faulting the harvest's scoped read
+(`content.AddSkill` for skill — the only op unique to `store-skill`; `Work.Harvest`
+for reply and for the mint) and recovering across `crash`/`restart`, with a negative
+control.
 
-- **`mint-ui-request`** — its capability token is `crypto/rand`, unguessable by
-  design, so it is NOT idempotent under re-drive, and `register-ui-request` appends a
-  `UIRequest` without dedup, so re-driving would register a *second* request and
-  drive a *second* reply. A model-check ("this run already registered a UI request →
-  skip re-mint") is feasible, but the request's own reply chain
-  (`register-ui-request` → `assemble-reply`) would need its own reconciliation to be
-  safe. Real design; deferred. The request's *send* is already outbox-reconciled once
-  `register-ui-request` is logged; only the mint→register window is exposed.
+## Still fire-and-forget (one left, deferred with reason)
+
 - **`capture-transcript`** — `AddArchive` is a plain INSERT (archival dedup is
   itself deferred, below), so re-driving would duplicate the archive row: not cleanly
   idempotent. Left inline and low-harm — the transcript is a re-derivable artifact

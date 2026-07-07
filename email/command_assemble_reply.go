@@ -108,9 +108,10 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 	// emits register-ui-request). This runs at the END of the effect, so a crash
 	// before it leaves the reply job pending for reconciliation. The deterministic
 	// Message-ID and idempotent AddOutbox make a re-drive queue the same row, not a
-	// second reply (decision-013). The request-reply path (register-ui-request, which
-	// is not reconciled) has no reply job, so this clears nothing there — a harmless,
-	// idempotent no-op.
+	// second reply (decision-013). Both callers route through a reply HarvestJob now —
+	// the normal finished-run reply (agent-run-finished) and the Flow C request reply
+	// (register-ui-request enqueues one after recording the UIRequest) — so this clears
+	// whichever job drove this assemble.
 	emit(taskmsg.NewMarkHarvested(taskmsg.MarkHarvestedPayload{RunID: p.RunID, Kind: taskmsg.HarvestKindReply}))
 	return nil
 }

@@ -52,6 +52,16 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 	case HarvestReply:
 		return s, replyCmds(s, p.TaskID, p.RunID)
 
+	case HarvestRequest:
+		// The mint reads out/request.json itself (Work.Harvest), so the payload needs
+		// nothing more than the run identity. mint-ui-request emits register-ui-request,
+		// which records the UIRequest, clears this request job atomically, and enqueues
+		// the reply job that carries the request link.
+		return s, []runtime.Cmd{emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
+			TaskID: p.TaskID,
+			RunID:  p.RunID,
+		})}
+
 	default:
 		// An unknown kind is a no-op — recorded as a dead send by the runtime, never
 		// silently mistaken for done. A live-authored job always carries a known kind.
@@ -67,8 +77,16 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 // agent-run-finished, so reading them back here yields the identical payload.
 //
 // OutManifest is omitted: assembleReplyEffect harvests out/ itself and never reads
-// it, so it is not a model field and not needed. CauseMessageID and RequestLink
-// are empty for the normal finished-run reply, matching agent-run-finished.
+// it, so it is not a model field and not needed. CauseMessageID is empty for the
+// normal finished-run reply, matching agent-run-finished.
+//
+// RequestLink distinguishes the two callers this one reconstruction now serves: a
+// normal finished-run reply carries none, but a Flow C request reply (register-ui-
+// request enqueues a reply job after recording the UIRequest) carries the request's
+// capability link. It is derived here from the run's own recorded UIRequest — a
+// still-pending request for THIS run — so replyCmds reads it back from logged model
+// state exactly as it reads the threaded headers, keeping the single path replay-
+// stable for both callers.
 func replyCmds(s Model, taskID, runID int64) []runtime.Cmd {
 	i := s.find(TaskID(taskID))
 	if i < 0 {
@@ -81,6 +99,11 @@ func replyCmds(s Model, taskID, runID int64) []runtime.Cmd {
 		from = routeAddr(t.Route)
 	}
 
+	requestLink := ""
+	if ri := s.findRequest(runID); ri >= 0 && s.Requests[ri].Status == RequestPending {
+		requestLink = s.Requests[ri].Link
+	}
+
 	return []runtime.Cmd{emailmsg.NewAssembleReply(emailmsg.AssembleReplyPayload{
 		TaskID:          taskID,
 		RunID:           runID,
@@ -90,5 +113,6 @@ func replyCmds(s Model, taskID, runID int64) []runtime.Cmd {
 		InReplyTo:       t.LastMessageID,
 		References:      t.References,
 		CompletionToken: t.CompletionToken,
+		RequestLink:     requestLink,
 	})}
 }

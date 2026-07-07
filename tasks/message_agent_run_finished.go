@@ -77,21 +77,22 @@ func handleAgentRunFinished(v runtime.View, s Model, p msg.AgentRunFinishedPaylo
 	// A raised UI request takes precedence over reply.txt (Flow C): the run wrote
 	// out/request.json to ask the human for input via the web. reply.txt is
 	// OPTIONAL here (docs/05), so this must precede the no-reply gate below or a
-	// request-only run would be dropped. Hand off to email's mint-ui-request, which
-	// mints the token and link and emits register-ui-request — that handler drives
-	// the reply carrying the link. No normal reply here.
-	//
-	// mint-ui-request stays INLINE (not reconciled): its capability token is
-	// crypto/rand, unguessable by design, so a re-drive would mint a DIFFERENT token
-	// and register-ui-request appends a second UIRequest driving a second reply — it
-	// is not idempotent, and making it so is real design (decision-013 follow-up).
+	// request-only run would be dropped. The mint is reconciled like the rest of the
+	// fan-out: record a KIND-tagged PENDING request job instead of firing
+	// mint-ui-request inline. A crash between logging this agent-run-finished and the
+	// mint emitting register-ui-request would otherwise lose the whole request
+	// (replay re-derives the Cmd but SUPPRESSES effects, and register-ui-request was
+	// never logged). The reconcile source drives run-harvest{request}, whose handler
+	// emits mint-ui-request; register-ui-request clears the marker atomically as it
+	// records the UIRequest, so marker-present ⟺ not-yet-registered and re-drive only
+	// happens when nothing was registered. The crypto/rand token is not a blocker: a
+	// re-drive mints a FRESH token only when the prior mint never completed, and that
+	// token rides register-ui-request into the log, replay-stable (decision-013).
 	if hasRequest(p.OutManifest) {
 		tasks[i] = t
 		s.Tasks = tasks
-		return s, append(cmds, emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
-			TaskID: p.TaskID,
-			RunID:  p.RunID,
-		}))
+		s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID, Kind: HarvestRequest})
+		return s, cmds
 	}
 
 	// A successful run that wrote no reply.txt produced nothing to send — no empty

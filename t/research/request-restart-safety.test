@@ -1,0 +1,93 @@
+# t/research/request-restart-safety.test — the Flow C UI-REQUEST mint is crash-safe
+# (decision-013), the last un-reconciled effect in agent-run-finished's fan-out. A
+# run that raised out/request.json has its web request AND the reply carrying its
+# link recovered even when the mint never completes inline — and the reply is
+# delivered EXACTLY once.
+#
+# agent-run-finished no longer emits mint-ui-request as an inline Cmd — a crash
+# between logging that message and the mint emitting register-ui-request would lose
+# the WHOLE request (replay re-derives the Cmd but SUPPRESSES effects, and
+# register-ui-request was never logged). Instead it records a PENDING request job on
+# the tasks model. The harvest-reconcile subscription drives run-harvest{request},
+# whose handler emits mint-ui-request; the mint reads out/request.json, mints a fresh
+# token + link, and emits register-ui-request. register-ui-request records the
+# UIRequest, clears the request job ATOMICALLY as it records (so marker-present ⟺
+# not-yet-registered — no dedup needed, re-drive happens only when nothing was ever
+# registered), and enqueues a reply job. The reply job routes the request reply
+# through the SAME reconciled assemble-reply path as a normal reply, deriving the
+# RequestLink from the recorded UIRequest.
+#
+# The crypto/rand token is not a blocker: it rides register-ui-request into the log
+# (replay-stable), and reconciliation re-drives only an INCOMPLETE mint (nothing
+# registered), so a fresh token on re-drive is correct. `fail work reply` faults the
+# next Harvest read — in the request flow the mint's Harvest is the FIRST such call
+# (capture-memory reads ProvisionedMemory, a different op), so it faults the mint
+# before it emits register-ui-request, exercising the true crash window.
+
+send allow-sender { address a@b.test }
+
+# --- Faulted run: the mint's out/ Harvest fails before it registers the request. ---
+fail work reply
+
+deliver {
+    from    a@b.test
+    to      research@kasi.test
+    subject "pay invoice"
+    body    "pay the E.ON invoice"
+}
+task 1 status is awaiting-agent
+
+# The agent can't ask for a bank login over email → it raises a UI request.
+agent {
+    out request.json [fixture ui-request/bank-login.json]
+    out reply.txt "I need your bank login to proceed — please use the secure link."
+}
+task 1 status is awaiting-user
+
+# NOTHING was registered and NOTHING went out — the mint errored on its Harvest read
+# before emitting register-ui-request, so no UIRequest, no reply job, no outbound.
+model tasks requests is ""
+outbound count is 0
+# ...and the run sits with a pending REQUEST job, still owed its mint. This is the
+# crash window: the whole request would be lost forever if HarvestPending were not
+# logged.
+model tasks harvest_pending matches "*request*"
+
+# The process dies and comes back: full-log replay rebuilds the pending request job,
+# then the harvest-reconcile source re-fires — this time the mint's Harvest succeeds,
+# it mints a fresh token+link and emits register-ui-request, which records the
+# UIRequest, clears the request job, and enqueues the reply job. The reply job then
+# drives assemble-reply with the request link.
+crash
+restart
+
+task 1 status is awaiting-user                       # replay rebuilt the model, request registered
+model tasks requests matches "*pending*"             # a UIRequest now exists, awaiting the user
+task 1 request-link matches "*/requests/*"            # the capability link was minted on re-drive
+outbound count is 1                                  # the request reply — recovered, EXACTLY one
+outbound last body matches "*secure link*"           # it is the run's reply.txt
+outbound last body matches "*provide the requested input*"  # carrying the request link
+model tasks harvest_pending is ""                    # both the request job and the reply job it spawned cleared
+
+# --- Negative control: no fault → the request registers and its reply lands inline. ---
+deliver {
+    from    a@b.test
+    to      research@kasi.test
+    subject "renew lease"
+    body    "renew the office lease"
+}
+task 2 status is awaiting-agent
+
+agent {
+    out request.json [fixture ui-request/bank-login.json]
+    out reply.txt "I need your landlord portal login — please use the secure link."
+}
+task 2 status is awaiting-user
+
+# The second request registered and its reply went straight out — total two replies,
+# each run's reply exactly once, no job left owed.
+task 2 request-link matches "*/requests/*"
+outbound count is 2
+outbound last body matches "*landlord portal*"
+outbound last body matches "*provide the requested input*"
+model tasks harvest_pending is ""

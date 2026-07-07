@@ -50,19 +50,21 @@ func handleRegisterUIRequest(v runtime.View, s Model, p msg.RegisterUIRequestPay
 	tasks[i] = t
 	s.Tasks = tasks
 
-	// The ONLY difference from a normal reply is RequestLink: assemble-reply
-	// harvests out/ for the body (reply.txt) itself, so no OutManifest is needed.
-	assemble := emailmsg.NewAssembleReply(emailmsg.AssembleReplyPayload{
-		TaskID:          p.TaskID,
-		RunID:           p.RunID,
-		From:            from,
-		To:              t.Participants,
-		Subject:         mime.ReplySubject(t.Subject),
-		InReplyTo:       t.LastMessageID,
-		References:      t.References,
-		CompletionToken: t.CompletionToken,
-		RequestLink:     p.Link,
-	})
+	// The mint completed: clear the request HarvestJob agent-run-finished owed for
+	// this run. Clearing it HERE, atomically with recording the UIRequest, makes
+	// marker-present ⟺ not-yet-registered — there is no partial-emit window, so the
+	// mint's reconcile source re-drives only when nothing was ever registered, and no
+	// dedup is needed (decision-013). An absent marker (a re-fold, or a non-reconciled
+	// caller) is a harmless no-op.
+	s.HarvestPending = withoutHarvestPending(s.HarvestPending, p.RunID, HarvestRequest)
 
-	return s, []runtime.Cmd{assemble}
+	// The reply carrying the request link goes out via the reconciled reply path, not
+	// an inline assemble-reply — a crash between logging this register-ui-request and
+	// the reply finishing would otherwise lose the request's reply (replay re-derives
+	// the Cmd but SUPPRESSES effects). replyCmds reconstructs the AssembleReplyPayload
+	// from the logged Task and derives RequestLink from the UIRequest recorded just
+	// above; assemble-reply ends with mark-harvested{reply}, which clears this job.
+	s.HarvestPending = withHarvestPending(s.HarvestPending, HarvestJob{TaskID: p.TaskID, RunID: p.RunID, Kind: HarvestReply})
+
+	return s, nil
 }

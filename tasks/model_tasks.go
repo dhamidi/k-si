@@ -33,9 +33,10 @@ type Model struct {
 // this module and email share. Each is driven by run-harvest to a distinct effect
 // and cleared by a matching mark-harvested (decision-013).
 const (
-	HarvestMemory = msg.HarvestKindMemory // capture-memory: the run's out/memory writes and forgets
-	HarvestSkill  = msg.HarvestKindSkill  // store-skill: the run's authored Agent Skills trees
-	HarvestReply  = msg.HarvestKindReply  // assemble-reply: the run's threaded email reply
+	HarvestMemory  = msg.HarvestKindMemory  // capture-memory: the run's out/memory writes and forgets
+	HarvestSkill   = msg.HarvestKindSkill   // store-skill: the run's authored Agent Skills trees
+	HarvestReply   = msg.HarvestKindReply   // assemble-reply: the run's threaded email reply
+	HarvestRequest = msg.HarvestKindRequest // mint-ui-request: the run's Flow C web request/secret mint
 )
 
 // HarvestJob is one KIND of post-finish work a finished run still owes — the
