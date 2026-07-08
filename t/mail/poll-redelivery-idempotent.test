@@ -1,0 +1,35 @@
+# t/mail/poll-redelivery-idempotent.test — routing the same inbox row twice is a
+# no-op (decision-018). Persisting the poll cursor in the log opens a narrow window:
+# the cursor advances AFTER a batch is routed, so a crash between the two makes the
+# restarted poller re-Fetch mail it already routed. route-email must absorb that —
+# an inbox row already laid into a task is routed exactly once, so the re-Fetch
+# creates no second task and spawns no second run. (A duplicate run is precisely the
+# raw material of the self-reply loop the poll edge must never build; decision-016.)
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+deliver {
+    from    owner@example.test
+    to      kasi@decode.ee
+    subject "hello"
+    body    "first contact"
+}
+task 1 status is awaiting-agent
+task 1 turns is 1
+tasks count is 1
+
+# The poller re-Fetches the same inbox row (id 1) — same InboxID, because AddInbox
+# is idempotent on Message-ID, so the re-Fetched mail carries the id it did the
+# first time. route-email recognises it as already ingested and does nothing.
+send route-email {
+    inbox_id   1
+    recipient  kasi@decode.ee
+    sender     owner@example.test
+    message_id "<in-1@example.test>"
+}
+
+# No second task, and the first task's run count did not tick — the re-route was
+# absorbed, not acted on.
+tasks count is 1
+task 1 turns is 1

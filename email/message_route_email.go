@@ -53,6 +53,17 @@ func handleRouteEmail(v runtime.View, s Model, p RouteEmailPayload,
 		return s, nil
 	}
 
+	// Idempotency: if this inbox row is already laid into a task, it has been routed
+	// before — do nothing. Persisting the poll cursor in the log (decision-018) means
+	// a restart that crashed mid-batch replays the pre-batch cursor and re-Fetches
+	// the same mail; without this guard the re-Fetch would create a second task or
+	// append a duplicate turn (a fresh self-reply loop risk). AddInbox is idempotent
+	// on Message-ID, so the re-Fetched mail carries the same InboxID it did the first
+	// time and this guard recognises it.
+	if tasks.HasIngestedInbox(v, p.InboxID) {
+		return s, nil
+	}
+
 	// A reply threads onto an existing task if its In-Reply-To / References match
 	// that task's thread — and only a participant of THAT task may act on it
 	// (docs/04). Whether the sender is a participant is tasks' state, read through

@@ -182,19 +182,33 @@ func seedAllowlist(app *runtime.App, csv string) {
 
 // pollInbox is the inbound edge: it polls Fastmail for new mail and injects a
 // route-email for each, exactly as a subscription would (docs/01: an edge changes
-// state only by putting a message on the channel). The high-water state starts at
-// "now", so only mail arriving after serve starts is processed. It routes REAL
-// mail, which is why it is opt-in.
+// state only by putting a message on the channel). It routes REAL mail, which is
+// why it is opt-in.
+//
+// The high-water mark lives in the LOG, not in this goroutine: it is seeded from
+// the replayed model and advanced only through record-poll-state. So a restart
+// resumes from the last-processed state and Email/changes hands back the mail that
+// arrived while käsi was offline, instead of the goroutine re-anchoring to "now"
+// and skipping the whole downtime window (offline-gap fix, decision-018). A first
+// deployment has an empty cursor, so Fetch("") anchors to now and logs that anchor.
 func pollInbox(ctx context.Context, app *runtime.App, jmap *email.JMAP, content *store.SQLiteContent) {
-	state := ""
+	state := email.PollCursor(app.View())
 	for {
 		msgs, next, err := jmap.Fetch(ctx, state)
 		if err != nil {
 			log.Printf("poll: %v", err)
 		} else {
-			state = next
 			for _, m := range msgs {
 				route(app, content, m)
+			}
+			// Advance the cursor through the log AFTER the batch is routed. A crash
+			// in the gap replays the old cursor and re-Fetches the batch, which
+			// route-email absorbs (idempotent on an already-ingested inbox row,
+			// decision-018) — the safe direction. Only log a genuine advance so an
+			// idle poll doesn't append a redundant entry every 15s.
+			if next != state {
+				app.Send(email.NewRecordPollState(email.RecordPollStatePayload{State: next}))
+				state = next
 			}
 		}
 		select {

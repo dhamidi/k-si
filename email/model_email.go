@@ -14,6 +14,13 @@ import (
 type Model struct {
 	Allowlist []string      `json:"allowlist"`
 	Outbox    []OutboxEntry `json:"outbox"`
+	// PollCursor is the JMAP Email state the inbox poller last processed — the
+	// high-water mark it resumes from. It is advanced only through record-poll-state
+	// (never a private variable), so a restart replays it and picks up mail that
+	// arrived while käsi was offline instead of re-anchoring to "now" (decision-018).
+	// Absent on pre-decision-018 log entries, so it decodes as "" and replay stays
+	// convergent (docs/13).
+	PollCursor string `json:"poll_cursor"`
 }
 
 // OutboxEntry is email's model of one queued reply. Its status drives
@@ -63,6 +70,14 @@ func withoutAllowed(list []string, addr string) []string {
 		}
 	}
 	return next
+}
+
+// PollCursor returns the JMAP high-water mark the inbox poller should resume from
+// — the exported read serve seeds the poll loop with on boot, so a restart picks
+// up where the log left off instead of "now" (decision-018). Empty before the
+// first poll, which correctly anchors an initial deployment to "now".
+func PollCursor(v runtime.View) string {
+	return runtime.Slice[Model](v, "email").PollCursor
 }
 
 // PendingOutbox returns email's still-unsent outbox entries — the exported pure

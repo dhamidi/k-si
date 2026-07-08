@@ -1,0 +1,34 @@
+# t/mail/poll-cursor.test — the inbox poll cursor lives in the LOG, not in the
+# poller goroutine (offline-gap fix, decision-018). It is advanced only through
+# record-poll-state, so full-log replay rebuilds it on restart and the poller
+# resumes from where it left off: the next Email/changes hands back the mail that
+# arrived while käsi was offline, instead of the goroutine re-anchoring the cursor
+# to "now" and silently skipping the whole downtime window.
+#
+# This is the same crash-safety shape the pending outbox and the memory harvest
+# already have — a durable value on the model, reconstructed by replay; only the
+# JMAP Fetch effect runs live. It is also why the cursor is auditable: every step
+# of the high-water mark is a message in the log, not a private variable.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# No poll has run yet, so there is no high-water mark.
+model email poll_cursor is ""
+
+# The poll edge records each advance of the JMAP Email state as a log entry.
+send record-poll-state { state jmap-state-A }
+model email poll_cursor is jmap-state-A
+
+# The process dies and comes back. The model is dropped and rebuilt from the log
+# alone — and the cursor is still jmap-state-A, so the restarted poller calls
+# Fetch(jmap-state-A) and Email/changes returns the offline window, rather than
+# starting fresh from "now".
+crash
+restart
+model email poll_cursor is jmap-state-A
+
+# It advances monotonically as later polls record newer states — still logged,
+# still auditable.
+send record-poll-state { state jmap-state-B }
+model email poll_cursor is jmap-state-B

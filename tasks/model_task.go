@@ -90,6 +90,24 @@ func ByThreadKey(v runtime.View, inReplyTo string, references []string) (TaskID,
 	return 0, false
 }
 
+// HasIngestedInbox reports whether inboxID has already been laid into some task —
+// the idempotency guard email/route-email uses so re-Fetching an already-processed
+// inbox row does nothing instead of creating or appending a second time. The window
+// it closes: a restart replays the poll cursor as it stood BEFORE a crash-time batch
+// finished, so the poller re-Fetches that batch (decision-018); InboxIDs are stable
+// across the re-Fetch because AddInbox is idempotent on Message-ID.
+func HasIngestedInbox(v runtime.View, inboxID int64) bool {
+	m := slice(v)
+	for i := range m.Tasks {
+		for _, id := range m.Tasks[i].InboxIDs {
+			if id == inboxID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Get returns the task with id, if present — the exported point read.
 func Get(v runtime.View, id TaskID) (Task, bool) {
 	m := slice(v)
