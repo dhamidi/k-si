@@ -1,0 +1,34 @@
+# t/mail/multiplayer.test — a multi-party thread works: everyone on the mail (To and
+# Cc), except käsi itself, is a participant, so käsi reply-alls the group and any
+# participant can drive the thread (decision-017). This is the reply-all sibling of
+# the self-reply guard (decision-016): käsi joins the conversation but never itself.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# The owner writes to a human (alice) and CC's käsi — a three-way thread. alice is a
+# To recipient, not the sender and not on the allowlist, yet she is a participant;
+# käsi (in Cc, its own identity) is NOT.
+deliver { from owner@example.test; to alice@example.test; cc kasi@decode.ee; subject "trip"; body "help us plan" }
+task 1 participants are {owner@example.test alice@example.test}
+task 1 status is awaiting-agent
+
+# The turn reply-alls to BOTH humans — never to kasi@decode.ee.
+agent { out reply.txt "Here's a first plan." }
+task 1 status is awaiting-user
+outbound count is 1
+outbound last to is {owner@example.test alice@example.test}
+
+# alice — a participant who never started a task and is not allowlisted — replies in
+# the thread. Participation (not the allowlist) gates a threaded append, so käsi acts.
+deliver { from alice@example.test; reply-to-last; body "add some museums" }
+task 1 status is awaiting-agent
+agent { out reply.txt "Added museums." }
+task 1 status is awaiting-user
+outbound count is 2
+outbound last to is {owner@example.test alice@example.test}
+
+# käsi's own address never entered the participant set, so no reply is ever addressed
+# to it and the poller has nothing of käsi's to re-ingest — the self-reply loop stays
+# closed even in a group thread (decision-016).
+task 1 participants are {owner@example.test alice@example.test}

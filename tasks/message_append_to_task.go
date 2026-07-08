@@ -46,7 +46,8 @@ func handleAppendToTask(v runtime.View, s Model, p msg.AppendToTaskPayload,
 		return s, nil
 	}
 
-	t.Participants = dropSelf(dedup(append(append([]string(nil), t.Participants...), append([]string{p.Sender}, p.Cc...)...)), s.ReplyFrom)
+	incoming := append(append([]string{p.Sender}, p.To...), p.Cc...)
+	t.Participants = dropOwn(dedup(append(append([]string(nil), t.Participants...), incoming...)), s.ReplyFrom)
 	t.References = append(append([]string(nil), t.References...), p.MessageID)
 	t.LastMessageID = p.MessageID
 	t.InboxIDs = append(append([]int64(nil), t.InboxIDs...), p.InboxID)

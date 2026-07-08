@@ -22,10 +22,12 @@ func handleCreateTask(v runtime.View, s Model, p msg.CreateTaskPayload,
 		Route:    p.Route,
 		Template: p.Template,
 		Subject:  p.Subject,
-		// Self is dropped from the participant set so käsi never replies to itself
-		// (SEV1 self-reply loop, decision-016). Every reply path builds its recipients
-		// from Participants, so excluding self here excludes it everywhere downstream.
-		Participants:    dropSelf(dedup(append([]string{p.Sender}, p.Cc...)), s.ReplyFrom),
+		// Participants are everyone on the thread — sender + To + Cc — minus käsi's own
+		// addresses (dropOwn), so a multi-party mail reply-alls to all of them
+		// (multiplayer, decision-017) while käsi never replies to itself (SEV1,
+		// decision-016). Every reply path builds recipients from Participants, so the
+		// exclusion holds everywhere downstream.
+		Participants:    dropOwn(dedup(append(append([]string{p.Sender}, p.To...), p.Cc...)), s.ReplyFrom),
 		References:      []string{p.MessageID},
 		LastMessageID:   p.MessageID,
 		CompletionToken: p.CompletionToken,

@@ -220,6 +220,7 @@ func route(app *runtime.App, content *store.SQLiteContent, m email.Inbound) {
 		InboxID:         id,
 		Recipient:       m.Recipient,
 		Sender:          firstAddr(parsed.Header.Get("From")),
+		To:              mime.CcList(parsed.Header.Get("To")),
 		Cc:              mime.CcList(parsed.Header.Get("Cc")),
 		Subject:         parsed.Header.Get("Subject"),
 		MessageID:       m.MessageID,

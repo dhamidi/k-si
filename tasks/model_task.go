@@ -1,9 +1,19 @@
 package tasks
 
 import (
+	"strings"
+
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 )
+
+// routeDomain is käsi's internal route domain — the addresses users email käsi AT
+// (pay@kasi.test, research@kasi.test, …) to select a route. It is käsi's own, never
+// a human participant, so it is excluded from the participant set alongside the
+// deliverable identity (dropOwn). Production uses a single real address = ReplyFrom;
+// no .test address ever reaches a live deployment, so this is a no-op there.
+// ast-grep-ignore: no-placeholder-domain  käsi's own internal route domain, never a deliverable identity (docs/04)
+const routeDomain = "kasi.test"
 
 // Task — Task struct + state machine + participants + completion token (docs/15)
 
@@ -102,18 +112,20 @@ func IsParticipant(t Task, addr string) bool {
 // routeAddr is the fallback from-address a route replies as when no deliverable
 // reply-from is configured (the sim ring never sends); real delivery uses the
 // configured ReplyFrom (set-reply-from, docs/04).
-// ast-grep-ignore: no-placeholder-domain  sim-only fallback; real delivery uses the configured ReplyFrom (docs/04)
-func routeAddr(route string) string { return route + "@kasi.test" }
+func routeAddr(route string) string { return route + "@" + routeDomain }
 
-// dropSelf returns addrs without any address equal to self (käsi's own
-// deliverable identity), so käsi is never a participant of — and so never a
-// recipient of a reply on — a task it was CC'd on (SEV1 self-reply loop,
-// decision-016). An empty self (the sim ring) drops nothing: SameAddress treats
-// "" as "no self", so scenarios keep their full participant sets.
-func dropSelf(addrs []string, self string) []string {
+// dropOwn returns addrs without any of käsi's OWN addresses, so käsi is never a
+// participant of — and so never a recipient of a reply on — a task (SEV1 self-reply
+// loop, decision-016). Two things are käsi's own: its deliverable identity (replyFrom)
+// and any address on the internal route domain (the pay@/research@ addresses users
+// send TO, which select a route and are never human participants). Everyone else on
+// From/To/Cc becomes a participant — that is what makes a multi-party thread work
+// (multiplayer, decision-017). An empty replyFrom (the sim ring without set-reply-from)
+// drops nothing via SameAddress, but route-domain addresses are still dropped.
+func dropOwn(addrs []string, replyFrom string) []string {
 	out := make([]string, 0, len(addrs))
 	for _, a := range addrs {
-		if mime.SameAddress(a, self) {
+		if mime.SameAddress(a, replyFrom) || strings.EqualFold(mime.Domain(a), routeDomain) {
 			continue
 		}
 		out = append(out, a)

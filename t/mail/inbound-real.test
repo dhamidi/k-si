@@ -7,6 +7,10 @@
 # routes real-world bytes, in any ring (deliver -raw is ring-agnostic).
 
 send allow-sender { address support@fastmail.com }
+# käsi's own identity — the message is addressed To kasi@decode.ee, so käsi must know
+# that address is itself and keep it out of the participant set (multiplayer excludes
+# every recipient EXCEPT käsi's own; decision-017). Production always sets this (-from).
+send set-reply-from { address kasi@decode.ee }
 
 deliver { raw t/cassettes/mail/inbound/welcome.eml }
 

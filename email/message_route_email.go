@@ -11,9 +11,14 @@ import (
 const RouteEmail = "route-email"
 
 type RouteEmailPayload struct {
-	InboxID    int64    `json:"inbox_id"`
-	Recipient  string   `json:"recipient"`
-	Sender     string   `json:"sender"`
+	InboxID   int64  `json:"inbox_id"`
+	Recipient string `json:"recipient"`
+	Sender    string `json:"sender"`
+	// To is the message's To recipients; with Cc they become the task's participants
+	// (minus käsi's own addresses), so käsi reply-alls a multi-party thread
+	// (multiplayer, decision-017). Recipient stays the routing address (which route),
+	// distinct from the participant set.
+	To         []string `json:"to"`
 	Cc         []string `json:"cc"`
 	Subject    string   `json:"subject"`
 	MessageID  string   `json:"message_id"`
@@ -58,6 +63,7 @@ func handleRouteEmail(v runtime.View, s Model, p RouteEmailPayload,
 				TaskID:    int64(id),
 				InboxID:   p.InboxID,
 				Sender:    p.Sender,
+				To:        p.To,
 				Cc:        p.Cc,
 				Subject:   p.Subject,
 				MessageID: p.MessageID,
@@ -80,6 +86,7 @@ func handleRouteEmail(v runtime.View, s Model, p RouteEmailPayload,
 		Route:           route,
 		Template:        template,
 		Sender:          p.Sender,
+		To:              p.To,
 		Cc:              p.Cc,
 		Subject:         p.Subject,
 		MessageID:       p.MessageID,
