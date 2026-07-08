@@ -286,8 +286,11 @@ func memoryVocab(inst *instance, args []string) (string, error) {
 	}
 
 	read, verb := splitVerb(args)
+	if len(read) == 1 && read[0] == "count" {
+		return finishRead("memory count", strconv.Itoa(len(memory.All(inst.app.View()))), verb)
+	}
 	if len(read) < 1 || len(read) > 2 {
-		return "", fmt.Errorf("memory read is `memory <name> [content|description]`")
+		return "", fmt.Errorf("memory read is `memory count` or `memory <name> [content|description]`")
 	}
 	name := read[0]
 	field := "content"

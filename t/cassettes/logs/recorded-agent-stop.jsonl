@@ -1,8 +1,10 @@
-{"kind":"message-log","recorded_at":"2026-07-06T11:48:42.410749518Z","recorded_by":"kasi test --record","source":"t/recorded/agent-stop.test"}
+{"kind":"message-log","recorded_at":"2026-07-08T08:54:13.857416489Z","recorded_by":"kasi test --record","source":"t/recorded/agent-stop.test"}
 {"offset":1,"time":"2020-01-01T00:00:00Z","tag":"allow-sender","payload":{"address":"kasi@decode.ee"}}
 {"offset":2,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"research@kasi.test","sender":"kasi@decode.ee","cc":null,"subject":"stop check","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null,"completion_token":"tok-1"}}
 {"offset":3,"cause":2,"time":"2020-01-01T00:00:00Z","tag":"create-task","payload":{"inbox_id":1,"route":"research","template":"research","sender":"kasi@decode.ee","cc":null,"subject":"stop check","message_id":"\u003cin-1@example.test\u003e","completion_token":"tok-1"}}
-{"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"spawn-agent-run","payload":{"task_id":3,"resume":false}}
+{"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"spawn-agent-run","payload":{"task_id":3,"resume":false,"secret_refs":null}}
 {"offset":5,"time":"2020-01-01T00:00:00Z","tag":"stop-agent-run","payload":{"task_id":3,"run_id":4}}
 {"offset":6,"time":"2020-01-01T00:00:00Z","tag":"finish-agent-run","payload":{"task_id":3,"run_id":4,"exit":-1,"transcript_path":"transcript-4.jsonl","out_manifest":null,"stopped":true}}
-{"offset":7,"cause":6,"time":"2020-01-01T00:00:00Z","tag":"agent-run-finished","payload":{"task_id":3,"run_id":4,"out_manifest":null,"stopped":true,"transcript_path":"transcript-4.jsonl"}}
+{"offset":7,"cause":6,"time":"2020-01-01T00:00:00Z","tag":"agent-run-finished","payload":{"task_id":3,"run_id":4,"exit":-1,"out_manifest":null,"stopped":true,"transcript_path":"transcript-4.jsonl"}}
+{"offset":8,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"transcript"}}
+{"offset":9,"cause":8,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"transcript"}}

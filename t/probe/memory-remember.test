@@ -1,0 +1,44 @@
+# t/probe/memory-remember.test — ring 3 (docs/13): does a REAL agent, told to
+# remember a fact, actually record one? This is the reality-dependent half that no
+# offline test can cover — the worker prompt is the one surface the sim harness
+# never reads, so a prompt that fails to teach the ./out/memory/ gesture passes the
+# whole gate green while recording NOTHING live (the bug fixed in the commit that
+# added this probe). The plumbing (harvest → remember → /memory) is proven offline
+# by t/research/memory-*.test; this probe validates ONLY that a real Claude agent,
+# handed "remember this", writes ./out/memory/<name>.md so the harvest has something
+# to pick up.
+#
+# Run it live (real Claude + Fastmail), one agent turn — cheap:
+#     ./bin/kasi probe t/probe/memory-remember.test
+# In --ring sim (the merge gate) the agent block scripts the memory write; in
+# --ring live the real agent runs and the assertion must hold for WHATEVER it writes.
+
+send allow-sender    { address kasi@decode.ee }
+send set-reply-from  { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "remember my account"
+    body    "Please remember this for future tasks: my Wise account ID is WX-40718 — use it for payments to me. Save it to your memory so you have it next time, then reply to confirm."
+}
+
+task 1 status is awaiting-agent
+
+# Ring 1/2 script the turn; ring 3 runs the real agent, which must choose the memory
+# gesture on its own from the worker prompt.
+agent {
+    out memory/wise-account.md "Wise account ID WX-40718 — use for payments to the owner."
+    out reply.txt               "Saved your Wise account ID (WX-40718) to memory for next time."
+}
+
+task 1 status is awaiting-user
+
+# The point of the probe: a real remember was recorded, so the collection is no
+# longer empty. Naming-agnostic (the live agent picks its own file name), so this
+# holds whether it saved one fact as `wise-account`, `wise-id`, or anything else.
+memory count is 1
+
+# The reply still sent (one mail, no memory attachment — a memory is a directive).
+outbound count is 1
+outbound last attachments is ""

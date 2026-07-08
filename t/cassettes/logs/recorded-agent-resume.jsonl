@@ -1,17 +1,17 @@
-{"kind":"message-log","recorded_at":"2026-07-07T15:53:03.611765146Z","recorded_by":"kasi test --record","source":"t/recorded/agent-resume.test"}
+{"kind":"message-log","recorded_at":"2026-07-08T08:54:13.766948972Z","recorded_by":"kasi test --record","source":"t/recorded/agent-resume.test"}
 {"offset":1,"time":"2020-01-01T00:00:00Z","tag":"allow-sender","payload":{"address":"kasi@decode.ee"}}
 {"offset":2,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":1,"recipient":"research@kasi.test","sender":"kasi@decode.ee","cc":null,"subject":"memory check","message_id":"\u003cin-1@example.test\u003e","in_reply_to":"","references":null,"completion_token":"tok-1"}}
 {"offset":3,"cause":2,"time":"2020-01-01T00:00:00Z","tag":"create-task","payload":{"inbox_id":1,"route":"research","template":"research","sender":"kasi@decode.ee","cc":null,"subject":"memory check","message_id":"\u003cin-1@example.test\u003e","completion_token":"tok-1"}}
 {"offset":4,"cause":3,"time":"2020-01-01T00:00:00Z","tag":"spawn-agent-run","payload":{"task_id":3,"resume":false,"secret_refs":null}}
 {"offset":5,"time":"2020-01-01T00:00:00Z","tag":"finish-agent-run","payload":{"task_id":3,"run_id":4,"exit":0,"transcript_path":"transcript-4.jsonl","out_manifest":["reply.txt"],"stopped":false}}
 {"offset":6,"cause":5,"time":"2020-01-01T00:00:00Z","tag":"agent-run-finished","payload":{"task_id":3,"run_id":4,"exit":0,"out_manifest":["reply.txt"],"stopped":false,"transcript_path":"transcript-4.jsonl"}}
-{"offset":7,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"transcript"}}
-{"offset":8,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"reply"}}
-{"offset":9,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"memory"}}
-{"offset":10,"cause":9,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"memory"}}
-{"offset":11,"cause":7,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"transcript"}}
-{"offset":12,"cause":8,"time":"2020-01-01T00:00:00Z","tag":"mark-reply-queued","payload":{"task_id":3,"outbox_id":1,"message_id":"\u003creply-3-4@kasi.test\u003e","in_reply_to":"\u003cin-1@example.test\u003e"}}
-{"offset":13,"cause":8,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"reply"}}
+{"offset":7,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"memory"}}
+{"offset":8,"cause":7,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"memory"}}
+{"offset":9,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"reply"}}
+{"offset":10,"cause":9,"time":"2020-01-01T00:00:00Z","tag":"mark-reply-queued","payload":{"task_id":3,"outbox_id":1,"message_id":"\u003creply-3-4@kasi.test\u003e","in_reply_to":"\u003cin-1@example.test\u003e"}}
+{"offset":11,"cause":9,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"reply"}}
+{"offset":12,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":4,"kind":"transcript"}}
+{"offset":13,"cause":12,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":4,"kind":"transcript"}}
 {"offset":14,"time":"2020-01-01T00:00:00Z","tag":"send-outbox","payload":{"outbox_id":1,"message_id":"\u003creply-3-4@kasi.test\u003e"}}
 {"offset":15,"cause":14,"time":"2020-01-01T00:00:00Z","tag":"mark-email-sent","payload":{"outbox_id":1}}
 {"offset":16,"time":"2020-01-01T00:00:00Z","tag":"route-email","payload":{"inbox_id":2,"recipient":"research@kasi.test","sender":"kasi@decode.ee","cc":null,"subject":"Re: memory check","message_id":"\u003cin-2@example.test\u003e","in_reply_to":"\u003creply-3-4@kasi.test\u003e","references":["\u003cin-1@example.test\u003e","\u003creply-3-4@kasi.test\u003e"],"completion_token":"tok-2"}}
@@ -20,11 +20,11 @@
 {"offset":19,"time":"2020-01-01T00:00:00Z","tag":"finish-agent-run","payload":{"task_id":3,"run_id":18,"exit":0,"transcript_path":"transcript-18.jsonl","out_manifest":["reply.txt"],"stopped":false}}
 {"offset":20,"cause":19,"time":"2020-01-01T00:00:00Z","tag":"agent-run-finished","payload":{"task_id":3,"run_id":18,"exit":0,"out_manifest":["reply.txt"],"stopped":false,"transcript_path":"transcript-18.jsonl"}}
 {"offset":21,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":18,"kind":"transcript"}}
-{"offset":22,"cause":21,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"transcript"}}
-{"offset":23,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":18,"kind":"memory"}}
-{"offset":24,"cause":23,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"memory"}}
-{"offset":25,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":18,"kind":"reply"}}
-{"offset":26,"cause":25,"time":"2020-01-01T00:00:00Z","tag":"mark-reply-queued","payload":{"task_id":3,"outbox_id":2,"message_id":"\u003creply-3-18@kasi.test\u003e","in_reply_to":"\u003cin-2@example.test\u003e"}}
-{"offset":27,"cause":25,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"reply"}}
+{"offset":22,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":18,"kind":"memory"}}
+{"offset":23,"cause":21,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"transcript"}}
+{"offset":24,"time":"2020-01-01T00:00:00Z","tag":"run-harvest","payload":{"task_id":3,"run_id":18,"kind":"reply"}}
+{"offset":25,"cause":22,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"memory"}}
+{"offset":26,"cause":24,"time":"2020-01-01T00:00:00Z","tag":"mark-reply-queued","payload":{"task_id":3,"outbox_id":2,"message_id":"\u003creply-3-18@kasi.test\u003e","in_reply_to":"\u003cin-2@example.test\u003e"}}
+{"offset":27,"cause":24,"time":"2020-01-01T00:00:00Z","tag":"mark-harvested","payload":{"run_id":18,"kind":"reply"}}
 {"offset":28,"time":"2020-01-01T00:00:00Z","tag":"send-outbox","payload":{"outbox_id":2,"message_id":"\u003creply-3-18@kasi.test\u003e"}}
 {"offset":29,"cause":28,"time":"2020-01-01T00:00:00Z","tag":"mark-email-sent","payload":{"outbox_id":2}}

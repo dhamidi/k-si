@@ -1,1 +1,4 @@
+Subject: stop check
+From: kasi@decode.ee
+
 Run the shell command `sleep 30`, then write DONE to out/reply.txt.

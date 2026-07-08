@@ -1,10 +1,10 @@
 {
   "kind": "mail-exchange",
-  "recorded_at": "2026-07-07T15:53:12.729327582Z",
+  "recorded_at": "2026-07-08T08:54:25.57913443Z",
   "recorded_by": "kasi test --ring live --record",
   "source": "t/recorded/harness-echo.test",
   "versions": {
     "claude": "2.1.201 (Claude Code)",
-    "git": "a076b58"
+    "git": "b8f4863"
   }
 }
