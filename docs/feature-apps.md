@@ -12,6 +12,11 @@ command, and käsi keeps it alive — on its own port, behind the same private f
 door as everything else on the machine. A one-off ("build me a page that shows my
 Wise balance") becomes a URL you can bookmark.
 
+An app isn't only something you open, though. The operations behind it are also an
+API the agent can call while it works — so an app is a durable tool the agent *uses*,
+not just a page you visit. That's what turns "forward me the receipt" into "file it in
+the accounting app," and it's covered under *The agent uses apps*, below.
+
 Status: this is the design of record. The store and the control-command plumbing it
 builds on exist (Flow F, decision-014); the app runner and its systemd wiring are
 not yet built.
@@ -43,6 +48,12 @@ Because the app honors `$PORT`, "run it to try it" and "let käsi run it for rea
 the same program — registering doesn't change how the app starts, only who starts it
 and whether käsi is keeping it up.
 
+An app can offer more than a page. The operations behind its UI — the endpoints that
+add a row, run an export, flip a setting — double as an API the agent can call on
+`localhost` while it works a task. Build those if you want the app to be something the
+agent *uses*, and describe them in an `app.json` in the app directory (each
+operation's method, path, purpose, and payload). A pure-UI app just leaves it out.
+
 ## Registering
 
 When the app works, the agent registers it:
@@ -57,8 +68,9 @@ endpoint, which does the real work. On `add`, käsi:
 
 - checks the name is a slug (it becomes a service name),
 - assigns a free port in exe.dev's forwarded range (3000–9999),
+- reads the app's operations from its `app.json`, if it has one,
 - writes a systemd user unit and starts it, and
-- records the registration in the event log.
+- records the registration — name, port, start command, operations — in the event log.
 
 Then it returns the app's URL — `https://<vm>.exe.xyz:<port>/` — so the agent can
 open it and confirm it's live. To change the start command or pick up new code, run
@@ -117,9 +129,72 @@ page); exe.dev **exposes and protects** them (the port, the TLS, the auth). Nobo
 job overlaps.
 
 Under the surface it's the same split as the rest of käsi: the registration — name,
-port, start command — is a directive in the event log, so the set of apps rebuilds by
-replay. The code and data are files in the store, outside the log, exactly like a
-memory's raw content versus its `remember` directive.
+port, start command, operations — is a directive in the event log, so the set of apps
+rebuilds by replay. The code and data are files in the store, outside the log, exactly
+like a memory's raw content versus its `remember` directive.
+
+## The agent uses apps
+
+An app has two front doors onto the same operations. The **UI** is yours — you reach
+it through exe.dev's proxy, behind the login. The **operations** are the agent's — it
+reaches them on `localhost`, inside the auth boundary, while it works a task. The form
+you submit and the call the agent makes hit the same `POST /receipts`; they just
+arrive by different doors.
+
+The agent learns what apps exist the same way it learns everything else about a run —
+from a file laid into `in/`. Each app describes itself in an `app.json` in its own
+directory; käsi aggregates those into a single `apps.json` it lays into every run
+beside `MEMORY.md`, one entry per app, its local URL and its operations:
+
+```json
+{
+  "accounting": {
+    "url": "http://localhost:3412",
+    "operations": [
+      { "method": "POST", "path": "/receipts", "purpose": "file a receipt",
+        "payload": "vendor, date, amount, currency, category" },
+      { "method": "GET",  "path": "/export",   "purpose": "download the ledger as CSV" }
+    ]
+  }
+}
+```
+
+That's the whole interface. The agent reads `apps.json`, sees what each app can do, and
+calls it on `localhost` — no hardcoded ports, no route table, no special email
+plumbing. All mail still arrives at käsi's one address and becomes a task the normal
+way; using an app is just something the agent does *inside* that task.
+
+### Operations and policy
+
+Two things decide whether a receipt lands in the accounting app, and each lives in a
+place käsi already has:
+
+- **`apps.json` is the *how*** — the operations an app exposes. It comes from the app's
+  registration, so it's always current.
+- **Memory is the *when*** — "forwarded receipts get filed in accounting; business ones
+  filed, personal ones just replied to." You teach it once, and it's provisioned into
+  every future run.
+
+The agent bridges the two, per email, with judgment. That's what makes "sometimes"
+work: whether *this* receipt is a business expense is exactly the call an LLM should
+make and a rules engine shouldn't.
+
+### The receipt, end to end
+
+1. The agent builds `accounting`: a UI for you, plus operations (`POST /receipts`,
+   `GET /export`) described in its `app.json`. `kasi app add` records them; käsi runs
+   the app and starts listing it in every run's `apps.json`.
+2. You forward a receipt to käsi and, once, say "file this in accounting." The run
+   reads `apps.json`, sees the `receipts` operation, pulls the fields off the receipt,
+   POSTs them on `localhost`, and replies "filed." It writes the policy to memory.
+3. Next time you just forward the receipt. Memory (when) plus `apps.json` (how) mean
+   it's filed automatically, no note needed — and the business-vs-personal nuance is a
+   memory the agent applies case by case.
+4. You open the accounting UI through the proxy whenever you want to see or correct
+   what's there.
+
+No new email pipeline, no per-app inbox, no routing table — just the agent, doing a
+task, reaching for a tool it was handed in `apps.json`.
 
 ## Limitations
 
@@ -143,6 +218,10 @@ memory's raw content versus its `remember` directive.
 - **One process, kept up — not scaled.** käsi runs a single instance per app and
   restarts it on crash. No load balancing, no multiple instances, no zero-downtime
   rollout. This is for small, personal, adhoc apps, not production services.
+- **Apps don't talk.** An app can't send you email or start a task — only an agent
+  does, during a task. A proactive nudge ("you're missing a receipt for the Stripe
+  charge") isn't something the app can do on its own; it's a scheduled-task concern,
+  where an agent inspects the app and emails you. Apps are tools, not participants.
 - **No managed build.** käsi runs your start command; installing dependencies and
   building is the agent's job at build time, in the app directory. A runtime the box
   doesn't have is the agent's problem to solve before registering.

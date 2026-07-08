@@ -41,6 +41,8 @@ The store is a plain directory tree, so the page is a plain file browser:
 
 ```
 /store
+├── apps/                        registered web apps live here (see Apps)
+│   └── accounting/              one app's code and its own data
 ├── wise.db              412 KB   SQLite — the owner's cached Wise recipients
 ├── news-cache/
 │   ├── 2026-07-06.json   18 KB
@@ -48,7 +50,9 @@ The store is a plain directory tree, so the page is a plain file browser:
 └── scrape.py            1.2 KB   a scratch script the agent wrote
 ```
 
-`/store` lists the root. Each entry shows its name, size, and when it last changed;
+An app's directory under `apps/` holds its code and its own data (the accounting
+app's ledger, say), so browsing the store is also how you peek at what an app has
+saved. `/store` lists the root. Each entry shows its name, size, and when it last changed;
 directories link deeper, files link to a view. Nested paths follow the same
 convention as skills — `/store/news-cache/2026-07-07.json` is a URL you navigate to,
 not a thing you assemble by hand.
