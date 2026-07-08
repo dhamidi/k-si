@@ -9,9 +9,14 @@
 # to pick up.
 #
 # Run it live (real Claude + Fastmail), one agent turn — cheap:
-#     ./bin/kasi probe t/probe/memory-remember.test
-# In --ring sim (the merge gate) the agent block scripts the memory write; in
-# --ring live the real agent runs and the assertion must hold for WHATEVER it writes.
+#     ./bin/kasi test --ring live t/probe/memory-remember.test
+# Use --ring live, NOT `kasi probe`: the recorder can't snapshot a memory file the
+# harvest has already consumed by save time, so `kasi probe` (which records) errors
+# even though the assertions pass. This probe is a live check, not folded into the
+# recorded ring. In --ring sim (the merge gate) the agent block scripts the memory
+# write; in --ring live the real agent runs and the assertion must hold for WHATEVER
+# it writes (verified 2026-07-08: the real agent chose out/memory/wise-account-id.md
+# on its own from the fixed worker prompt).
 
 send allow-sender    { address kasi@decode.ee }
 send set-reply-from  { address kasi@decode.ee }
