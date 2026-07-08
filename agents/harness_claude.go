@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -141,13 +143,67 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool, env map
 	if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
 		return Handle{}, err
 	}
-
 	transcriptRel := fmt.Sprintf("transcript-%d.jsonl", runID)
-	transcript, err := os.Create(filepath.Join(dir, transcriptRel))
+
+	cmd, pipe, transcript, stderr, err := c.startProcess(dir, transcriptRel, session, resume, env)
 	if err != nil {
 		return Handle{}, err
 	}
 
+	run := &claudeRun{
+		cmd:           cmd,
+		runID:         runID,
+		session:       session,
+		transcriptRel: transcriptRel,
+		outDir:        filepath.Join(dir, "out"),
+		done:          make(chan error, 1),
+	}
+	go func() {
+		_, _ = io.Copy(transcript, pipe) // streams events to disk as they arrive
+		err := cmd.Wait()                // safe: pipe hit EOF, so all reads are done (StdoutPipe ordering)
+		transcript.Close()
+		// Self-heal a restart orphan (decision-015): a first-turn run relaunched
+		// after a crash is started with --session-id, but the dead process already
+		// created that session, so claude exits "Session ID … already in use". Retry
+		// once as --resume, which continues the existing session. Only for a fresh
+		// Start (resume==false); a --resume that fails is a genuine failure, not a
+		// conflict, so it is never retried (no loop).
+		if err != nil && !resume && sessionInUse(stderr.String()) {
+			cmd2, pipe2, transcript2, _, err2 := c.startProcess(dir, transcriptRel, session, true, env)
+			if err2 != nil {
+				run.done <- err2
+				return
+			}
+			c.mu.Lock()
+			run.cmd = cmd2 // so Signal reaches the resumed process
+			c.mu.Unlock()
+			_, _ = io.Copy(transcript2, pipe2)
+			err = cmd2.Wait()
+			transcript2.Close()
+		}
+		run.done <- err
+	}()
+
+	c.mu.Lock()
+	c.runs[taskID] = run
+	c.cond.Broadcast() // wake any Wait that raced ahead of this Start
+	c.mu.Unlock()
+	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
+}
+
+// startProcess builds and starts one claude worker process in dir, returning its
+// stdout pipe (streamed to the transcript as events arrive — a child block-buffers
+// a redirected file, so io.Copy's per-chunk writes keep the on-disk stream live for
+// a crash or a tailing UI, docs/05), the transcript file, and a buffer capturing
+// stderr so spawn can detect a session conflict for the restart-resume self-heal
+// (decision-015). --session-id opens a new session; --resume continues an existing
+// one. Resolved Flow C secrets (decision-004) enter the worker's environment here,
+// at the edge, and nowhere else.
+func (c *Claude) startProcess(dir, transcriptRel, session string, resume bool, env map[string]string) (*exec.Cmd, io.ReadCloser, *os.File, *bytes.Buffer, error) {
+	transcript, err := os.Create(filepath.Join(dir, transcriptRel))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	args := []string{
 		"--print",
 		"--output-format", "stream-json", "--verbose",
@@ -163,53 +219,33 @@ func (c *Claude) spawn(taskID, runID int64, session string, resume bool, env map
 
 	cmd := exec.Command(c.bin, args...) // not CommandContext: Wait/Signal own the lifetime
 	cmd.Dir = dir
-	// Resolved Flow C secrets (decision-004) enter the worker's environment here,
-	// at the edge, and nowhere else. Inherit the parent env, then add them.
 	if len(env) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
-	// Stream stdout through a pipe we copy to the file, rather than pointing
-	// cmd.Stdout straight at the *os.File. A child's stdio block-buffers a
-	// redirected file, so the transcript would only update in chunks (or at
-	// exit). io.Copy issues a real write syscall per chunk it reads, so the
-	// file grows as events are generated — a crash keeps what was produced, and
-	// a future web UI can tail the in-progress stream (docs/05).
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		transcript.Close()
-		return Handle{}, fmt.Errorf("agents: claude stdout pipe: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("agents: claude stdout pipe: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	stderr := &bytes.Buffer{}
+	cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // its own group, so Signal reaches children
-
 	if err := cmd.Start(); err != nil {
 		transcript.Close()
-		return Handle{}, fmt.Errorf("agents: claude start: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("agents: claude start: %w", err)
 	}
+	return cmd, pipe, transcript, stderr, nil
+}
 
-	run := &claudeRun{
-		cmd:           cmd,
-		runID:         runID,
-		session:       session,
-		transcriptRel: transcriptRel,
-		outDir:        filepath.Join(dir, "out"),
-		done:          make(chan error, 1),
-	}
-	go func() {
-		_, _ = io.Copy(transcript, pipe) // streams events to disk as they arrive
-		err := cmd.Wait()                // safe: pipe hit EOF, so all reads are done (StdoutPipe ordering)
-		transcript.Close()
-		run.done <- err
-	}()
-
-	c.mu.Lock()
-	c.runs[taskID] = run
-	c.cond.Broadcast() // wake any Wait that raced ahead of this Start
-	c.mu.Unlock()
-	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
+// sessionInUse reports whether claude refused --session-id because the session
+// already exists — the signal that a restart orphan should be resumed instead of
+// re-created (decision-015). Confirmed against the CLI: `--session-id X` on an
+// existing X exits "Session ID X is already in use", and `--resume X` then continues.
+func sessionInUse(stderr string) bool {
+	return strings.Contains(stderr, "already in use")
 }
 
 // Wait blocks until the run exits or ctx is cancelled (a stop or crash), then

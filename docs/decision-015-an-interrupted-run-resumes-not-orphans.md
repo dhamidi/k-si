@@ -75,6 +75,25 @@ effects. Any effect that is fire-once and load-bearing needs a model condition t
 re-derives it on replay; for the launch, that condition is `StatusRunning` + the
 edge's `IsLive` answer.
 
+## The real-harness session conflict (self-heal)
+
+A first-turn orphan is relaunched with its original `Resume=false`, so the real Claude
+harness re-runs it with `--session-id <id>`. But the dead process already created that
+session, and — because it was *killed*, not exited — the session stays in use
+server-side, so claude refuses: `Error: Session ID <id> is already in use.` (A cleanly
+exited session releases its id; only a crash/redeploy leaves it held.) The launch then
+failed and the task fell to `awaiting-user` — the resume unstuck the run but did not
+complete it. This surfaced only on the live restart that recovered the first stuck
+task, exactly the ring-3 gap the sim cannot model.
+
+Fixed in the harness: `startProcess` captures stderr, and on a `--session-id` exit
+carrying "already in use" the run goroutine retries **once** with `--resume`, which
+continues the existing session. Only a fresh Start (`resume==false`) self-heals; a
+`--resume` that fails is a genuine failure, never retried, so there is no loop. A
+*later*-turn orphan already relaunches with `--resume` and so never hits the conflict.
+Confirmed against the CLI: a killed session's id reports "already in use" to
+`--session-id` on stderr, and `--resume` then resumes it cleanly.
+
 ## Coverage
 
 - `t/research/run-restart-safety.test` — crashes a run **mid-turn** (before the turn
