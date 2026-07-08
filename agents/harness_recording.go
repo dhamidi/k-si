@@ -45,6 +45,12 @@ func (h *RecordingHarness) Signal(ctx context.Context, hd Handle) error {
 	return h.inner.Signal(ctx, hd)
 }
 
+// IsLive forwards to the wrapped harness — the decorator holds no registry of
+// its own, so liveness is whatever the inner (real) harness reports.
+func (h *RecordingHarness) IsLive(hd Handle) bool {
+	return h.inner.IsLive(hd)
+}
+
 // Wait blocks on the wrapped harness, then captures the finished turn — inputs,
 // outputs, transcript, and result — before returning inner's Result unchanged.
 func (h *RecordingHarness) Wait(ctx context.Context, hd Handle) Result {

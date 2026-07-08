@@ -22,12 +22,41 @@ func agentWatchSubs(v runtime.View, s Model) []runtime.Sub {
 			continue
 		}
 		run := run
+		// Two sources per running run. The LAUNCHER is the sole launcher
+		// (decision-015): an Await source (like the harvest reconcile) so quiescence
+		// covers its launch emit and the start-agent-run provisioning it drives — a
+		// non-Await launch would let Settle return before the run is even launched,
+		// racing every scenario that reads in/. The WATCHER blocks in Wait for the
+		// whole turn, so it MUST stay non-Await or Settle would wait for the turn to
+		// finish (deadlocking against the DeliverTurn that finishes it).
+		subs = append(subs, runtime.Sub{
+			ID:    fmt.Sprintf("agent-launch:%d", run.ID),
+			Await: true,
+			Run:   launchRun(run),
+		})
 		subs = append(subs, runtime.Sub{
 			ID:  fmt.Sprintf("agent-watch:%d", run.ID),
 			Run: watchRun(run),
 		})
 	}
 	return subs
+}
+
+// launchRun is the sole launcher (decision-015): if the harness has no live
+// process for this run — a fresh spawn, or a run orphaned by a restart
+// (start-agent-run is an effect, suppressed on replay) — it drives start-agent-run
+// via the launch-agent-run bridge, then returns. IsLive is true only once this
+// process has launched the run, so the launch fires exactly once. It is an Await
+// source, and it emits then returns immediately, so Settle drains the launch and
+// its downstream provisioning before the scenario asserts on the workspace.
+func launchRun(run AgentRun) func(ctx context.Context, edges any, emit runtime.Emit) {
+	return func(ctx context.Context, edges any, emit runtime.Emit) {
+		e, _ := edges.(Edges)
+		h := Handle{TaskID: run.TaskID, RunID: int64(run.ID), Session: run.Session}
+		if !e.Harness.IsLive(h) {
+			emit(NewLaunchAgentRun(LaunchAgentRunPayload{TaskID: h.TaskID, RunID: h.RunID}))
+		}
+	}
 }
 
 // watchRun builds the watcher body for one running run: block in Harness.Wait

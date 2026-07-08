@@ -40,4 +40,8 @@ type Harness interface {
 	Wait(ctx context.Context, h Handle) Result
 	// Signal asks the harness process to stop (graceful, then hard).
 	Signal(ctx context.Context, h Handle) error
+	// IsLive reports whether this harness has a live (registered) process for the
+	// run named by h in THIS process. False after a restart wiped the ephemeral
+	// registry — the signal the agent-watch source uses to (re)launch exactly once.
+	IsLive(h Handle) bool
 }

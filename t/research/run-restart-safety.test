@@ -1,0 +1,66 @@
+# t/research/run-restart-safety.test — an agent run interrupted MID-turn by a
+# restart RESUMES and finishes; it is not orphaned (decision-015). This is the
+# run-level sibling of the post-finish harvest crash-safety (decision-013): those
+# scenarios crash AFTER the run finished (awaiting-user) and recover the harvest;
+# this one crashes BEFORE the turn is delivered (awaiting-agent, the run still
+# StatusRunning) and recovers the RUN itself.
+#
+# The launch is an effect (start-agent-run) — SUPPRESSED on replay — so before this
+# fix a restart left the run StatusRunning with no process and nothing to relaunch
+# it: the agent-watch watcher's Wait blocked forever. The fix makes the agent-watch
+# source the SOLE launcher: spawn-agent-run only records the run (with its Resume +
+# SecretRefs, both logged), and the source drives start-agent-run whenever the
+# harness has no live process for the run — a fresh spawn OR a restart orphan. So on
+# restart the source re-drives start-agent-run(resume) from the rebuilt model and
+# the turn continues. The sim harness no longer auto-registers in Wait (the
+# twin-parity hole that hid this), so this scenario would BLOCK forever without the
+# sole launcher — it passes only because the source relaunches the run.
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "long job"
+    body    "start the long reconciliation and reply when done"
+}
+
+# The run is live (StatusRunning), its harness registered, the watcher blocked in
+# Wait — but NO turn has been delivered yet. This is the mid-run window a redeploy
+# lands in.
+task 1 status is awaiting-agent
+
+# The process dies mid-run (app.Stop discards the in-flight watcher — no
+# finish-agent-run is logged — and the ephemeral harness registry is wiped) and
+# comes back. Replay rebuilds the run as StatusRunning; the sole-launcher source
+# re-drives start-agent-run(resume) and the harness re-registers the run.
+crash
+restart
+
+# Still awaiting the agent — the run was rebuilt as running, not dropped.
+task 1 status is awaiting-agent
+
+# The resumed run now takes its turn and finishes normally — the restart was
+# invisible to the task.
+agent {
+    out reply.txt "Reconciliation done — recovered after the restart."
+}
+task 1 status is awaiting-user
+outbound count is 1
+outbound last body matches "*recovered after the restart*"
+
+# Negative control: a fresh run with no crash still launches and finishes through
+# the same sole-launcher path — the ordinary case is undisturbed.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "quick job"
+    body    "just say hi"
+}
+task 2 status is awaiting-agent
+agent {
+    out reply.txt "hi"
+}
+task 2 status is awaiting-user
+outbound count is 2
+outbound last body matches "*hi*"

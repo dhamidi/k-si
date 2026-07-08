@@ -19,7 +19,8 @@ import (
 //   - The live-run registry (runs) is guarded by mu and is EPHEMERAL — a fresh
 //     SimHarness after a simulated crash has none. Only the shared workspace
 //     (out/, transcripts) survives a crash; the registry is rebuilt as the
-//     restarted watch subscriptions call Wait and auto-resume.
+//     agent-watch source (the sole launcher, decision-015) drives start-agent-run
+//     for each orphaned run, which re-registers it via Start/Resume.
 //   - A run is keyed by taskID; its runID is tracked so a new turn's Start/Wait
 //     replaces the previous turn's stale entry, while Start and Wait for the
 //     SAME turn converge on one entry regardless of which runs first.
@@ -107,13 +108,17 @@ func (h *SimHarness) EnvFor(taskID int64) map[string]string {
 }
 
 // Wait blocks until DeliverTurn hands this run its turn, or ctx is cancelled
-// (stop signalled, or a crash cancels the sub), or Signal closes the run. On a
-// missing run (a crash killed the ephemeral registry while the model still says
-// "running") it AUTO-REGISTERS the handle as a resume before blocking, so the
-// restarted watch subscription reconciles the interrupted run.
+// (stop signalled, or a crash cancels the sub), or Signal closes the run. It
+// first blocks until the source-driven start-agent-run registers the run
+// (awaitRegistered), mirroring the real harness's awaitRun — the agent-watch
+// source is the sole launcher (decision-015). On a ctx cancel before the run
+// registers it returns Stopped.
 func (h *SimHarness) Wait(ctx context.Context, hd Handle) Result {
-	lr := h.registerHandle(hd)
+	lr := h.awaitRegistered(ctx, hd)
 	tp := transcriptPath(hd.TaskID, hd.RunID)
+	if lr == nil {
+		return Result{Stopped: true, TranscriptPath: tp}
+	}
 	select {
 	case <-ctx.Done():
 		return Result{Stopped: true, TranscriptPath: tp}
@@ -126,6 +131,36 @@ func (h *SimHarness) Wait(ctx context.Context, hd Handle) Result {
 			OutManifest:    td.outManifest,
 			Stopped:        false,
 		}
+	}
+}
+
+// awaitRegistered blocks until Start/Resume registers this exact run, or ctx
+// cancels. The agent-watch source drives start-agent-run to register it (the sole
+// launcher, decision-015); before this change Wait auto-registered, which silently
+// modelled a resume the real harness never performed (a twin-parity hole).
+func (h *SimHarness) awaitRegistered(ctx context.Context, hd Handle) *liveRun {
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			h.mu.Lock()
+			h.cond.Broadcast()
+			h.mu.Unlock()
+		case <-stop:
+		}
+	}()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for {
+		if lr := h.runs[hd.TaskID]; lr != nil && lr.runID == hd.RunID {
+			return lr
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		h.cond.Wait()
 	}
 }
 
@@ -149,10 +184,11 @@ func (h *SimHarness) Signal(ctx context.Context, hd Handle) error {
 // finish-agent-run is enqueued before it returns, so the stimulus's Settle() waits
 // for the whole turn. deletions are in/-box-relative paths ("memory/reply-style.md").
 func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, deletions []string, exit int) error {
-	// Wait for the run to register: after a restart the agent-watch subscription
-	// auto-registers the resumed run in its own goroutine, which can lag the
-	// `agent` stimulus. The caller already found a running run in the model, so
-	// one will register; blocking here removes that race deterministically.
+	// Wait for the run to register: the agent-watch source drives start-agent-run
+	// (the sole launcher, decision-015) which registers the run via Start/Resume in
+	// its own goroutine, which can lag the `agent` stimulus. The caller already
+	// found a running run in the model, so one will register; blocking here removes
+	// that race deterministically.
 	h.mu.Lock()
 	for h.runs[taskID] == nil {
 		h.cond.Wait()
@@ -207,10 +243,14 @@ func (h *SimHarness) register(taskID, runID int64, session string) *liveRun {
 	return lr
 }
 
-// registerHandle is register keyed by a Handle — used by Wait, where a missing
-// or stale entry means auto-resume.
-func (h *SimHarness) registerHandle(hd Handle) *liveRun {
-	return h.register(hd.TaskID, hd.RunID, hd.Session)
+// IsLive reports whether this process has a registered run matching the handle —
+// false after a simulated crash wiped the ephemeral runs map, the signal the
+// agent-watch source uses to (re)launch exactly once (decision-015).
+func (h *SimHarness) IsLive(hd Handle) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	lr := h.runs[hd.TaskID]
+	return lr != nil && lr.runID == hd.RunID
 }
 
 func newLiveRun(runID int64, session string) *liveRun {

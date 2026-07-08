@@ -86,6 +86,16 @@ func (h *RecordedHarness) Wait(ctx context.Context, hd Handle) Result {
 	}
 }
 
+// IsLive reports whether this process has a registered run matching the handle —
+// false after a restart wiped the ephemeral runs map, the signal the agent-watch
+// source uses to (re)launch exactly once (decision-015).
+func (h *RecordedHarness) IsLive(hd Handle) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	lr := h.runs[hd.TaskID]
+	return lr != nil && lr.runID == hd.RunID
+}
+
 // Signal closes the currently-running run for taskID so a blocked Wait returns
 // Stopped.
 func (h *RecordedHarness) Signal(ctx context.Context, hd Handle) error {

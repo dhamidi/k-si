@@ -40,6 +40,7 @@ func Module(e Edges) *runtime.Module {
 	registerSignalAgentRun(mod)
 	runtime.Subscribe(mod, agentWatchSubs)
 	registerRecordNotifyToken(mod)
+	registerLaunchAgentRun(mod)
 	return mod
 }
 

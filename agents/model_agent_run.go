@@ -20,6 +20,12 @@ type AgentRun struct {
 	// NotifyToken is the per-run capability token the /control/notify endpoint
 	// validates before injecting a notify-user (feature-notifications.md).
 	NotifyToken string `json:"notify_token"`
+	// Resume and SecretRefs are the relaunch inputs recorded by spawn-agent-run
+	// from its logged payload, so the agent-watch launcher can reconstruct
+	// start-agent-run after a restart orphans a StatusRunning run (decision-015).
+	// The run's Session + NotifyToken it already carries complete the set.
+	Resume     bool              `json:"resume"`
+	SecretRefs map[string]string `json:"secret_refs,omitempty"`
 }
 
 // Run status values (docs/05 lifecycle): a run is "running" while the harness

@@ -266,6 +266,16 @@ func (c *Claude) awaitRun(ctx context.Context, h Handle) *claudeRun {
 	}
 }
 
+// IsLive reports whether this process has a live run matching the handle —
+// false after a restart wiped the ephemeral runs map, the signal the agent-watch
+// source uses to (re)launch exactly once (decision-015).
+func (c *Claude) IsLive(h Handle) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	run := c.runs[h.TaskID]
+	return run != nil && run.runID == h.RunID
+}
+
 // Signal asks the run's process group to terminate — graceful first, hard after
 // a short grace period (docs/05).
 func (c *Claude) Signal(ctx context.Context, h Handle) error {
