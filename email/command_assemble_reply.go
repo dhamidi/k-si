@@ -63,12 +63,25 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		body += "\n— provide the requested input: " + p.RequestLink + "\n"
 	}
 
+	// Belt-and-braces against the self-reply loop (SEV1, decision-016): the
+	// participant set is already self-free (dropSelf in create/append-to-task), but
+	// filter From out of To here too so NO code path can emit a reply addressed to
+	// käsi's own identity. SameAddress tolerates display-name/casing; an empty From
+	// filters nothing.
+	to := make([]string, 0, len(p.To))
+	for _, addr := range p.To {
+		if mime.SameAddress(addr, p.From) {
+			continue
+		}
+		to = append(to, addr)
+	}
+
 	// Same domain tasks used when it pre-recorded this into References — derived
 	// from the reply-from address on both sides — or threading breaks.
 	messageID := msg.ReplyMessageID(p.TaskID, p.RunID, mime.Domain(p.From))
 	hdr := map[string][]string{
 		"From":             {p.From},
-		"To":               {strings.Join(p.To, ", ")},
+		"To":               {strings.Join(to, ", ")},
 		"Subject":          {p.Subject},
 		"Message-ID":       {messageID},
 		"In-Reply-To":      {p.InReplyTo},

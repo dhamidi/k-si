@@ -1,0 +1,40 @@
+# t/research/loop-breaker.test — the per-task loop breaker bounds any reply loop's
+# blast radius (SEV1, decision-016).
+#
+# Self-CC is dead (t/mail/self-cc-no-loop.test), but a benign back-and-forth with an
+# ALLOWLISTED auto-responder is a loop those guards can't see — the sender is a real
+# human address. The breaker caps how many runs one task may spawn (its Turns) before
+# it pauses instead of spawning again. LoopGuard is off by default (0); serve arms it
+# via -max-task-runs. Here a scenario sets it low so the cap is quick to reach.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+send set-loop-guard { max 2 }
+
+# The create spawns the first run — Turns starts at 1.
+deliver { from owner@example.test; to research@kasi.test; subject "job"; body "start" }
+task 1 status is awaiting-agent
+task 1 turns is 1
+agent { out reply.txt "turn one" }
+task 1 status is awaiting-user
+outbound count is 1
+
+# A threaded reply spawns a second run — Turns 1 -> 2, still within the guard.
+deliver { from owner@example.test; reply-to-last; body "keep going 1" }
+task 1 status is awaiting-agent
+task 1 turns is 2
+agent { out reply.txt "turn two" }
+task 1 status is awaiting-user
+outbound count is 2
+
+# The next threaded reply would be the 3rd run: Turns(2) >= guard(2). The breaker
+# trips — the task pauses, spawns nothing, sends nothing.
+deliver { from owner@example.test; reply-to-last; body "keep going 2" }
+task 1 status is paused
+outbound count is 2
+
+# A paused task ignores further threaded mail too — the loop stays broken even if the
+# auto-responder keeps replying.
+deliver { from owner@example.test; reply-to-last; body "keep going 3" }
+task 1 status is paused
+outbound count is 2

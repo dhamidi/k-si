@@ -1,0 +1,34 @@
+# t/research/concurrency-cap.test — the global concurrency cap bounds how many runs
+# hold a live process at once (SEV1 OOM breaker, decision-016).
+#
+# The incident spawned runs faster than they finished — 392 concurrent claude
+# processes OOM-killed a 2-vCPU / 7.7 GB box. The cap makes the sole launcher
+# (decision-015) start only the lowest-id MaxConcurrent running runs; the rest stay
+# StatusRunning but hold no process (queued) until a slot frees. MaxConcurrent is
+# unlimited by default (0); serve arms it via -max-concurrent-runs.
+#
+# A queued run's harness never receives its env, so `run-env` distinguishes a
+# launched run (env carries its KASI_TASK_ID) from a queued one (empty).
+
+send allow-sender            { address owner@example.test }
+send set-max-concurrent-runs { max 1 }
+
+deliver { from owner@example.test; to research@kasi.test; subject "job A"; body "a" }
+deliver { from owner@example.test; to research@kasi.test; subject "job B"; body "b" }
+
+# Both tasks are awaiting their agent, but the cap of 1 means only task 1 holds the
+# slot: its harness was started (env injected), task 2's was not (queued).
+task 1 status is awaiting-agent
+task 2 status is awaiting-agent
+task 1 run-env KASI_TASK_ID is [task 1 id]
+task 2 run-env KASI_TASK_ID is ""
+
+# Draining task 1 frees the slot; the sole launcher then starts task 2 — its harness
+# now has its env.
+agent { out reply.txt "A done" }
+task 1 status is awaiting-user
+task 2 run-env KASI_TASK_ID is [task 2 id]
+
+agent { out reply.txt "B done" }
+task 2 status is awaiting-user
+outbound count is 2

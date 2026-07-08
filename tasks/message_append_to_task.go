@@ -22,11 +22,36 @@ func handleAppendToTask(v runtime.View, s Model, p msg.AppendToTaskPayload,
 
 	tasks := append([]Task(nil), s.Tasks...)
 	t := tasks[i]
-	t.Participants = dedup(append(append([]string(nil), t.Participants...), append([]string{p.Sender}, p.Cc...)...))
+
+	// A paused task never spawns again — the loop breaker already tripped, so any
+	// further threaded mail (e.g. an auto-responder still replying) is recorded but
+	// drives no run (SEV1, decision-016).
+	if t.Status == Paused {
+		return s, nil
+	}
+
+	// The loop breaker (decision-016): a task that spawns more runs than LoopGuard
+	// allows without resolving is pausing on a probable reply loop. Self-CC is
+	// already dead (Fix A/B), but a benign back-and-forth with an allowlisted
+	// AUTO-RESPONDER is a real loop these two guards can't see — the sender is a real
+	// human address — so this caps ANY task's runs. LoopGuard 0 is off (the sim
+	// default); the check trips at spawn time so the extra process never starts.
+	if s.LoopGuard > 0 && t.Turns >= s.LoopGuard {
+		t.Status = Paused
+		t.References = append(append([]string(nil), t.References...), p.MessageID)
+		t.LastMessageID = p.MessageID
+		t.InboxIDs = append(append([]int64(nil), t.InboxIDs...), p.InboxID)
+		tasks[i] = t
+		s.Tasks = tasks
+		return s, nil
+	}
+
+	t.Participants = dropSelf(dedup(append(append([]string(nil), t.Participants...), append([]string{p.Sender}, p.Cc...)...)), s.ReplyFrom)
 	t.References = append(append([]string(nil), t.References...), p.MessageID)
 	t.LastMessageID = p.MessageID
 	t.InboxIDs = append(append([]int64(nil), t.InboxIDs...), p.InboxID)
 	t.Status = AwaitingAgent
+	t.Turns++
 	tasks[i] = t
 	s.Tasks = tasks
 

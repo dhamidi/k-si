@@ -17,6 +17,12 @@ type Model struct {
 	// once via set-reply-from (docs/04). Empty falls back to the routeAddr
 	// placeholder, which is fine for the sim ring but not for real delivery.
 	ReplyFrom string `json:"reply_from"`
+	// LoopGuard caps the agent runs a single task may spawn (its Turns) before the
+	// loop breaker pauses it — the blast-radius bound for any reply loop (SEV1,
+	// decision-016). Configured once via set-loop-guard (serve -max-task-runs). 0 is
+	// OFF (unbounded), the sim-ring default, so the breaker never trips unless a
+	// scenario or serve opts in.
+	LoopGuard int `json:"loop_guard"`
 	// HarvestPending is the set of post-finish jobs a run still owes — the
 	// crash-safety marker (the sibling of email's pending outbox entry, docs/03).
 	// agent-run-finished appends one job per KIND of durable post-finish work
@@ -92,6 +98,14 @@ func All(v runtime.View) []Task {
 	out := make([]Task, len(m.Tasks))
 	copy(out, m.Tasks)
 	return out
+}
+
+// ReplyFrom is käsi's own deliverable identity — the canonical "self" address
+// (set-reply-from / serve -from). Exported so the email edge can drop inbound that
+// käsi sent to itself before it drives a run (the SEV1 self-reply loop guard,
+// decision-016). Empty in the sim ring, where SameAddress treats it as "no self".
+func ReplyFrom(v runtime.View) string {
+	return slice(v).ReplyFrom
 }
 
 // find returns the index of the task with id in the slice, or -1.

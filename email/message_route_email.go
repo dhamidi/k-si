@@ -37,6 +37,17 @@ func registerRouteEmail(mod *runtime.Module) {
 func handleRouteEmail(v runtime.View, s Model, p RouteEmailPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
+	// käsi never acts on its own mail. A reply käsi sent (To/Cc'ing itself) lands
+	// back in its own mailbox and the poller re-ingests it as inbound; routing it in
+	// would thread it onto the task and spawn another run, which replies again — the
+	// self-reply loop that OOM-killed the box (SEV1, decision-016). Drop it here, at
+	// the earliest choke point, before create OR append. Self is käsi's own
+	// deliverable identity (tasks.ReplyFrom); SameAddress treats an unset identity
+	// (the sim ring) as "no self", so scenarios are unaffected.
+	if mime.SameAddress(p.Sender, tasks.ReplyFrom(v)) {
+		return s, nil
+	}
+
 	// A reply threads onto an existing task if its In-Reply-To / References match
 	// that task's thread — and only a participant of THAT task may act on it
 	// (docs/04). Whether the sender is a participant is tasks' state, read through

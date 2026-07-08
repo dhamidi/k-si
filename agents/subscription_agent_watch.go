@@ -16,9 +16,17 @@ import (
 // (finished/stopped/stopping) the watcher's ctx is cancelled — which is also
 // how a stop makes the blocked Wait return.
 func agentWatchSubs(v runtime.View, s Model) []runtime.Sub {
+	// The concurrency cap (decision-016): only the lowest-id MaxConcurrent running
+	// runs get a launcher+watcher this diff; the rest stay StatusRunning but launch
+	// no process — they queue, and a later diff (when a running run finishes and frees
+	// a slot) picks them up. s.Runs is in id-ascending order (spawn-agent-run appends
+	// by log offset), so "first N running" is the oldest N. MaxConcurrent 0 is
+	// unlimited: active holds every running run, so the gate diffs exactly as before.
+	active := activeRuns(s)
+
 	var subs []runtime.Sub
 	for _, run := range s.Runs {
-		if run.Status != StatusRunning {
+		if run.Status != StatusRunning || !active[run.ID] {
 			continue
 		}
 		run := run
@@ -40,6 +48,26 @@ func agentWatchSubs(v runtime.View, s Model) []runtime.Sub {
 		})
 	}
 	return subs
+}
+
+// activeRuns is the set of running-run ids allowed to hold a live process under
+// the concurrency cap (decision-016): the lowest-id MaxConcurrent running runs.
+// MaxConcurrent 0 means unlimited — every running run is active — so the sim ring
+// and any un-capped deployment behave exactly as before the cap existed.
+func activeRuns(s Model) map[AgentRunID]bool {
+	active := make(map[AgentRunID]bool)
+	n := 0
+	for _, run := range s.Runs {
+		if run.Status != StatusRunning {
+			continue
+		}
+		if s.MaxConcurrent > 0 && n >= s.MaxConcurrent {
+			break
+		}
+		active[run.ID] = true
+		n++
+	}
+	return active
 }
 
 // launchRun is the sole launcher (decision-015): if the harness has no live

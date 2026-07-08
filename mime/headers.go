@@ -36,6 +36,30 @@ func Domain(address string) string {
 	return ""
 }
 
+// SameAddress reports whether two addresses name the same mailbox, comparing the
+// bare address case-insensitively and tolerating display-name forms — so
+// "kasi@decode.ee", "Kasi <kasi@DECODE.ee>", and "KASI@decode.ee" all match. Two
+// empty addresses are NOT the same mailbox: an unconfigured self identity
+// (ReplyFrom == "") must never match a real sender, or the sim ring (which leaves
+// ReplyFrom empty) would drop every inbound as "self" (SEV1 self-reply loop guard,
+// decision-016). A bare "" therefore returns false against anything, including "".
+func SameAddress(a, b string) bool {
+	a, b = bareAddress(a), bareAddress(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(a, b)
+}
+
+// bareAddress reduces an address to its mailbox form (no display name, trimmed),
+// the shared normalisation LocalPart/Domain/SameAddress compare on.
+func bareAddress(address string) string {
+	if a, err := mail.ParseAddress(address); err == nil {
+		return a.Address
+	}
+	return strings.Trim(address, " <>")
+}
+
 // CcList parses a Cc header value into bare addresses (display names dropped).
 // Returns nil for an empty or unparseable header so callers can range freely.
 func CcList(header string) []string {

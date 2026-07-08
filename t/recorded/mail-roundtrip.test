@@ -1,20 +1,23 @@
 # t/recorded/mail-roundtrip.test — ring-2 outbound mail exchange (docs/13).
 #
-# A self-addressed round-trip: the initiator is kasi@decode.ee, so käsi's reply
-# routes back to that same real inbox — a valid recipient, no third party, no
-# bounce. Run --ring live --record once and it captures BOTH cassettes: the real
-# Claude turn (harness-run) AND the real Fastmail upload→import→submission
-# exchange (mail-exchange). --ring recorded then replays both fully offline; sim
-# scripts the turn and sends through SimMail. Portable across all three rings.
+# A round-trip into käsi's own mailbox WITHOUT self-mail: the initiator is
+# kasi+probe@decode.ee — a plus-addressed alias that is NOT käsi's own identity
+# (reply-from is the bare kasi@decode.ee), so the SEV1 self-reply guard leaves it
+# alone (decision-016), yet the reply still lands in the same real inbox (Fastmail
+# subaddressing), so there is no external recipient and no third party. Run
+# --ring live --record once and it captures BOTH cassettes: the real Claude turn
+# (harness-run) AND the real Fastmail upload→import→submission exchange
+# (mail-exchange). --ring recorded then replays both fully offline; sim scripts the
+# turn and sends through SimMail. Portable across all three rings.
 
-send allow-sender { address kasi@decode.ee }
+send allow-sender { address kasi+probe@decode.ee }
 
 # Replies go out as a deliverable identity (SPF/DKIM/MX on decode.ee), not the
 # <route>@kasi.test placeholder, so real recipients actually receive them.
 send set-reply-from { address kasi@decode.ee }
 
 deliver {
-    from    kasi@decode.ee
+    from    kasi+probe@decode.ee
     to      kasi@decode.ee
     subject "roundtrip echo"
     body    "Write exactly the word DONE into out/reply.txt and nothing else. Do not ask any questions."
@@ -29,7 +32,7 @@ agent {
 
 task 1 status is awaiting-user
 outbound last from is kasi@decode.ee
-outbound last to is kasi@decode.ee
+outbound last to is kasi+probe@decode.ee
 outbound last body matches "*DONE*"
 
 # The bytes above are only what käsi assembled; assert the model recorded a real

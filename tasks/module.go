@@ -35,6 +35,7 @@ func Module(e Edges) *runtime.Module {
 	registerMarkHarvested(mod)
 	runtime.Subscribe(mod, harvestReconcileSubs)
 	registerNotifyUser(mod)
+	registerSetLoopGuard(mod)
 	return mod
 }
 

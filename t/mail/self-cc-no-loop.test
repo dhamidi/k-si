@@ -1,0 +1,36 @@
+# t/mail/self-cc-no-loop.test — the SEV1 self-reply loop is dead (decision-016).
+#
+# A mail that CC's käsi's own address once made käsi a participant on the task; käsi
+# then replied to ALL participants (itself included), the poller re-ingested that
+# self-addressed copy, it threaded back onto the task and spawned another run, which
+# replied again — an infinite loop that sent 94 real emails and OOM-killed the box.
+#
+# Two independent guards, either of which breaks the loop, are asserted here:
+#   Fix A — self is never a participant, so the reply is never addressed to käsi.
+#   Fix B — inbound whose sender is käsi's own identity drives no run.
+# "self" is käsi's configured deliverable identity (set-reply-from); SameAddress
+# compares the bare address case-insensitively.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# The owner writes in and CC's käsi's own address (the incident's trigger shape).
+deliver { from owner@example.test; to research@kasi.test; cc kasi@decode.ee; subject "trip planning"; body "help me plan the trip" }
+task 1 status is awaiting-agent
+
+# Fix A: käsi is not a participant, so the turn's reply is addressed to the human
+# ONLY — never to kasi@decode.ee. One reply leaves the box.
+agent {
+    out reply.txt "Here is the plan."
+}
+task 1 status is awaiting-user
+outbound count is 1
+outbound last to is owner@example.test
+
+# Fix B: käsi's own reply lands back in its mailbox; the poller re-ingests it,
+# threaded onto task 1 (reply-to-last). It must be dropped at the routing edge —
+# no new run, no second reply, no new task. The loop never starts.
+deliver { from kasi@decode.ee; reply-to-last; body "Here is the plan." }
+task 1 status is awaiting-user
+outbound count is 1
+tasks count is 1

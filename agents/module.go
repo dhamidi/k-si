@@ -41,6 +41,7 @@ func Module(e Edges) *runtime.Module {
 	runtime.Subscribe(mod, agentWatchSubs)
 	registerRecordNotifyToken(mod)
 	registerLaunchAgentRun(mod)
+	registerSetMaxConcurrentRuns(mod)
 	return mod
 }
 

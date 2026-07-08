@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/dhamidi/k-si/agents"
+	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
@@ -52,6 +53,12 @@ func runServe(args []string) int {
 	poll := flags.Bool("poll", false, "poll Fastmail for inbound mail — routes REAL mail into agent runs (off by default)")
 	send := flags.Bool("send", false, "submit replies through Fastmail — sends REAL mail (off by default; spools otherwise)")
 	from := flags.String("from", "", "deliverable From address replies are sent as (an address you can send for, e.g. kasi@decode.ee)")
+	// Runaway breakers (SEV1 self-reply loop, decision-016). Defaults are ON in
+	// production: this box realistically runs 1–2 concurrent claude processes, and a
+	// single task rarely needs more than ~20 turns, so these bound a loop's blast
+	// radius without touching normal use. 0 disables either guard.
+	maxConcurrent := flags.Int("max-concurrent-runs", 2, "cap live agent runs; the rest queue (0 = unlimited) — OOM breaker (docs/decision-016)")
+	maxTaskRuns := flags.Int("max-task-runs", 20, "pause a task after this many agent runs without resolving (0 = off) — loop breaker (docs/decision-016)")
 	flags.Parse(args)
 
 	// Real send must use a deliverable From and a reachable link origin — a
@@ -130,6 +137,10 @@ func runServe(args []string) int {
 	if *from != "" {
 		app.Send(taskmsg.NewSetReplyFrom(taskmsg.SetReplyFromPayload{Address: *from}))
 	}
+	// Arm the runaway breakers (decision-016). Sent unconditionally so the model
+	// carries the operator's caps; 0 leaves the matching guard off.
+	app.Send(agentmsg.NewSetMaxConcurrentRuns(agentmsg.SetMaxConcurrentRunsPayload{Max: *maxConcurrent}))
+	app.Send(taskmsg.NewSetLoopGuard(taskmsg.SetLoopGuardPayload{Max: *maxTaskRuns}))
 	seedAllowlist(app, *allow)
 
 	if *poll {

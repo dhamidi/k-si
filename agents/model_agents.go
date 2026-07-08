@@ -7,6 +7,13 @@ import "github.com/dhamidi/k-si/runtime"
 // replay-convergence standing check (docs/13).
 type Model struct {
 	Runs []AgentRun `json:"runs"`
+	// MaxConcurrent caps how many runs may hold a live harness process at once — the
+	// OOM breaker (SEV1, decision-016). The sole-launcher subscription launches only
+	// the lowest-id MaxConcurrent running runs and leaves the rest queued (still
+	// StatusRunning, no process) until a slot frees. Configured via
+	// set-max-concurrent-runs (serve -max-concurrent-runs). 0 is unlimited — the
+	// sim-ring default, so the gate launches exactly as before.
+	MaxConcurrent int `json:"max_concurrent"`
 }
 
 // slice reads the agents model out of a View for the exported read helpers.

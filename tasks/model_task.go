@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 )
 
@@ -21,6 +22,11 @@ const (
 	AwaitingUser Status = "awaiting-user"
 	// Done — the completion link fired; archived-then-deleted.
 	Done Status = "done"
+	// Paused — the loop breaker tripped: this task spawned more runs than the loop
+	// guard allows without resolving, so käsi stopped auto-spawning to bound the
+	// blast radius of a possible reply loop (SEV1, decision-016). Terminal until an
+	// operator intervenes; surfaced in the browse UI.
+	Paused Status = "paused"
 )
 
 // Task is one email-driven unit of work (docs/05). The model holds ids, status,
@@ -45,6 +51,12 @@ type Task struct {
 	CompletionToken string `json:"completion_token"`
 	// InboxIDs: the inbox rows laid into this task, in order.
 	InboxIDs []int64 `json:"inbox_ids"`
+	// Turns counts the agent runs this task has spawned — the loop breaker's meter
+	// (decision-016). create-task seeds it at 1 and each append-to-task increments
+	// it; when it would exceed the model's LoopGuard the task is Paused instead of
+	// spawning. A slice/int in the model (not derived from Runs, which only grows on
+	// finish) so the breaker trips at SPAWN time, before another process starts.
+	Turns int `json:"turns"`
 }
 
 // ByThreadKey returns the task whose References contains inReplyTo OR any entry
@@ -92,6 +104,22 @@ func IsParticipant(t Task, addr string) bool {
 // configured ReplyFrom (set-reply-from, docs/04).
 // ast-grep-ignore: no-placeholder-domain  sim-only fallback; real delivery uses the configured ReplyFrom (docs/04)
 func routeAddr(route string) string { return route + "@kasi.test" }
+
+// dropSelf returns addrs without any address equal to self (käsi's own
+// deliverable identity), so käsi is never a participant of — and so never a
+// recipient of a reply on — a task it was CC'd on (SEV1 self-reply loop,
+// decision-016). An empty self (the sim ring) drops nothing: SameAddress treats
+// "" as "no self", so scenarios keep their full participant sets.
+func dropSelf(addrs []string, self string) []string {
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if mime.SameAddress(a, self) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
 
 // dedup returns addrs with duplicates removed, preserving insertion order.
 func dedup(addrs []string) []string {

@@ -52,6 +52,9 @@ var statusOrder = []struct {
 	Status tasks.Status
 	Label  string
 }{
+	// Paused leads the list: the loop breaker tripped, so this task most wants an
+	// operator's eyes (SEV1, decision-016).
+	{tasks.Paused, "Paused — possible loop"},
 	{tasks.AwaitingAgent, "Awaiting agent"},
 	{tasks.AwaitingUser, "Awaiting user"},
 	{tasks.Open, "Open"},

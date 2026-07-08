@@ -12,11 +12,15 @@
 # hold for WHATEVER spec it writes. To fold the captured real turn into the offline
 # recorded gate, move this file to t/recorded/ once its cassette exists.
 
-send allow-sender    { address kasi@decode.ee }
+# A plus-addressed initiator, not käsi's own identity: with reply-from kasi@decode.ee
+# below, a bare-self sender is now dropped (SEV1 self-reply loop, decision-016).
+# kasi+probe@decode.ee is not "self" to SameAddress yet still käsi's own mailbox, so a
+# live probe's reply stays self-contained.
+send allow-sender    { address kasi+probe@decode.ee }
 send set-reply-from  { address kasi@decode.ee }
 
 deliver {
-    from    kasi@decode.ee
+    from    kasi+probe@decode.ee
     to      research@kasi.test
     subject "show me your web form"
     body    "I'd like to try your secure web form. Please raise a UI request that collects a few fields — include at least a text field, a choice, a file upload, and a secret (an API key) — then stop; I'll fill it in from the link. Do not ask for any of these in your reply."

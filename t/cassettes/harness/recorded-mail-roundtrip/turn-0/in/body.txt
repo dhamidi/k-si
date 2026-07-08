@@ -1,4 +1,4 @@
 Subject: roundtrip echo
-From: kasi@decode.ee
+From: kasi+probe@decode.ee
 
 Write exactly the word DONE into out/reply.txt and nothing else. Do not ask any questions.
