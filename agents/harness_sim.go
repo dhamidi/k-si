@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/dhamidi/k-si/mime"
@@ -209,9 +210,21 @@ func (h *SimHarness) DeliverTurn(taskID int64, outParts []mime.Part, deletions [
 		return fmt.Errorf("agents: DeliverTurn: write transcript: %w", err)
 	}
 
+	// The manifest is the WHOLE out/ box, not just this turn's writes: the on-disk
+	// harness reports what it finds by WALKING the out/ directory, which accumulates
+	// across turns unless reset. Reading it back keeps the sim a faithful twin — a
+	// stale reply.txt a prior turn left is visible here exactly as the real harness
+	// sees it, so the gate can catch a re-send. start-agent-run's ResetOut is what
+	// keeps this box to a single turn (decision-019). Reporting only this turn's parts
+	// (the prior behaviour) hid the bug: the sim never re-sent a stale reply.
+	manifest, err := outBoxManifest(h.work, taskID)
+	if err != nil {
+		return fmt.Errorf("agents: DeliverTurn: out manifest: %w", err)
+	}
+
 	td := turnData{
 		exit:           exit,
-		outManifest:    manifestOf(outParts),
+		outManifest:    manifest,
 		transcriptPath: transcriptPath(taskID, lr.runID),
 	}
 	lr.turn <- td // hand off to the blocked Wait
@@ -263,13 +276,23 @@ func newLiveRun(runID int64, session string) *liveRun {
 	}
 }
 
-// manifestOf lists the delivered filenames in order.
-func manifestOf(parts []mime.Part) []string {
-	names := make([]string, 0, len(parts))
-	for _, p := range parts {
-		names = append(names, p.Filename)
+// outBoxManifest lists the WHOLE out/ box as paths relative to out/, sorted — the
+// sim mirror of the on-disk harness's recursive out/ walk (c.manifest in the Claude
+// adapter). Files lists out/ already sorted; this strips the box prefix. Building it
+// from the ACCUMULATED box (not just this turn's parts) is the twin-fidelity fix
+// behind decision-019: it is what lets the sim reproduce a stale-out/ re-send.
+func outBoxManifest(work workspace.Workspace, taskID int64) ([]string, error) {
+	files, err := work.Files(taskID)
+	if err != nil {
+		return nil, err
 	}
-	return names
+	var names []string
+	for _, f := range files {
+		if rel, ok := strings.CutPrefix(f.Filename, "out/"); ok {
+			names = append(names, rel)
+		}
+	}
+	return names, nil
 }
 
 // sessionFor is the deterministic session id for a task's continuous

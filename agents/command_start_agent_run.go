@@ -97,6 +97,15 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		return err
 	}
 
+	// Empty out/ before the turn runs, so what the harvest finds afterwards is
+	// exactly what THIS turn produced (decision-019). Without it a prior turn's
+	// out/reply.txt lingers and a follow-up where the agent writes no new reply
+	// re-sends the stale one — the "same email twice" bug. in/ is left intact so
+	// prior context still accumulates for the agent.
+	if err := e.Work.ResetOut(p.TaskID); err != nil {
+		return err
+	}
+
 	// Register the live run and return immediately; the agent-watch
 	// subscription emits finish-agent-run when the turn completes (docs/05).
 	// The only emit here is record-notify-token above (the minted per-run token);

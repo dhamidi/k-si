@@ -64,6 +64,17 @@ func (o *OS) WriteOut(taskID int64, parts []mime.Part) error {
 	return o.writeBox(taskID, "out", parts)
 }
 
+// ResetOut empties out/ so a turn's output box holds only what that turn wrote
+// (decision-019). It removes the directory tree and recreates it empty; a task
+// with no out/ yet just gets an empty one.
+func (o *OS) ResetOut(taskID int64) error {
+	out := filepath.Join(o.taskDir(taskID), "out")
+	if err := os.RemoveAll(out); err != nil {
+		return err
+	}
+	return os.MkdirAll(out, 0o755)
+}
+
 // WriteSkills provisions skill trees into task-<id>/.claude/skills/ (Flow D,
 // decision-009), the layout the harness expects at ./skills/<name>/.
 func (o *OS) WriteSkills(taskID int64, parts []mime.Part) error {

@@ -1,0 +1,39 @@
+# t/mail/follow-up-no-stale-reply.test — a turn sends ONLY what THAT turn produced.
+# out/ is emptied at the start of every turn (decision-019), so a prior turn's
+# reply.txt (or an attachment) cannot linger and be re-sent when the agent writes
+# nothing new — the "same email twice" bug (task 3827: the agent resumed, decided
+# the task was already done, wrote no reply, and käsi re-mailed the old one).
+#
+# This is also a twin-fidelity guard. The sim harness now reports the WHOLE out/
+# box as its manifest, exactly as the on-disk harness walks the out/ directory, so
+# a stale re-send is visible to the gate. Reporting only the current turn's writes
+# (the old sim behaviour) is what hid this bug from the ring.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# Turn 1: the agent answers, with a body AND an attachment.
+deliver { from owner@example.test; to kasi@decode.ee; subject "research"; body "look into X" }
+agent { out reply.txt "First answer."; out notes.csv "a,b,c" }
+task 1 status is awaiting-user
+outbound count is 1
+outbound last body matches "*First answer*"
+outbound last attachments is notes.csv
+
+# Turn 2: the user follows up, but the agent writes NOTHING this turn — exactly the
+# reported incident, where a resumed run concluded "task complete, stopping". Because
+# out/ was emptied at the turn's start, there is no reply.txt to harvest, so NOTHING
+# is sent. Before decision-019 the stale turn-1 reply.txt was re-sent here.
+deliver { from owner@example.test; reply-to-last; body "actually, also cover Y" }
+agent { exit 0 }
+task 1 status is awaiting-user
+outbound count is 1
+
+# Turn 3: the agent does the work and writes a FRESH reply — with no attachment this
+# time. The turn-1 notes.csv must NOT ride along, because out/ was reset.
+deliver { from owner@example.test; reply-to-last; body "now send it" }
+agent { out reply.txt "Second answer, now covering Y." }
+task 1 status is awaiting-user
+outbound count is 2
+outbound last body matches "*covering Y*"
+outbound last attachments is ""

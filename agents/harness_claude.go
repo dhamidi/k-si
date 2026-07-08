@@ -89,6 +89,27 @@ by hand.
 
 Never wait for input — always stop.`
 
+// resumePreamble leads the prompt on a RESUME turn (docs/05). A resumed session
+// still holds the prior turn's transcript — which may end in "task complete,
+// stopping" — so without this the agent tends to re-affirm it is done and write no
+// new reply.txt; the harvest then re-sends the PRIOR reply verbatim (the "same
+// email twice" bug, decision-019). This makes the new turn explicit: act on the
+// new message and always write a fresh reply. It is prepended to workerPrompt so
+// the standing file-contract still travels with every turn.
+const resumePreamble = `A NEW message has arrived in this ongoing task. This is a FRESH turn in a
+continuing conversation — NOT a review of finished work. Whatever you did on an
+earlier turn is already done and its reply was already sent; do not repeat it, and
+do not decide the task is complete just because earlier work is finished. Read
+./in/body.txt for what the user is asking NOW and do that work. ./out/ has been
+emptied for this turn, so you MUST write a fresh ./out/reply.txt (or ./out/
+request.json) for anything to be sent back — if you write nothing, the user hears
+nothing. Then stop.
+
+--- standing instructions (unchanged every turn) ---
+
+`
+
+
 // Claude is the default harness adapter (docs/05): it shells out to the Claude
 // CLI, running one worker turn per task in the task's workspace. It is the
 // on-disk twin of SimHarness — the same interface over a real subprocess. Nothing
@@ -210,12 +231,17 @@ func (c *Claude) startProcess(dir, transcriptRel, session string, resume bool, e
 		"--permission-mode", "bypassPermissions",
 		"--add-dir", dir,
 	}
+	prompt := workerPrompt
 	if resume {
 		args = append(args, "--resume", session)
+		// A resumed session carries the prior turn's "I'm done" history; lead with the
+		// new-turn instruction so the agent acts on the new message instead of
+		// re-affirming completion and writing no reply (decision-019).
+		prompt = resumePreamble + workerPrompt
 	} else {
 		args = append(args, "--session-id", session)
 	}
-	args = append(args, workerPrompt) // the prompt is the trailing positional
+	args = append(args, prompt) // the prompt is the trailing positional
 
 	cmd := exec.Command(c.bin, args...) // not CommandContext: Wait/Signal own the lifetime
 	cmd.Dir = dir

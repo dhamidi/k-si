@@ -61,6 +61,13 @@ type Workspace interface {
 	// WriteOut writes parts into out/ — how the (sim) harness deposits a turn's
 	// output. Appends across turns, overwriting same-named files.
 	WriteOut(taskID int64, parts []mime.Part) error
+	// ResetOut empties out/ (recreating it empty) so a turn's out/ holds ONLY what
+	// that turn produced. Called at the start of every run: without it a prior
+	// turn's out/reply.txt lingers and the harvest re-sends it verbatim on a
+	// follow-up where the agent wrote no new reply (decision-019). in/ is
+	// deliberately NOT reset — prior context accumulates there. Idempotent; a
+	// task with no out/ yet is a no-op.
+	ResetOut(taskID int64) error
 	// WriteMemory provisions the memory collection into this run's in/ box
 	// (feature-memory.md): each memory to in/memory/<name>.md (its raw Content), a
 	// käsi-authored index at in/MEMORY.md (never written by the agent), and the

@@ -104,6 +104,16 @@ func (m *Memory) WriteOut(taskID int64, parts []mime.Part) error {
 	return writeInto("out", t.out, parts)
 }
 
+// ResetOut empties out/ so a turn's output box holds only what that turn wrote —
+// the twin of OS.ResetOut (decision-019). in/ is left untouched.
+func (m *Memory) ResetOut(taskID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := m.ensure(taskID)
+	t.out = map[string]file{}
+	return nil
+}
+
 // WriteSkills provisions skill trees into the skills/ box (Flow D,
 // decision-009), so a later turn finds ./skills/<name>/SKILL.md. Same
 // overwrite/append-by-path semantics as WriteOut.
