@@ -81,6 +81,23 @@ func (o *OS) WriteSkills(taskID int64, parts []mime.Part) error {
 	return o.writeBox(taskID, SkillsBox, parts)
 }
 
+// WriteApps writes in/apps.json — the callable-apps index — via LayIn, so it is
+// an ordinary overwrite-on-repeat in/ input (feature-apps.md). The body is the
+// twin-shared appsJSON render, identical to the sim twin.
+func (o *OS) WriteApps(taskID int64, apps []AppFile) error {
+	// No running apps → no index, and prune a stale one from an earlier turn so a
+	// run never sees an app that has since been removed. Mirrors memory: the index
+	// appears only once there is something to list.
+	if len(apps) == 0 {
+		return o.DeleteIn(taskID, AppsIndexName)
+	}
+	return o.LayIn(taskID, []mime.Part{{
+		Filename:    AppsIndexName,
+		ContentType: "application/json; charset=utf-8",
+		Bytes:       appsJSON(apps),
+	}})
+}
+
 // WriteMemory provisions the memory collection into in/: each note at
 // memory/<name>.md (raw Content) plus the MEMORY.md index (feature-memory.md),
 // and records this run's provisioned name set in a workspace-private manifest

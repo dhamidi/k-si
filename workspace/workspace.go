@@ -9,6 +9,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"path"
@@ -27,6 +28,61 @@ type MemoryFile struct {
 	Name        string
 	Content     []byte
 	Description string
+}
+
+// AppFile is one registered app to advertise to a run, as a workspace-LOCAL
+// value — so this edge stays free of the apps domain and imports only the mime
+// object model and the standard library. The agents effect maps apps.App onto
+// it: Name is the app's slug, URL the localhost origin the agent calls it on,
+// and Operations the app's RAW app.json bytes (the edge extracts the operations
+// array, never trusting a pre-parsed value — store-raw/derive-on-replay).
+type AppFile struct {
+	Name       string
+	URL        string
+	Operations []byte
+}
+
+// AppsIndexName is the single in/ file listing the apps a run may call
+// (feature-apps.md): a JSON object keyed by app name, each entry its localhost
+// URL and operations. Written fresh every run (WriteApps), so it never lists a
+// removed app.
+const AppsIndexName = "apps.json"
+
+// appsJSON renders the in/apps.json body from the app set — the twin-shared
+// renderer both the OS and memory workspaces write verbatim, so the file a run
+// sees is identical across the real edge and its sim twin (docs/12). Keys sort
+// (encoding/json sorts map keys), so the bytes are deterministic.
+func appsJSON(apps []AppFile) []byte {
+	type entry struct {
+		URL        string          `json:"url"`
+		Operations json.RawMessage `json:"operations"`
+	}
+	out := make(map[string]entry, len(apps))
+	for _, a := range apps {
+		out[a.Name] = entry{URL: a.URL, Operations: appOperations(a.Operations)}
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return []byte("{}\n")
+	}
+	return append(b, '\n')
+}
+
+// appOperations pulls the "operations" array out of an app's raw app.json,
+// defaulting to an empty array when the file is absent, unparseable, or has no
+// operations — a pure-UI app that just leaves it out still gets a well-formed
+// entry (feature-apps.md).
+func appOperations(raw []byte) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("[]")
+	}
+	var doc struct {
+		Operations json.RawMessage `json:"operations"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil || len(doc.Operations) == 0 {
+		return json.RawMessage("[]")
+	}
+	return doc.Operations
 }
 
 // Workspace is the filesystem edge for a task's ephemeral scratch directory,
@@ -77,6 +133,13 @@ type Workspace interface {
 	// index ARE in/ files (ordinary inputs), laid with LayIn's overwrite/append
 	// semantics.
 	WriteMemory(taskID int64, mems []MemoryFile) error
+	// WriteApps provisions the callable-apps index into this run's in/ box as
+	// in/apps.json (feature-apps.md, "the agent uses apps"): a JSON object keyed by
+	// app name, each entry the app's localhost URL and its operations. Written fresh
+	// every run with LayIn's overwrite semantics, so it is always current and never
+	// lists a removed app; an empty set writes an empty object. It is an ordinary in/
+	// input (Files lists it, archival keeps it).
+	WriteApps(taskID int64, apps []AppFile) error
 	// ProvisionedMemory returns the memory names WriteMemory last recorded for this
 	// run — the pinned "provisioned" set the harvest diffs surviving in/memory/
 	// against (forgotten = provisioned − survivors − rewritten). Absent (no memory

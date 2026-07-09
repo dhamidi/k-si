@@ -4,14 +4,25 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"strconv"
 
+	"github.com/dhamidi/k-si/apps"
 	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/skilltree"
 	"github.com/dhamidi/k-si/workspace"
 )
+
+// localAppURL is the loopback origin an agent calls a registered app on — inside
+// the auth boundary, no proxy (feature-apps.md). Built with net/url, not string
+// concatenation (rule no-url-string-building).
+func localAppURL(port int) string {
+	u := url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(port))}
+	return u.String()
+}
 
 // "start-agent-run" — start or resume the worker harness in the task workspace
 const StartAgentRun = "start-agent-run"
@@ -29,6 +40,12 @@ type StartAgentRunPayload struct {
 	// payload, never appended to the log — so it may carry the raw note bytes
 	// (provisioning the full collection each run must not grow the log).
 	Memory []memory.Memory `json:"memory,omitempty"`
+	// Apps is the set of running apps to advertise to this run as in/apps.json
+	// (feature-apps.md, "the agent uses apps"). Like Memory, it is read from the
+	// model by the launch handler and carried through to the workspace edge here —
+	// a TRANSIENT effect input, never appended to the log, so it may carry the raw
+	// app.json bytes.
+	Apps []apps.App `json:"apps,omitempty"`
 }
 
 func NewStartAgentRun(p StartAgentRunPayload) runtime.Cmd {
@@ -86,6 +103,18 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		mems[i] = workspace.MemoryFile{Name: m.Name, Content: m.Content, Description: m.Description}
 	}
 	if err := e.Work.WriteMemory(p.TaskID, mems); err != nil {
+		return err
+	}
+
+	// Advertise the running apps to this run as in/apps.json beside MEMORY.md — the
+	// same choke point, so every run learns what it can call on localhost
+	// (feature-apps.md). The URL is the app's LOCAL origin (the agent reaches it
+	// inside the auth boundary); operations ride through as the app's raw app.json.
+	appFiles := make([]workspace.AppFile, len(p.Apps))
+	for i, a := range p.Apps {
+		appFiles[i] = workspace.AppFile{Name: a.Name, URL: localAppURL(a.Port), Operations: []byte(a.Operations)}
+	}
+	if err := e.Work.WriteApps(p.TaskID, appFiles); err != nil {
 		return err
 	}
 

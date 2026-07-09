@@ -1,0 +1,52 @@
+# t/apps/provisioning.test — "the agent uses apps" (docs/feature-apps.md,
+# decision-022). A running app is advertised to every SUBSEQUENT run as an
+# in/apps.json laid beside MEMORY.md, so while the agent works a task it can call
+# the app on localhost (its operations are a durable tool, not just a page). This
+# is the read side of the apps feature: register once, then every later run is
+# handed the app's local URL and operations.
+#
+# The provisioning is a workspace-edge write inside start-agent-run (the one
+# choke point every run passes), so it rides the same path as memory/skills
+# provisioning and is suppressed on replay.
+
+send allow-sender { address dario@example.test }
+
+deliver {
+    from    dario@example.test
+    to      research@kasi.test
+    subject "stand up the ledger"
+    body    "Register the accounting app so we can file against it."
+}
+
+# Turn 1 registers the app; by the end of the turn the apps-reconcile loop has
+# driven the sim Runner and flipped it to running. At THIS turn's start there were
+# no apps, so its in/apps.json was the empty object.
+agent {
+    app add accounting "bun run src/server.ts"
+    out reply.txt "Registered the accounting app."
+}
+task 1 status is awaiting-user
+model apps apps matches "*accounting*"
+model apps apps matches "*running*"
+
+# Turn 2: a follow-up in-thread. At its start, start-agent-run provisions the
+# running app into in/apps.json — the agent now sees what it can call.
+deliver {
+    from dario@example.test
+    reply-to-last
+    body "Good — from now on, file receipts there."
+}
+task 1 status is awaiting-agent
+agent {
+    out reply.txt "Understood — I'll file receipts in the accounting app."
+}
+task 1 status is awaiting-user
+
+# The run was handed in/apps.json, keyed by the app name, carrying its LOCALHOST
+# URL (the agent reaches it inside the auth boundary, no proxy) and an operations
+# array (empty here — the sim registration carried no app.json operations, which
+# is exactly the pure-UI-app case).
+task 1 inputs matches "*apps.json*"
+task 1 input apps.json matches "*accounting*"
+task 1 input apps.json matches "*http://localhost:*"
+task 1 input apps.json matches "*operations*"

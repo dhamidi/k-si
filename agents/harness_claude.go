@@ -72,6 +72,11 @@ in a ./store/<name>/app.json so a later run can call them; kasi app rm <name>
 stops and unregisters it. Registering does not change how the app starts, so "run
 it to try it" and "let käsi run it" are the same program.
 
+Every app käsi is running is listed for you in ./in/apps.json — each app's local
+URL and the operations it exposes — so while you work a task you can call an app
+on localhost (e.g. curl its URL) instead of redoing work it already owns. Read it
+the way you read ./in/MEMORY.md; an empty object means nothing is registered yet.
+
 ./out/memory/ is that user-visible memory — the durable facts about the user and
 their world (a preference, an account detail, a decision) that käsi shows and
 curates on its web UI. This is DISTINCT from ./store/: store is your private

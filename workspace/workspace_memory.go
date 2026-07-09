@@ -124,6 +124,22 @@ func (m *Memory) WriteSkills(taskID int64, parts []mime.Part) error {
 	return writeInto(SkillsBox, t.skills, parts)
 }
 
+// WriteApps writes in/apps.json via LayIn — the sim twin of the OS edge, writing
+// the byte-identical appsJSON render (docs/12) so a scenario sees exactly what a
+// run on disk would.
+func (m *Memory) WriteApps(taskID int64, apps []AppFile) error {
+	// Prune-on-empty, write-otherwise — the twin of the OS edge, so a scenario sees
+	// the same in/ box a run on disk would (no index when nothing is running).
+	if len(apps) == 0 {
+		return m.DeleteIn(taskID, AppsIndexName)
+	}
+	return m.LayIn(taskID, []mime.Part{{
+		Filename:    AppsIndexName,
+		ContentType: "application/json; charset=utf-8",
+		Bytes:       appsJSON(apps),
+	}})
+}
+
 // WriteMemory provisions the memory collection into in/: each note at
 // memory/<name>.md (raw Content) plus the MEMORY.md index (feature-memory.md),
 // and records this run's provisioned name set workspace-private. Same

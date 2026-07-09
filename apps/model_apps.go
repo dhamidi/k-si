@@ -64,6 +64,21 @@ func Find(v runtime.View, name string) (App, bool) {
 	return App{}, false
 }
 
+// Running returns a copy of the apps whose unit is up — the set provisioned
+// into a run's in/apps.json so the agent can call them on localhost while it
+// works a task (feature-apps.md, "the agent uses apps"). Only a running app is
+// callable, so a merely-registered or removing app is left out.
+func Running(v runtime.View) []App {
+	m := slice(v)
+	var out []App
+	for i := range m.Apps {
+		if m.Apps[i].Status == StatusRunning {
+			out = append(out, m.Apps[i])
+		}
+	}
+	return out
+}
+
 // findName returns the index of the app with the given name, or -1. A name
 // is UNIQUE (feature-apps.md): re-registering an existing name replaces that
 // app's entry in place, the way remembering an existing memory updates it.

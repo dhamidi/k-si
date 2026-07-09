@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"github.com/dhamidi/k-si/apps"
 	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/runtime"
 )
@@ -45,6 +46,7 @@ func handleLaunchAgentRun(v runtime.View, s Model, p LaunchAgentRunPayload,
 			Resume:     run.Resume,
 			SecretRefs: run.SecretRefs,
 			Memory:     memory.All(v),
+			Apps:       apps.Running(v),
 		}),
 	}
 }
