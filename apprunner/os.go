@@ -116,6 +116,15 @@ func (o *OS) Stop(ctx context.Context, name string) error {
 	return o.systemctl(ctx, "disable", "--now", unit(name))
 }
 
+// Restart bounces the unit so a running app picks up new code — `enable --now`
+// would leave an already-running unit untouched, so this is the explicit path.
+func (o *OS) Restart(ctx context.Context, name string) error {
+	if !slug.MatchString(name) {
+		return fmt.Errorf("apprunner: invalid app name %q", name)
+	}
+	return o.systemctl(ctx, "restart", unit(name))
+}
+
 // Remove stops the app and deletes its unit; a no-op if already gone.
 func (o *OS) Remove(ctx context.Context, name string) error {
 	if !slug.MatchString(name) {

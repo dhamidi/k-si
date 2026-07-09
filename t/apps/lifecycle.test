@@ -1,0 +1,59 @@
+# t/apps/lifecycle.test — the fleet-management side of the apps control plane
+# (docs/feature-apps.md: "the rest of the CLI manages the fleet"). Where
+# register-and-run.test proves add→reconcile→run and rm→retire, this proves
+# `kasi app restart`: bouncing a running app picks up new code without dropping
+# the registration. The restart rides the REAL /control/app endpoint with the
+# run's minted token (the sim `app restart` directive), records restart-app in
+# the log for auditability, and drives the effect through to the sim Runner —
+# which stays up. The registry entry never changes: still registered, still
+# running.
+
+send allow-sender { address dario@example.test }
+
+deliver {
+    from    dario@example.test
+    to      research@kasi.test
+    subject "stand up the ledger service"
+    body    "Register the ledger app so the team can reach it."
+}
+
+task 1 status is awaiting-agent
+
+# Turn 1: the agent registers an app, then replies. Reconcile installs+starts it
+# on the sim Runner and mark-app-running flips the registry to running.
+agent {
+    app add ledger "bun run src/server.ts"
+    out reply.txt "The ledger app is up — I registered it."
+}
+
+task 1 status is awaiting-user
+
+# The registry converged: recorded and running. (The model verb can't index a
+# slice element, so match the rendered registry blob, like register-and-run.test.)
+model apps apps matches "*ledger*"
+model apps apps matches "*running*"
+
+# Turn 2: the user asks for a restart in-thread; the agent bounces the app.
+deliver {
+    from dario@example.test
+    reply-to-last
+    body "I pushed a fix — please restart it to pick up the new code."
+}
+
+task 1 status is awaiting-agent
+
+agent {
+    app restart ledger
+    out reply.txt "Restarted — the ledger app is running the new code."
+}
+
+task 1 status is awaiting-user
+
+# Restart bounced the unit through the log (restart-app → restart-app-unit → the
+# sim Runner) but dropped nothing: the app is still registered and running, and
+# /apps still lists it.
+model apps apps matches "*ledger*"
+model apps apps matches "*running*"
+model apps apps matches "*bun run src/server.ts*"
+visit /apps matches "*ledger*"
+visit /apps matches "*running*"

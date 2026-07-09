@@ -7,6 +7,7 @@ package web
 import (
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -237,7 +238,10 @@ func (s *Server) controlApp(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	action := r.FormValue("action")
 	name := r.FormValue("name")
-	if !appNameRE.MatchString(name) {
+	// Every action but `ls` names a single app, which must be a slug (it becomes a
+	// unit name and a URL segment). `ls` reads the whole registry and carries no
+	// name, so it is exempt — the token is still required, same as the rest.
+	if action != "ls" && !appNameRE.MatchString(name) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -290,9 +294,62 @@ func (s *Server) controlApp(w http.ResponseWriter, r *http.Request) {
 		s.app.Send(appsmsg.NewUnregisterApp(appsmsg.UnregisterAppPayload{Name: name}))
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
+	case "ls":
+		// Read-only fleet listing: the registry from the log, as JSON. `kasi app
+		// ls` renders this into a table. The token is still required (validated
+		// above), the same trust model as add/rm.
+		all := apps.All(s.app.View())
+		rows := make([]appListRow, 0, len(all))
+		for _, a := range all {
+			rows = append(rows, appListRow{Name: a.Name, URL: a.URL, Status: a.Status, Port: a.Port})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(rows); err != nil {
+			log.Printf("web: control app ls: %v", err)
+		}
+	case "logs":
+		// Live journald tail for one app, read through the narrow Runner edge. No
+		// edge wired (the in-process test server), or an error reaching the
+		// machine, both degrade to an empty body — logs are best-effort.
+		w.WriteHeader(http.StatusOK)
+		if s.runner == nil {
+			return
+		}
+		n := 20
+		if v := r.FormValue("n"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+				n = parsed
+			}
+		}
+		lines, err := s.runner.Logs(r.Context(), name, n)
+		if err != nil {
+			log.Printf("web: control app logs %s: %v", name, err)
+			return
+		}
+		for _, line := range lines {
+			fmt.Fprintln(w, line)
+		}
+	case "restart":
+		// Record the bounce as a directive (restart-app); the effect does the
+		// systemctl restart. Going through the log keeps it auditable, exactly like
+		// add/rm, rather than reaching the machine straight from the handler.
+		s.app.Send(appsmsg.NewRestartApp(appsmsg.RestartAppPayload{Name: name}))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
 	default:
 		http.Error(w, "bad request", http.StatusBadRequest)
 	}
+}
+
+// appListRow is the JSON shape `action=ls` returns per registered app — the
+// slice `kasi app ls` renders into a table (feature-apps.md: the rest of the CLI
+// manages the fleet).
+type appListRow struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
+	Port   int    `json:"port"`
 }
 
 // notify is the host-gated control endpoint behind `kasi notify` (feature-

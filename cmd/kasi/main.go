@@ -74,5 +74,5 @@ Commands:
   probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)
   capture-inbox  capture REAL inbound mail into the parse corpus: kasi capture-inbox [-n 10] [-state ./data] [-dir t/fixtures/mime]  (reads the live inbox, read-only)
   notify  send a mid-run notification from inside an agent run: kasi notify "<message>"  (reads KASI_* env, POSTs to the control endpoint)
-  app     register/remove an app from inside an agent run: kasi app <add <name> [--start "<cmd>"] | rm <name>>  (reads KASI_* env, POSTs to the control endpoint)`)
+  app     manage apps from inside an agent run: kasi app <add <name> [--start "<cmd>"] | rm <name> | ls | logs <name> [--lines N] | restart <name>>  (reads KASI_* env, POSTs to the control endpoint)`)
 }

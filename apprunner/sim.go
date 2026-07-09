@@ -69,6 +69,19 @@ func (s *Sim) Stop(ctx context.Context, name string) error {
 	return nil
 }
 
+// Restart bounces the unit: it stays up and records the bounce. Idempotent, and
+// a unit that does not exist is a no-op — matching the real adapter, where
+// restarting a missing unit is harmless.
+func (s *Sim) Restart(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u := s.units[name]; u != nil {
+		u.up = true
+		u.logs = append(u.logs, "restarted")
+	}
+	return nil
+}
+
 // Remove forgets the unit; a no-op if already gone.
 func (s *Sim) Remove(ctx context.Context, name string) error {
 	s.mu.Lock()

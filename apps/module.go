@@ -19,6 +19,8 @@ func Module(e Edges) *runtime.Module {
 
 	registerRegisterApp(mod)
 	registerUnregisterApp(mod)
+	registerRestartApp(mod)
+	registerRestartAppUnit(mod)
 	runtime.Subscribe(mod, appsReconcileSubs)
 	registerRunApp(mod)
 	registerRetireApp(mod)

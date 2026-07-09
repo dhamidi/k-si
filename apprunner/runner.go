@@ -23,6 +23,11 @@ type Runner interface {
 	Stop(ctx context.Context, name string) error
 	// Remove stops the app and deletes its unit; a no-op if it is already gone.
 	Remove(ctx context.Context, name string) error
+	// Restart bounces the app's unit — stop then start in one step — so a
+	// running app picks up new code. `Start` (enable --now) does NOT restart an
+	// already-running unit, so this is the explicit path. A unit that does not
+	// exist is a no-op, not an error.
+	Restart(ctx context.Context, name string) error
 	// Status reports whether the app's unit is currently up. A unit that does
 	// not exist is down, not an error.
 	Status(ctx context.Context, name string) (up bool, err error)

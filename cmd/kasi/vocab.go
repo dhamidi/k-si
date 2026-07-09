@@ -558,9 +558,10 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 			// The agent registers or removes an app mid-run (feature-apps.md).
 			// Collected here, fired below WHILE the run is still live through the
 			// REAL control endpoint — exactly what `kasi app` does from inside the
-			// agent. `app add <name> "<start>"` and `app rm <name>`.
+			// agent. `app add <name> "<start>"`, `app rm <name>`, and
+				// `app restart <name>`.
 			if len(words) < 3 {
-				return fmt.Errorf("agent: app needs `add <name> \"<start>\"` or `rm <name>`")
+				return fmt.Errorf("agent: app needs `add <name> \"<start>\"`, `rm <name>`, or `restart <name>`")
 			}
 			switch words[1] {
 			case "add":
@@ -573,8 +574,13 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 					return fmt.Errorf("agent: app rm needs a single name, e.g. `app rm ledger`")
 				}
 				appActions = append(appActions, appAction{action: "rm", name: words[2]})
+			case "restart":
+				if len(words) != 3 {
+					return fmt.Errorf("agent: app restart needs a single name, e.g. `app restart ledger`")
+				}
+				appActions = append(appActions, appAction{action: "restart", name: words[2]})
 			default:
-				return fmt.Errorf("agent: app verb must be add|rm, got %q", words[1])
+				return fmt.Errorf("agent: app verb must be add|rm|restart, got %q", words[1])
 			}
 		case "exit":
 			exit, err = strconv.Atoi(arg(words))
