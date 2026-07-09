@@ -19,6 +19,11 @@ type AssembleReplyPayload struct {
 	// RequestLink, when set, is a UI-request capability link the effect appends to
 	// the reply body (Flow C). Empty for a normal reply.
 	RequestLink string `json:"request_link"`
+	// BaseURL is the public origin the completion link is built against, read from
+	// admin.Model by the emitting handler and threaded here — the base URL migrated
+	// from a boot-frozen edge to logged, editable model state (docs/16). Effects
+	// never see the model, so the handler supplies it (decision-020).
+	BaseURL string `json:"base_url"`
 }
 
 func NewAssembleReply(p AssembleReplyPayload) runtime.Cmd {

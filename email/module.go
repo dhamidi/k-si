@@ -13,9 +13,6 @@ type Edges struct {
 	Mail    Mail
 	Content store.Content
 	Work    workspace.Workspace
-	// BaseURL is the web edge's origin ("https://host"); capability links in
-	// replies are built against it (docs/04).
-	BaseURL string
 }
 
 // Module bundles Fastmail routing, the initiator allowlist, the inbox/outbox, and reply assembly (docs/01).
@@ -49,7 +46,5 @@ func SimEdges() Edges {
 		Mail:    NewSimMail(content),
 		Content: content,
 		Work:    workspace.NewMemory(),
-		// ast-grep-ignore: no-placeholder-domain  SimEdges backs only replay/cassette paths that never drive a send (docs/12)
-		BaseURL: "https://kasi.test",
 	}
 }

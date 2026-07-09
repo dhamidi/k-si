@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dhamidi/k-si/admin"
+	adminmsg "github.com/dhamidi/k-si/admin/msg"
 	"github.com/dhamidi/k-si/cassette"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
@@ -243,7 +245,34 @@ func (i *instance) boot() error {
 
 	i.app = runtime.New(mods...).UseLog(i.log).UseClock(i.clock)
 	i.server = nil // rebind the web server to the fresh App on next visit (decision-008)
-	return i.app.Start(context.Background())
+	if err := i.app.Start(context.Background()); err != nil {
+		return err
+	}
+
+	// Seed a default public base URL in the SIM ring the way serve.go seeds it from
+	// -base-url — GUARDED, only when unset — so scenarios get the origin the
+	// boot-frozen edge used to supply before base-url became model state (docs/16,
+	// decision-020). Sim-ring only: the recorded ring's cassettes are keyed by task
+	// id (= a create-task log offset), so it must NOT gain a seed message that
+	// shifts those offsets; recorded scenarios assert no capability link, so they
+	// need no base URL. Replay-safe: on a restart the log already carries
+	// set-base-url, the guard skips, and the log stays convergent.
+	if i.world.ring == "sim" && hasModule(mods, "admin") && admin.BaseURLOf(i.app.View()) == "" {
+		// ast-grep-ignore: no-placeholder-domain  the sim default origin, mirroring the old edge default (docs/12)
+		i.app.Send(adminmsg.NewSetBaseURL(adminmsg.SetBaseURLPayload{URL: "https://kasi.test"}))
+	}
+	return nil
+}
+
+// hasModule reports whether a module by name is in the assembled set — used to
+// skip the base-url seed when a `use` subset left admin out.
+func hasModule(mods []*runtime.Module, name string) bool {
+	for _, m := range mods {
+		if m.Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 func moduleNames(mods []*runtime.Module) []string {

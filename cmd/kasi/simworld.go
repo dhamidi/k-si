@@ -10,6 +10,7 @@ package main
 // process keeps its disk and databases (docs/13). `use` starts a fresh one.
 
 import (
+	"github.com/dhamidi/k-si/admin"
 	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/apprunner"
 	"github.com/dhamidi/k-si/apps"
@@ -154,11 +155,12 @@ func (w *simWorld) crash() {
 // whose isolated SimEdges never drive an effect.
 func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 	return []*runtime.Module{
+		admin.Module(admin.Edges{Clock: clock}),
 		apps.Module(apps.Edges{Clock: clock, Runner: apprunner.NewSim()}),
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work, BaseURL: "https://kasi.test"}),
+		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
 		agents.Module(agents.Edges{Store: w.store, Clock: clock, Harness: w.harness, Work: w.work, Secrets: w.secrets, Content: w.content}),
 	}

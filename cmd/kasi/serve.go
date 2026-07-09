@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dhamidi/k-si/admin"
+	adminmsg "github.com/dhamidi/k-si/admin/msg"
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/apprunner"
@@ -123,11 +125,12 @@ func runServe(args []string) int {
 	}
 
 	app := runtime.New(
+		admin.Module(admin.Edges{Clock: clock}),
 		apps.Module(apps.Edges{Clock: clock, Runner: appRunner}),
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work, BaseURL: *baseURL}),
+		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
 		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
 	).UseLog(logStore).UseClock(clock)
@@ -148,6 +151,13 @@ func runServe(args []string) int {
 	app.Send(agentmsg.NewSetMaxConcurrentRuns(agentmsg.SetMaxConcurrentRunsPayload{Max: *maxConcurrent}))
 	app.Send(taskmsg.NewSetLoopGuard(taskmsg.SetLoopGuardPayload{Max: *maxTaskRuns}))
 	seedAllowlist(app, *allow)
+	// Seed the public base URL into admin's model ONLY when unset, so a UI edit
+	// survives a restart and a defaulted -base-url never re-seeds over it — the
+	// migration from a boot-frozen edge to logged, editable state (docs/16,
+	// decision-020). The flag still parses/validates at boot (the -send guard above).
+	if *baseURL != "" && admin.BaseURLOf(app.View()) == "" {
+		app.Send(adminmsg.NewSetBaseURL(adminmsg.SetBaseURLPayload{URL: *baseURL}))
+	}
 
 	if *poll {
 		go pollInbox(ctx, app, jmap, content)

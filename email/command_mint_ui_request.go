@@ -42,7 +42,7 @@ func mintUIRequestEffect(ctx context.Context, e Edges, p msg.MintUIRequestPayloa
 	}
 
 	token := mintToken()
-	requestURL, err := link.Request(e.BaseURL, p.RunID, token)
+	requestURL, err := link.Request(p.BaseURL, p.RunID, token)
 	if err != nil {
 		return fmt.Errorf("email: mint-ui-request: request link: %w", err)
 	}

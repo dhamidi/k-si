@@ -1,0 +1,25 @@
+# settings-admin.kit — the admin module for the settings feature (docs/16,
+# decision-020, phase 2a). Ownerless, system-wide config lives here; today just
+# the public base URL, migrating from email.Edges.BaseURL (boot-frozen) to a
+# logged, editable model value. The BaseURL value type (flag.Value + ToForm), the
+# settings contribution, and the edge→model migration are hand-filled.
+
+kasi module {
+	name admin
+	description "system-wide, ownerless configuration — a home for settings that belong to no domain (docs/16); today the public base URL"
+}
+
+kasi message {
+	module admin
+	tag set-base-url
+	contract true
+	fields {
+		url string
+	}
+	description "set the public base URL capability links are built against; seeded once from -base-url, UI-owned after (decision-020)"
+	intent {
+		Set s.BaseURL = BaseURL(p.URL) copy-on-write and return no commands — a
+		whole-value replace, the only writer of admin.Model.BaseURL. BaseURL is a
+		string-based flag.Value defined by hand in model_admin.go.
+	}
+}

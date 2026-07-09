@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"github.com/dhamidi/k-si/admin"
 	emailmsg "github.com/dhamidi/k-si/email/msg"
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/runtime"
@@ -60,7 +61,7 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 		})}
 
 	case HarvestReply:
-		return s, replyCmds(s, p.TaskID, p.RunID)
+		return s, replyCmds(v, s, p.TaskID, p.RunID)
 
 	case HarvestRequest:
 		// The mint reads out/request.json itself (Work.Harvest), so the payload needs
@@ -68,8 +69,9 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 		// which records the UIRequest, clears this request job atomically, and enqueues
 		// the reply job that carries the request link.
 		return s, []runtime.Cmd{emailmsg.NewMintUIRequest(emailmsg.MintUIRequestPayload{
-			TaskID: p.TaskID,
-			RunID:  p.RunID,
+			TaskID:  p.TaskID,
+			RunID:   p.RunID,
+			BaseURL: string(admin.BaseURLOf(v)),
 		})}
 
 	default:
@@ -97,7 +99,7 @@ func handleRunHarvest(v runtime.View, s Model, p RunHarvestPayload,
 // still-pending request for THIS run — so replyCmds reads it back from logged model
 // state exactly as it reads the threaded headers, keeping the single path replay-
 // stable for both callers.
-func replyCmds(s Model, taskID, runID int64) []runtime.Cmd {
+func replyCmds(v runtime.View, s Model, taskID, runID int64) []runtime.Cmd {
 	i := s.find(TaskID(taskID))
 	if i < 0 {
 		return nil
@@ -124,5 +126,6 @@ func replyCmds(s Model, taskID, runID int64) []runtime.Cmd {
 		References:      t.References,
 		CompletionToken: t.CompletionToken,
 		RequestLink:     requestLink,
+		BaseURL:         string(admin.BaseURLOf(v)),
 	})}
 }

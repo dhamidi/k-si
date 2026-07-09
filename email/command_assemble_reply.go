@@ -54,7 +54,7 @@ func assembleReplyEffect(ctx context.Context, e Edges, p msg.AssembleReplyPayloa
 		}
 		attachments = append(attachments, part)
 	}
-	completionURL, err := link.Completion(e.BaseURL, p.TaskID, p.CompletionToken)
+	completionURL, err := link.Completion(p.BaseURL, p.TaskID, p.CompletionToken)
 	if err != nil {
 		return fmt.Errorf("email: assemble-reply: completion link: %w", err)
 	}
