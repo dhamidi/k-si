@@ -562,6 +562,24 @@ The rules:
   the reducer has applied the message, so the redirected `GET` renders the
   new model — the browser never sees a stale page after a successful write.
 
+- **A structured or dynamic setting graduates from the static form object to
+  the form engine.** `AllowSenderForm` above is the *flat* case: a fixed field
+  set, `flag.Value` per field. When a setting's Go type is a list that grows, a
+  nested struct, or a shape that changes as it is filled, it stops being a
+  hand-written `form_*.go` and becomes a `settings.Form` value the type builds
+  via `ToForm` ([16](./16-settings.md)) — the same `SettingsView` /
+  `routes.Path("settings")` surface, one level up. The `flag.Value` leaf here is
+  the base case of that engine's `Parse`: a leaf field still parses through
+  `Set(string) error`, and a group/list parses its children and assembles the
+  composite. Parse-don't-validate becomes `Form.Parse` over the *non-sensitive*
+  fields — one gate, a typed value or `FieldErrors`, no separate `Validate`. The
+  Flow C request form shares this engine's *field rendering* and its decision-004
+  sensitive-field gate (secret/file written by the edge to references before any
+  value is built), but **not** its `Parse`: Flow C stays the flat, handler-gated
+  path that emits `answer-ui-request` with references only
+  ([decision-005](./decision-005-request-forms-are-spec-driven-with-a-nested-component-hierarchy.md),
+  [decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)).
+
 ## Where each fact may live — a checklist
 
 When writing a new capability, place each ingredient by this table; if

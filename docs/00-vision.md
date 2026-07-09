@@ -122,6 +122,8 @@ always qualify it.
 | **Initiator allowlist** | The set of email addresses permitted to *start* a new task. A global gate on new conversations. |
 | **Participant / collaborator** | An address authorised to interact with *one existing task*, granted by being CC'd on an authorised message. Task-scoped; does not grant initiation rights. |
 | **Secret** | A credential stored in the separate secrets database, addressed by a `secret://` URL. |
+| **Setting** | A typed piece of configuration a module contributes: a key, a short and long description, a read over the model, and a write as the owning domain's `set-*` message. Its state stays in the owning module; the descriptor is assembled in `main.go`. Editable from the web UI via a form generated from its Go type ([16](./16-settings.md)). |
+| **Admin module** | The domain that owns system-wide, ownerless settings (today the public base URL) and, in `web`, the aggregating `/settings` page. Settings with a natural owner stay in that owner's module; only the ownerless ones live in admin ([16](./16-settings.md)). |
 
 ## Dependencies
 

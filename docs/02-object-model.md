@@ -127,6 +127,20 @@ The mapping from an email local part to a task template, and the template
 itself (prompt + skills + tools). Configuration held in the model, editable
 from the web UI (see [08](./08-web-ui.md)). Not MIME.
 
+### Setting
+
+A typed, editable piece of configuration a module contributes
+([16](./16-settings.md)). A setting is a **descriptor** — a key, a short and a
+long description, the owning module, a **read** (`View → typed value`), and a
+**write** (the owning domain's existing `set-*` message) — over a value whose
+*state* stays in the owning module's model slice (the allowlist in `email`,
+reply-from in `tasks`, the base URL in `admin`). The value's Go type generates
+the form that edits it and parses a submission back into it — one shape, two
+directions. Like the route, it is configuration held in the model, advanced only
+by a logged message ([decision-001](./decision-001-ui-request-is-a-model-entry-not-a-content-table.md),
+[decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md));
+there is no settings table. Not MIME.
+
 ## How content flows through MIME
 
 The lifecycle of a task's content, all in MIME terms:

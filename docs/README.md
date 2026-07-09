@@ -32,6 +32,7 @@ Start at the top; each doc assumes the ones above it.
 | 13 | [Testing](./13-testing.md) | The three rings: in-memory simulation, recorded reality, and rare live probes |
 | 14 | [The test language](./14-test-language.md) | The deliberately dumb, Tcl-inspired script language: send messages, assert on model fields and commands |
 | 15 | [Tactical patterns](./15-tactical-patterns.md) | The canonical Go shapes: tags, payloads, constructors, handlers, effects, slices, contracts, modules |
+| 16 | [Settings & the form engine](./16-settings.md) | Modules contribute typed settings; the admin module; forms generated from a Go type, shape-changing at runtime, cohesive with the request form |
 
 **Joining the project?** Read [00](./00-vision.md), skim
 [01](./01-architecture.md), then go straight to

@@ -313,6 +313,41 @@ the log. On restart it persists on disk as the last run left it, like the conten
 database. Replay rebuilds käsi's model; the store is the agent's, and was never
 model state.
 
+## Flow G — Edit a system setting
+
+The operator wants to add an address to the initiator allowlist from the web UI,
+not by restarting with a different `-allow` ([16](./16-settings.md)).
+
+- `GET /settings` renders the settings index — each contributed setting with its
+  short description and current value ([08](./08-web-ui.md)). The operator opens
+  **initiators**: `GET /settings/initiators` renders the allowlist form inside a
+  `<turbo-frame>`, one text field per current address, built from the
+  `Allowlist` type's `ToForm` ([16](./16-settings.md)).
+- The operator clicks **add address**. The button POSTs the current values plus
+  `{op: add}` to `settings.reshape`; the handler folds the form's `Update` to grow
+  the field set. It content-negotiates on the `Turbo-Frame` header: enhanced, it
+  re-renders **only the frame** (`RenderFragment`) and Turbo swaps it inline; with
+  no JavaScript, the same POST re-renders the **whole page** (`RenderPage`) with the
+  typed values preserved. Either way a new row appears and nothing typed is lost
+  ([16](./16-settings.md)).
+- The operator fills the new address and submits. `POST /settings/initiators`
+  binds the body; the addresses are all non-sensitive, so nothing hits the
+  decision-004 gate, and **`Form.Parse`** runs — a typed `Allowlist` or per-field
+  errors (parse-don't-validate). A bad address re-renders the form (422) with the
+  message; a good one yields the value.
+- The parsed value becomes **exactly one** imperative message — the new whole-value
+  `set-allowlist` (replace semantics; [15](./15-tactical-patterns.md),
+  [16](./16-settings.md)) — `App.Send` blocks until applied, then a 303 redirect to
+  `GET /settings` shows the new list.
+- Nothing here is a session: `/settings/initiators` named the resource, the values
+  and row count rode the body each round-trip, and the one state change is a logged
+  message replay rebuilds
+  ([01](./01-architecture.md), [decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)).
+
+Editing the **base URL** the same way is the migration made visible: the value
+now lives in the `admin` model, and the next reply's capability link is built
+against the edited value — no restart ([16](./16-settings.md)).
+
 ## What every flow demonstrates
 
 - **Imperative, complete messages → commands → effects → messages**, folded by

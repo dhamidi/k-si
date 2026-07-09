@@ -203,6 +203,59 @@ Because the form is data (the spec) rendered by htmlc and posted back as a
 message, the whole mechanism stays inside the hypermedia, message-sourced design —
 no client app, no bespoke endpoint per request type.
 
+## System settings
+
+The `/settings` page is where configuration that used to be `kasi serve` flags is
+seen and edited without a redeploy — the allowlist, the reply-from address, the
+runaway breakers, the public base URL ([16](./16-settings.md)). It is the surface
+the vision means by "feel like a settings panel," made literal.
+
+Each **module contributes** its settings; `main.go` assembles the list and hands
+it to the server. A setting's *state* stays in its owning module, but genuinely
+ownerless configuration lives in a new **admin** module — today just the base URL,
+which migrates from a boot-frozen edge to logged, editable model state
+([16](./16-settings.md), [decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)).
+
+The form is **generated from the setting's Go type**, not authored per setting,
+and it can change its own *shape* as you fill it — adding an allowlist row grows
+the field set, smoothly when enhanced and by a plain reload when not. It shares the
+agent-request page's rendering ([decision-005](./decision-005-request-forms-are-spec-driven-with-a-nested-component-hierarchy.md)):
+the same `settings.Form` field kinds and one set of controls (`field.vue`, the
+generalisation of `request_field.vue`), reached from a Go type (settings) or from
+the agent's JSON spec (requests). What the two share is *rendering* and the
+decision-004 sensitive-field gate — not a single parse function. The request page
+is the flat, handler-gated path; a settings form is the structured path with an
+`Update` and a `Parse` ([16](./16-settings.md)).
+
+It obeys the same rules as every other page:
+
+- **Write path.** Submitting a setting binds the body into its `Form`, runs the
+  decision-004 **sensitive-field gate** (secret/file fields written by the edge to
+  the secrets store and archive and substituted as references *before* any typed
+  value is built — never re-rendered, never in the model), then **parses only the
+  non-sensitive fields** (parse-don't-validate: `Form.Parse` yields a typed value or
+  field errors, no separate validate step). On success it emits **exactly one**
+  imperative message — the owning domain's `set-*`, a new one where the setting is a
+  whole value — then POST/redirect/GET, per the write-path canon above. The UI never
+  mutates the model directly.
+- **Shape changes, progressively enhanced.** A `<turbo-frame>` scopes each form; an
+  add/remove control POSTs the current values plus the shape event, the server folds
+  the form's `Update`, and **content-negotiates on the `Turbo-Frame` header**:
+  present → re-render the frame alone (`RenderFragment`) and Turbo swaps it inline;
+  absent → re-render the whole page (`RenderPage`) with the POSTed values preserved,
+  a plain reload with nothing lost — so no capability depends on scripting.
+  **Resource identity** (which setting) rides the URL; **filling state** (values,
+  row count) rides the body every round-trip, never the query string — a settings
+  form may hold a secret field, and secrets never enter a URL
+  ([decision-004](./decision-004-secrets-are-written-at-the-web-edge-resolved-at-the-agent-edge.md)).
+  The server stays sessionless ([decision-006](./decision-006-browse-ui-is-host-gated-no-app-tokens.md)).
+- **Host-gated, no token.** Like the browse pages, `/settings` carries no
+  capability token — the host is the boundary (decision-006).
+- **`visit` conformance.** Each new page ships a `visit` render assertion
+  ([decision-008](./decision-008-web-render-is-tested-with-an-in-process-visit-vocab.md)):
+  `visit /settings` lists the settings; a valid submit emits the `set-*` message and
+  the reloaded index shows the new value.
+
 ## Design principles
 
 From [00](./00-vision.md), made concrete:

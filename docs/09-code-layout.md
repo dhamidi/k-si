@@ -32,6 +32,8 @@ kasi/
 ├── email/               # Fastmail JMAP, inbox/outbox, routing ([04])
 ├── agents/              # harness invocation, agent runs, transcripts ([05])
 ├── tasks/               # task lifecycle, workspaces, UI requests ([05], [08])
+├── admin/               # system-wide, ownerless settings (base URL) ([16])
+├── settings/            # the settings/form engine (Setting, Form, ToFormer) — leaf, imports runtime/ ([16])
 ├── mime/                # MIME parse/build, part<->file mapping ([02])
 ├── skills/              # skill registry + provisioning ([07])
 ├── skilltree/           # tar pack/unpack for skill trees ([07])
@@ -67,6 +69,7 @@ Message and command files are named after their **imperative tag**
 | `model_*.go` | one business object / model slice | `model_task.go` |
 | `view_*.go` / `*.vue` | one UI view/component ([08]) | `view_task.vue` |
 | `form_*.go` | one form object: bind + validate + construct one message ([08], [15](./15-tactical-patterns.md)) | `form_allow_sender.go` |
+| `settings.go` | a domain's `Settings() []settings.Setting` — the settings it contributes, assembled by `main.go` ([16]) | `email/settings.go` |
 
 Illustrative listing for the `email/` package:
 
@@ -184,5 +187,12 @@ are imperative, the filename reads as the instruction it carries.
   a domain exposes to others live in `<domain>/msg`, which imports only
   `runtime/` — so any domain can import any other's contract and cycles are
   structurally impossible ([15](./15-tactical-patterns.md)).
+- **Some packages are domain-agnostic leaves.** `runtime/`, `testlang/`, the
+  `<domain>/msg` contracts — and `settings/`, the form engine — import only
+  `runtime/` (or nothing) and are imported *by* domains, never the reverse. A
+  domain contributes settings by importing `settings/` and exposing
+  `Settings()`; the ownerless ones get a real domain of their own, `admin/`
+  ([16](./16-settings.md)).
+
 - **Keep files small and single-purpose.** If a file needs an "and" to describe
   it, it is probably two files.
