@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dhamidi/k-si/admin"
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/email"
@@ -31,6 +32,7 @@ import (
 	"github.com/dhamidi/k-si/mime"
 	"github.com/dhamidi/k-si/secrets"
 	"github.com/dhamidi/k-si/store"
+	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
 	"github.com/dhamidi/k-si/testlang"
 	"github.com/dhamidi/k-si/web"
@@ -1168,8 +1170,12 @@ func archiveRead(inst *instance, args []string) (string, error) {
 func (inst *instance) webServer() (*web.Server, error) {
 	if inst.server == nil {
 		// runner is nil until the apprunner edge is built (feature-apps.md): the
-		// /apps page still renders the registry, with liveness "unknown".
-		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil)
+		// /apps page still renders the registry, with liveness "unknown". The settings
+		// surface is assembled the same way serve.go does it, so /settings renders in
+		// scenarios (docs/16, decision-020).
+		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil, web.Settings(
+			admin.Settings(), tasks.Settings(), agents.Settings(),
+		))
 		if err != nil {
 			return nil, fmt.Errorf("visit: build server: %w", err)
 		}

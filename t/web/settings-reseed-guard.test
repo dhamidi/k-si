@@ -1,0 +1,22 @@
+# t/web/settings-reseed-guard.test — the anti-clobber contract (docs/16,
+# decision-020, ruling 9): a UI edit to a setting SURVIVES a reboot, because the
+# boot seed is guarded ("skip if already set"). base_url is the one guarded seed
+# reachable in the sim ring (the boot seeds it only when unset), so it proves the
+# rule end to end: edit it, restart, and the boot's re-seed is skipped because the
+# setting is set — the edited value stands, not the flag default.
+
+send allow-sender { address kasi@decode.ee }
+
+# The sim boot seeded the default origin.
+model admin base_url is "https://kasi.test"
+
+# The operator edits it through the real settings form.
+post /settings/base_url { value https://kasi.decode.ee } matches "*/settings*"
+model admin base_url is "https://kasi.decode.ee"
+
+# A reboot replays the log (which now carries set-base-url) and re-runs the guarded
+# boot seed. The guard sees base_url already set and skips its https://kasi.test
+# seed, so the edit is intact — a restart no longer clobbers a UI edit.
+restart
+model admin base_url is "https://kasi.decode.ee"
+visit /settings matches "*https://kasi.decode.ee*"

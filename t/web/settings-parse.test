@@ -1,0 +1,20 @@
+# t/web/settings-parse.test — parse-don't-validate at the value level (docs/16,
+# decision-020): an invalid submit re-renders the form (422) with the field's parse
+# error and emits NOTHING — the setting's model value is unchanged. The form binds,
+# gates the sensitive fields (a no-op on the flat path), then Form.Parse; a Set
+# error becomes the field error, and there is no second Validate pass to diverge.
+
+send allow-sender { address kasi@decode.ee }
+send set-max-concurrent-runs { max 3 }
+
+# A negative cap fails MaxConcurrent.Set ("must be a whole number ≥ 0"). webPOST
+# returns the 422 re-rendered body for matches; the message is shown and the model
+# value is untouched.
+post /settings/max_concurrent_runs { value -5 } matches "*≥ 0*"
+model agents max_concurrent is "3"
+
+# A non-URL base URL fails BaseURL.Set ("must be an absolute URL"). Same contract:
+# the form re-renders with the message and set-base-url never fires, so the
+# sim-seeded origin stands.
+post /settings/base_url { value not-a-url } matches "*absolute URL*"
+model admin base_url is "https://kasi.test"

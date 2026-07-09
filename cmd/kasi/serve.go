@@ -143,11 +143,18 @@ func runServe(args []string) int {
 	}
 	defer app.Stop()
 
-	if *from != "" {
+	// Seed the reply-from identity ONLY when unset, so a UI edit survives a restart
+	// and a re-passed -from never clobbers it — the guarded seeding that makes the
+	// setting "editable thereafter" true (docs/16, decision-020).
+	if *from != "" && tasks.ReplyFrom(app.View()) == "" {
 		app.Send(taskmsg.NewSetReplyFrom(taskmsg.SetReplyFromPayload{Address: *from}))
 	}
-	// Arm the runaway breakers (decision-016). Sent unconditionally so the model
-	// carries the operator's caps; 0 leaves the matching guard off.
+	// Arm the runaway breakers (decision-016). These stay UNCONDITIONAL: the int caps
+	// default to non-zero (2, 20) and 0 is a legitimate value ("disabled"/"unlimited"),
+	// so the model carries no clean "unset" signal to guard on, and a wrong guard is
+	// worse than a re-seed. Guarding them needs a "has this been set" flag in the model.
+	// TODO(phase 3): give the caps a guarded seed (a sentinel or a set flag) so a UI
+	// edit to a cap also survives a restart, like reply-from and base-url now do.
 	app.Send(agentmsg.NewSetMaxConcurrentRuns(agentmsg.SetMaxConcurrentRunsPayload{Max: *maxConcurrent}))
 	app.Send(taskmsg.NewSetLoopGuard(taskmsg.SetLoopGuardPayload{Max: *maxTaskRuns}))
 	seedAllowlist(app, *allow)
@@ -164,8 +171,13 @@ func runServe(args []string) int {
 	}
 
 	// The /apps page reads each app's liveness and logs through the same runner
-	// that keeps them up (feature-apps.md).
-	server, err := web.NewServer(app, sec, content, work, appRunner)
+	// that keeps them up (feature-apps.md). The settings surface renders and writes
+	// the typed contributions, assembled in the open beside the module list (docs/16,
+	// decision-020). email.Settings() (the initiator allowlist) is phase 3 — only
+	// these three are wired today.
+	server, err := web.NewServer(app, sec, content, work, appRunner, web.Settings(
+		admin.Settings(), tasks.Settings(), agents.Settings(),
+	))
 	if err != nil {
 		return fail("kasi serve:", err)
 	}

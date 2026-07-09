@@ -1,0 +1,47 @@
+# t/web/settings.test — the settings surface's GET/render path and the save POST,
+# driven through the REAL web.Server in-process (docs/16, decision-020, 006/008).
+# `visit` GETs a page and asserts on the rendered HTML; `post` drives the save
+# action and settles the app so the emitted set-* has applied. These routes are
+# host-gated, no token (decision-006). base_url is sim-seeded to https://kasi.test
+# by the boot (runner.go), the origin the boot-frozen edge used to supply.
+
+send allow-sender { address kasi@decode.ee }
+
+# Seed the two writable-in-sim caps and the reply-from so every wired setting shows
+# a value, exactly as serve.go's boot would.
+send set-reply-from        { address kasi@decode.ee }
+send set-max-concurrent-runs { max 2 }
+send set-loop-guard        { max 20 }
+
+# The index lists every wired setting with its short text and current value.
+visit /settings matches "*Public base URL for capability links*"
+visit /settings matches "*https://kasi.test*"
+visit /settings matches "*Reply-from address*"
+visit /settings matches "*kasi@decode.ee*"
+visit /settings matches "*Max agent runs per task*"
+visit /settings matches "*Max concurrent agent runs*"
+visit /settings matches "*base_url*"
+visit /settings matches "*reply_from*"
+visit /settings matches "*max_task_runs*"
+visit /settings matches "*max_concurrent_runs*"
+
+# The index links each setting to its form (reverse-routed settings.show).
+visit /settings matches "*/settings/base_url*"
+
+# One setting's form renders, with its long help text and the current value.
+visit /settings/base_url matches "*The origin*"
+visit /settings/base_url matches "*https://kasi.test*"
+
+# A valid submit (the flat leaf's field name is `value`) emits set-base-url and the
+# reloaded index shows the new value.
+post /settings/base_url { value https://kasi.decode.ee } matches "*/settings*"
+model admin base_url is "https://kasi.decode.ee"
+visit /settings matches "*https://kasi.decode.ee*"
+
+# The reply-from setting is writable the same way.
+post /settings/reply_from { value help@decode.ee } matches "*/settings*"
+model tasks reply_from is "help@decode.ee"
+
+# And a number setting.
+post /settings/max_concurrent_runs { value 5 } matches "*/settings*"
+model agents max_concurrent is "5"

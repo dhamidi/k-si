@@ -26,6 +26,7 @@ import (
 	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/secrets"
+	"github.com/dhamidi/k-si/settings"
 	"github.com/dhamidi/k-si/store"
 	"github.com/dhamidi/k-si/tasks"
 	taskmsg "github.com/dhamidi/k-si/tasks/msg"
@@ -66,6 +67,24 @@ type Server struct {
 	// (feature-apps.md). Empty falls back to http://localhost:<port>/, which is
 	// the loopback address a locally-run app answers on.
 	appsOrigin string
+	// settings is the typed-setting contribution list the /settings surface renders
+	// and writes (docs/16, decision-020). Assembled in the open by main.go (web.Settings)
+	// and handed in here; there is no registry. Each is a read + a write over state
+	// that stays in its owning module's slice.
+	settings []settings.Setting
+}
+
+// Settings concatenates each module's settings contribution into the one slice the
+// server renders and writes (docs/16, decision-020) — the assembly convenience
+// main.go calls as web.Settings(admin.Settings(), tasks.Settings(), agents.Settings()).
+// No registry, no init(): the list is built in the open, beside the module list it
+// mirrors.
+func Settings(groups ...[]settings.Setting) []settings.Setting {
+	var all []settings.Setting
+	for _, g := range groups {
+		all = append(all, g...)
+	}
+	return all
 }
 
 // appNameRE is the slug an app name must be: a systemd unit name and a URL
@@ -107,7 +126,7 @@ func (s *Server) appURL(port int) string {
 // reads a running run's in-progress transcript from its workspace (decision-007);
 // runner reads an app's live status/logs for the /apps page (feature-apps.md).
 // The supervisor owns the one call site.
-func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner) (*Server, error) {
+func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner, settingList []settings.Setting) (*Server, error) {
 	engine, err := htmlc.New(htmlc.Options{FS: templates, ComponentDir: "."})
 	if err != nil {
 		return nil, err
@@ -119,7 +138,7 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	// preserves method and body, so a POST that arrives with a stray trailing slash
 	// re-issues as a POST, not a GET.
 	s := &Server{
-		app: app, engine: engine, secrets: secrets, content: content, work: work, runner: runner,
+		app: app, engine: engine, secrets: secrets, content: content, work: work, runner: runner, settings: settingList,
 		router: dispatch.New(
 			dispatch.WithDefaultSlashPolicy(dispatch.SlashRedirect),
 			dispatch.WithDefaultRedirectCode(http.StatusPermanentRedirect),
@@ -198,6 +217,20 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	// (decision-006), read-only — registering/removing an app is `kasi app`'s
 	// job, not this page's.
 	if err := s.router.GET("apps.index", "/apps", http.HandlerFunc(s.showApps)); err != nil {
+		return nil, err
+	}
+	// The settings surface (docs/16, decision-020): the index lists every
+	// contributed setting; show renders one setting's form; save is the final
+	// submit. All host-gated, no token (decision-006), reverse-routed. NO reshape
+	// route yet — flat settings render as plain embedded forms (phase 3 adds the
+	// turbo-frame reshape).
+	if err := s.router.GET("settings.index", "/settings", http.HandlerFunc(s.showSettings)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("settings.show", "/settings/{key}", http.HandlerFunc(s.showSetting)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("settings.save", "/settings/{key}", http.HandlerFunc(s.saveSetting)); err != nil {
 		return nil, err
 	}
 	// The control endpoint (feature-notifications.md): `kasi notify` POSTs a mid-run
