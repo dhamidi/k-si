@@ -179,6 +179,45 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		return finishRead("post "+read[0], result, verb)
 	}
 
+	// post-frame drives the reshape round-trip and returns the RESPONSE BODY so a
+	// scenario can assert on the rendered fragment/page (docs/16). An optional
+	// leading `turbo` keyword sets the `Turbo-Frame` request header — present, the
+	// handler answers with the bare <turbo-frame> fragment; absent, the full page
+	// (the no-JavaScript reload). The rest mirrors `post`:
+	//   post-frame [turbo] /settings/{key}/reshape { op add; addr.0 a@x.test }
+	v["post-frame"] = func(in *testlang.Interp, args []string) (string, error) {
+		read, verb := splitVerb(args)
+		headers := map[string]string{}
+		if len(read) > 0 && read[0] == "turbo" {
+			// The value is the frame id a real Turbo submit sends; the handler only
+			// checks presence, so any non-empty id demonstrates the negotiation.
+			headers["Turbo-Frame"] = "setting"
+			read = read[1:]
+		}
+		if len(read) < 1 || len(read) > 2 {
+			return "", fmt.Errorf("post-frame needs [turbo] <path> and an optional form block")
+		}
+		var body url.Values
+		if len(read) == 2 {
+			lines, err := blockLines(in, read[1])
+			if err != nil {
+				return "", err
+			}
+			body = url.Values{}
+			for _, words := range lines {
+				if len(words) < 2 {
+					return "", fmt.Errorf("post-frame: form field needs a name and a value, got %q", strings.Join(words, " "))
+				}
+				body.Set(words[0], strings.Join(words[1:], " "))
+			}
+		}
+		result, err := inst.webPOSTBody(read[0], body, headers)
+		if err != nil {
+			return "", err
+		}
+		return finishRead("post-frame "+read[0], result, verb)
+	}
+
 	// seed-transcript seats a fixture transcript as a given task+run's in-progress
 	// bytes so the transcript-render page has something to parse (decision-007/008).
 	// A finished run's transcript is archived and read archive-first, so this is
@@ -1174,7 +1213,7 @@ func (inst *instance) webServer() (*web.Server, error) {
 		// surface is assembled the same way serve.go does it, so /settings renders in
 		// scenarios (docs/16, decision-020).
 		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil, web.Settings(
-			admin.Settings(), tasks.Settings(), agents.Settings(),
+			admin.Settings(), email.Settings(), tasks.Settings(), agents.Settings(),
 		))
 		if err != nil {
 			return nil, fmt.Errorf("visit: build server: %w", err)
@@ -1212,6 +1251,14 @@ func (inst *instance) webGET(path string) (string, error) {
 // Other) or, absent one, the status code. A nil body is a bare POST (the Stop /
 // forget action); a non-nil url.Values is form-urlencoded (the remember form).
 func (inst *instance) webPOST(path string, body url.Values) (string, error) {
+	return inst.webPOSTHeaders(path, body, nil)
+}
+
+// webPOSTHeaders is webPOST with an optional set of request headers — the smallest
+// general affordance the Turbo-Frame content negotiation needs (docs/16): a
+// reshape POST carries `Turbo-Frame: <id>` to get the fragment, or no such header
+// to get the full page. Header handling aside it mirrors webPOST exactly.
+func (inst *instance) webPOSTHeaders(path string, body url.Values, headers map[string]string) (string, error) {
 	s, err := inst.webServer()
 	if err != nil {
 		return "", err
@@ -1223,6 +1270,9 @@ func (inst *instance) webPOST(path string, body url.Values) (string, error) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
 		req = httptest.NewRequest(http.MethodPost, path, nil)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	s.ServeHTTP(rec, req)
 	inst.app.Settle()
@@ -1245,6 +1295,35 @@ func (inst *instance) webPOST(path string, body url.Values) (string, error) {
 		return "", fmt.Errorf("post %s: status %d", path, rec.Code)
 	}
 	return strconv.Itoa(rec.Code), nil
+}
+
+// webPOSTBody issues a POST (with optional headers) and returns the RESPONSE BODY
+// rather than the redirect/status — the shape the reshape round-trip needs, since
+// it answers 200 with HTML (a bare <turbo-frame> fragment when the Turbo-Frame
+// header is present, the full <html> page when it is absent) instead of
+// redirecting (docs/16). It settles the app so any emitted message has applied.
+func (inst *instance) webPOSTBody(path string, body url.Values, headers map[string]string) (string, error) {
+	s, err := inst.webServer()
+	if err != nil {
+		return "", err
+	}
+	rec := httptest.NewRecorder()
+	var req *http.Request
+	if body != nil {
+		req = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		req = httptest.NewRequest(http.MethodPost, path, nil)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	s.ServeHTTP(rec, req)
+	inst.app.Settle()
+	if rec.Code >= 400 {
+		return "", fmt.Errorf("post-frame %s: status %d\n%s", path, rec.Code, rec.Body.String())
+	}
+	return rec.Body.String(), nil
 }
 
 // seedTranscript writes a fixture transcript into a run's workspace slot so the

@@ -22,6 +22,7 @@ func Module(e Edges) *runtime.Module {
 	registerRouteEmail(mod)
 	registerAllowSender(mod)
 	registerRevokeSender(mod)
+	registerSetAllowlist(mod)
 	registerMarkReplyQueued(mod)
 	registerMarkEmailSent(mod)
 	registerAssembleReply(mod)
@@ -31,7 +32,6 @@ func Module(e Edges) *runtime.Module {
 	registerSendOutbox(mod)
 	registerSendNotification(mod)
 	registerRecordPollState(mod)
-	registerSetAllowlist(mod)
 	return mod
 }
 

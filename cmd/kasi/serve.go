@@ -173,10 +173,10 @@ func runServe(args []string) int {
 	// The /apps page reads each app's liveness and logs through the same runner
 	// that keeps them up (feature-apps.md). The settings surface renders and writes
 	// the typed contributions, assembled in the open beside the module list (docs/16,
-	// decision-020). email.Settings() (the initiator allowlist) is phase 3 — only
-	// these three are wired today.
+	// decision-020). email.Settings() contributes the DYNAMIC initiator allowlist,
+	// which the reshape round-trip and content-negotiated Turbo drive (phase 3).
 	server, err := web.NewServer(app, sec, content, work, appRunner, web.Settings(
-		admin.Settings(), tasks.Settings(), agents.Settings(),
+		admin.Settings(), email.Settings(), tasks.Settings(), agents.Settings(),
 	))
 	if err != nil {
 		return fail("kasi serve:", err)

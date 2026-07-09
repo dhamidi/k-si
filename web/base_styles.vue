@@ -2,8 +2,14 @@
      Included in each page's <head>; the <style> is deliberately NOT scoped, so it
      applies document-wide, under the per-page scoped styles that handle layout.
      A very basic, usable baseline: readable line height, a legible system font,
-     clear headings, and distinguishable links — structure first, lightly dressed. -->
+     clear headings, and distinguishable links — structure first, lightly dressed.
+
+     The one script include (docs/16, decision-020): Turbo, but ONLY when a page
+     passes a `turbo` src (the settings surface does; every other page omits it and
+     a scoped missing-prop handler resolves it to "", so the v-if drops the tag).
+     Turbo is a progressive enhancement — nothing depends on it (docs/08). -->
 <template>
+	<script v-if="turbo" :src="turbo" defer></script>
 	<style>
 		:root { color-scheme: light dark; --fg: #1b1b1b; --muted: #666; --link: #0b5aa2; --line: #d9d9d9; }
 		@media (prefers-color-scheme: dark) {

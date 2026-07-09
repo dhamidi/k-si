@@ -33,6 +33,11 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	form := setting.Read(s.app.View()).ToForm()
+	// A dynamic setting's shape lives in the POST body, not the model (docs/16):
+	// grow the model-derived form to the rows the browser submitted before binding,
+	// so the whole current list is parsed. A no-op on the flat path (Update == nil).
+	dynamic := form.Update != nil
+	form = growToSubmitted(form, r)
 	bound := form.Bind(submittedValues(r, form.Fields))
 
 	// A render-only form (no Parse) cannot accept a submission; flat settings always
@@ -44,7 +49,7 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request) {
 
 	value, errs := form.Parse(bound)
 	if !errs.OK() {
-		s.writeSetting(w, r, http.StatusUnprocessableEntity, setting, withErrors(bound.Fields, errs))
+		s.writeSetting(w, r, http.StatusUnprocessableEntity, setting, dynamic, withErrors(bound.Fields, errs))
 		return
 	}
 

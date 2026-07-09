@@ -36,6 +36,15 @@ import (
 //go:embed *.vue
 var templates embed.FS
 
+// turboJS is the vendored Turbo runtime (Turbo 8.x), served on the assets.turbo
+// route as the ONE script include (docs/16, decision-020). Turbo is a progressive
+// enhancement: present, it swaps a <turbo-frame> in place on a reshape; absent,
+// the same POST reloads the page. No test exercises the JS — the reshape works
+// without it via the full-page branch — so the file is drop-in and swappable.
+//
+//go:embed turbo.min.js
+var turboJS []byte
+
 // SecretWriter writes a secret plaintext to the secrets store under a
 // secret:// URL, returning nothing but the write's success (decision-004). The
 // web edge holds only this narrow capability — it writes at answer time; the
@@ -131,6 +140,19 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err != nil {
 		return nil, err
 	}
+	// base_styles.vue includes the Turbo <script> only when a page passes it a
+	// `turbo` prop (the settings surface does); every other page omits the prop.
+	// htmlc has no scope inheritance and no prop defaults, so an omitted prop must
+	// resolve to something falsy without breaking the 13 other pages — hence a
+	// scoped missing-prop handler: "turbo" absent → "" (script suppressed by the
+	// v-if), every other missing prop keeps htmlc's default visible placeholder so
+	// a genuine data bug still surfaces (docs/16).
+	engine.WithMissingPropHandler(func(name string) (any, error) {
+		if name == "turbo" {
+			return "", nil
+		}
+		return fmt.Sprintf("[missing: %s]", name), nil
+	})
 
 	// SlashRedirect canonicalises a trailing slash: GET /tasks/ 308-redirects to
 	// /tasks rather than 404ing (dispatch defaults to SlashIgnore, which treats the
@@ -220,17 +242,26 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 		return nil, err
 	}
 	// The settings surface (docs/16, decision-020): the index lists every
-	// contributed setting; show renders one setting's form; save is the final
-	// submit. All host-gated, no token (decision-006), reverse-routed. NO reshape
-	// route yet — flat settings render as plain embedded forms (phase 3 adds the
-	// turbo-frame reshape).
+	// contributed setting; show renders one setting's form; reshape folds one
+	// add/remove Event through a dynamic setting's form and re-renders (the frame,
+	// or the whole page — content-negotiated on the Turbo-Frame header); save is the
+	// final submit. All host-gated, no token (decision-006), reverse-routed.
 	if err := s.router.GET("settings.index", "/settings", http.HandlerFunc(s.showSettings)); err != nil {
 		return nil, err
 	}
 	if err := s.router.GET("settings.show", "/settings/{key}", http.HandlerFunc(s.showSetting)); err != nil {
 		return nil, err
 	}
+	if err := s.router.POST("settings.reshape", "/settings/{key}/reshape", http.HandlerFunc(s.reshapeSetting)); err != nil {
+		return nil, err
+	}
 	if err := s.router.POST("settings.save", "/settings/{key}", http.HandlerFunc(s.saveSetting)); err != nil {
+		return nil, err
+	}
+	// The Turbo runtime, served from the embedded vendored file — the one script
+	// the settings surface pulls (docs/16). A static asset: host-gated like the
+	// rest, no token.
+	if err := s.router.GET("assets.turbo", "/assets/turbo.min.js", http.HandlerFunc(s.serveTurbo)); err != nil {
 		return nil, err
 	}
 	// The control endpoint (feature-notifications.md): `kasi notify` POSTs a mid-run
@@ -677,6 +708,17 @@ func requestMessage(req tasks.UIRequest) string {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
+}
+
+// serveTurbo serves the vendored Turbo runtime as text/javascript (docs/16). A
+// long-lived cache is safe: the file is content-stable and versioned by its
+// vendored contents, and the enhancement degrades gracefully if it never loads.
+func (s *Server) serveTurbo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if _, err := w.Write(turboJS); err != nil {
+		log.Printf("web: serve turbo: %v", err)
+	}
 }
 
 func (s *Server) showCounter(w http.ResponseWriter, r *http.Request) {

@@ -39,28 +39,16 @@ func (s *Server) showSetting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	form := setting.Read(s.app.View()).ToForm()
-	s.writeSetting(w, r, http.StatusOK, setting, form.Fields)
+	s.writeSetting(w, r, http.StatusOK, setting, form.Update != nil, form.Fields)
 }
 
-// writeSetting renders view_setting from a setting and its (already bound) form
-// fields — a fresh GET passes the current fields; an invalid submit passes fields
-// carrying the user's values and per-field errors (form_setting.go).
-func (s *Server) writeSetting(w http.ResponseWriter, r *http.Request, status int, setting settings.Setting, fields []settings.Field) {
-	index, _ := s.router.Path("settings.index", nil)
-	view := SettingView{
-		Key:       setting.Key,
-		Short:     setting.Short,
-		Long:      setting.Long,
-		Fields:    settingFieldViews(fields),
-		SavePath:  s.settingSavePath(setting.Key),
-		IndexPath: index,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := RenderSetting(r.Context(), w, s.engine, view); err != nil {
-		log.Printf("web: render setting: %v", err)
-	}
+// writeSetting renders view_setting (the full page) from a setting and its
+// (already bound) form fields — a fresh GET passes the current fields; an invalid
+// submit passes fields carrying the user's values and per-field errors
+// (form_setting.go). dynamic (the form's Update != nil) turns on the reshape
+// controls.
+func (s *Server) writeSetting(w http.ResponseWriter, r *http.Request, status int, setting settings.Setting, dynamic bool, fields []settings.Field) {
+	s.renderSettingPage(w, r, status, s.settingView(setting, dynamic, fields))
 }
 
 // settingByKey finds a wired setting by its key — the small lookup the show and
@@ -84,5 +72,19 @@ func (s *Server) settingShowPath(key string) string {
 // settingSavePath reverse-routes one setting's submit URL.
 func (s *Server) settingSavePath(key string) string {
 	p, _ := s.router.Path("settings.save", dispatch.Params{"key": key})
+	return p
+}
+
+// settingReshapePath reverse-routes one setting's add/remove URL — the reshape
+// round-trip target (rule no-url-string-building).
+func (s *Server) settingReshapePath(key string) string {
+	p, _ := s.router.Path("settings.reshape", dispatch.Params{"key": key})
+	return p
+}
+
+// turboSrc reverse-routes the Turbo asset URL, passed to base_styles so the
+// settings pages emit the one <script> include (docs/16).
+func (s *Server) turboSrc() string {
+	p, _ := s.router.Path("assets.turbo", nil)
 	return p
 }

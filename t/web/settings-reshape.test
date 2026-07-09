@@ -1,0 +1,54 @@
+# t/web/settings-reshape.test — the DYNAMIC reshape round-trip + content-negotiated
+# Turbo for the initiator allowlist (docs/16, decision-020, phase 3). The allowlist
+# is the one dynamic setting: its form grows and shrinks a row per address as you
+# edit it, and each add/remove is a stateless POST that rebuilds the whole form from
+# the request body (there is no server session). `post-frame [turbo] <path> { body }`
+# drives the reshape route and returns the RESPONSE BODY; the leading `turbo` sets
+# the `Turbo-Frame` request header. Host-gated, no token (decision-006).
+
+# Seed one address, so the form opens with a single row.
+send allow-sender { address a@x.test }
+
+# The form renders inside its <turbo-frame>, with the Add/Remove reshape controls
+# and the one Turbo <script> the page pulls (reverse-routed).
+visit /settings/initiators matches "*<turbo-frame id=*setting-initiators*"
+visit /settings/initiators matches "*Add address*"
+visit /settings/initiators matches "*Remove*"
+visit /settings/initiators matches "*/assets/turbo.min.js*"
+visit /settings/initiators matches "*a@x.test*"
+
+# --- ADD, WITH the Turbo-Frame header --------------------------------------------
+# The response is a BARE fragment: it STARTS with <turbo-frame (no <html> wrapper),
+# so Turbo swaps it in place. We type zeta@x.test into row addr.0 — different from
+# the model's a@x.test — to prove the POSTed value is preserved across the reshape,
+# not re-read from the model.
+post-frame turbo /settings/initiators/reshape { op add; addr.0 zeta@x.test } matches "<turbo-frame*"
+# ONE more row appeared: the new addr.1 control is now in the form.
+post-frame turbo /settings/initiators/reshape { op add; addr.0 zeta@x.test } matches "*name=*addr.1*"
+# ...and the previously-typed value is intact.
+post-frame turbo /settings/initiators/reshape { op add; addr.0 zeta@x.test } matches "*zeta@x.test*"
+
+# --- REMOVE, WITH the header -----------------------------------------------------
+# Two typed rows submitted; removing index 1 shrinks the form and re-renders it as a
+# fragment with the surviving row's value intact.
+post-frame turbo /settings/initiators/reshape { op remove; index 1; addr.0 zeta@x.test; addr.1 beta@x.test } matches "<turbo-frame*"
+post-frame turbo /settings/initiators/reshape { op remove; index 1; addr.0 zeta@x.test; addr.1 beta@x.test } matches "*zeta@x.test*"
+# Removing the OTHER index keeps the OTHER value — the drop is index-targeted.
+post-frame turbo /settings/initiators/reshape { op remove; index 0; addr.0 zeta@x.test; addr.1 beta@x.test } matches "*beta@x.test*"
+
+# --- ADD, WITHOUT the header (degrade without JavaScript) -------------------------
+# The SAME add POST with no Turbo-Frame header returns the FULL page (STARTS with
+# <html>), with the typed value preserved — an ordinary full-page reload, nothing
+# lost.
+post-frame /settings/initiators/reshape { op add; addr.0 zeta@x.test } matches "<html*"
+post-frame /settings/initiators/reshape { op add; addr.0 zeta@x.test } matches "*zeta@x.test*"
+
+# --- FINAL SAVE ------------------------------------------------------------------
+# Submitting two rows to the save route parses each through the address validator,
+# emits set-allowlist (a whole-list REPLACE), and redirects to the index. The model
+# now holds both, sorted — the old single seed replaced.
+post /settings/initiators { addr.0 gamma@x.test; addr.1 beta@x.test } matches "*/settings*"
+model email allowlist is "beta@x.test gamma@x.test"
+
+# The index reflects the new value (both addresses, sorted, joined).
+visit /settings matches "*beta@x.test, gamma@x.test*"

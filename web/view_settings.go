@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"io"
+	"strings"
 
 	"github.com/dhamidi/htmlc"
 
@@ -52,14 +53,19 @@ func (s *Server) settingRows(v runtime.View, showPath func(key string) string) [
 }
 
 // settingDisplay renders a setting value's current display string through its own
-// form: a flat leaf's form has one field ("value") whose Value is the current
-// text (docs/16). Empty form defends against a value with no leaf field.
+// form (docs/16): a flat leaf's form has one field ("value") whose Value is the
+// current text; a dynamic list's form has one field per row, joined so the index
+// shows the whole value (e.g. every allowlisted address), not just the first.
+// Blank rows are skipped. Empty form (no rows) reads as "".
 func settingDisplay(val settings.Value) string {
 	form := val.ToForm()
-	if len(form.Fields) == 0 {
-		return ""
+	values := make([]string, 0, len(form.Fields))
+	for _, f := range form.Fields {
+		if f.Value != "" {
+			values = append(values, f.Value)
+		}
 	}
-	return form.Fields[0].Value
+	return strings.Join(values, ", ")
 }
 
 // RenderSettings writes the full page (docs/08).

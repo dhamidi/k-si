@@ -25,6 +25,11 @@ visit /settings matches "*reply_from*"
 visit /settings matches "*max_task_runs*"
 visit /settings matches "*max_concurrent_runs*"
 
+# email contributes the DYNAMIC initiator allowlist (phase 3, docs/16): it shows on
+# the index with its key and the seeded address as its current value.
+visit /settings matches "*Initiator allowlist*"
+visit /settings matches "*initiators*"
+
 # The index links each setting to its form (reverse-routed settings.show).
 visit /settings matches "*/settings/base_url*"
 
