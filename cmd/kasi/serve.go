@@ -25,6 +25,8 @@ import (
 
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
+	"github.com/dhamidi/k-si/apprunner"
+	"github.com/dhamidi/k-si/apps"
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/datastore"
 	"github.com/dhamidi/k-si/email"
@@ -107,6 +109,9 @@ func runServe(args []string) int {
 	if err != nil {
 		return fail("kasi serve:", err)
 	}
+	// The app runner keeps registered apps up under systemd --user (feature-apps.md).
+	// Apps live as direct children of the store, so its root is the same store dir.
+	appRunner := apprunner.NewOS(filepath.Join(*state, "store"))
 	// One JMAP client serves both real-world directions. Outbound defaults to the
 	// spool sender — replies written to <spool>/*.eml for inspection — while -send
 	// submits them through Fastmail for real. Sending real mail is outward-facing,
@@ -118,6 +123,7 @@ func runServe(args []string) int {
 	}
 
 	app := runtime.New(
+		apps.Module(apps.Edges{Clock: clock, Runner: appRunner}),
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
@@ -147,9 +153,19 @@ func runServe(args []string) int {
 		go pollInbox(ctx, app, jmap, content)
 	}
 
-	server, err := web.NewServer(app, sec, content, work)
+	// The /apps page reads each app's liveness and logs through the same runner
+	// that keeps them up (feature-apps.md).
+	server, err := web.NewServer(app, sec, content, work, appRunner)
 	if err != nil {
 		return fail("kasi serve:", err)
+	}
+	// Apps are addressed under the public origin (scheme+host, no port) so the
+	// control endpoint mints public-correct URLs; the per-app port is appended
+	// (feature-apps.md). Derived from -base-url, dropping any port it carries.
+	if *baseURL != "" {
+		if u, err := url.Parse(*baseURL); err == nil && u.Hostname() != "" {
+			server.SetAppsOrigin(u.Scheme + "://" + u.Hostname())
+		}
 	}
 	httpServer := &http.Server{Addr: *addr, Handler: server}
 	go func() {

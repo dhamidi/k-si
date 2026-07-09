@@ -11,6 +11,8 @@ package main
 
 import (
 	"github.com/dhamidi/k-si/agents"
+	"github.com/dhamidi/k-si/apprunner"
+	"github.com/dhamidi/k-si/apps"
 	"github.com/dhamidi/k-si/cassette"
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/datastore"
@@ -152,6 +154,7 @@ func (w *simWorld) crash() {
 // whose isolated SimEdges never drive an effect.
 func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 	return []*runtime.Module{
+		apps.Module(apps.Edges{Clock: clock, Runner: apprunner.NewSim()}),
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),

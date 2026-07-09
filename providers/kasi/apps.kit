@@ -1,0 +1,249 @@
+# apps.kit — the apps feature (docs/feature-apps.md).
+#
+# "the agent builds it, käsi keeps it running": the agent writes a small web app
+# under ./store/apps/<name>/, registers it with `kasi app add`, and käsi keeps it
+# alive under systemd on a forwarded port. The registration is a directive in the
+# log (rebuilt by replay); the code + data are files in the store (outside the
+# log); the running process is systemd's job. This slots in exactly where `kasi
+# notify` already sits (a sibling control command, decision-014 plumbing).
+#
+# Apply with:
+#
+#   kit manifest apply providers/kasi/apps.kit
+#
+# Kit scaffolds the module, model, log directives (messages), systemd effects
+# (commands), the reconcile subscription, the runner EDGE (wired across all five
+# sites), and the /apps view. The rest is hand-filled per docs/feature-apps.md,
+# exactly as notify was:
+#
+#   - the apprunner package the Runner edge points at: the Runner CONTRACT
+#     (Install/Start/Stop/Remove/Status/Logs), the OS adapter (`systemctl --user`
+#     + linger + journald), and its in-memory sim twin (docs/12);
+#   - `kasi app` CLI (cmd/kasi/app.go: add/ls/logs/restart/rm) — reads KASI_* and
+#     POSTs the control endpoint, sibling of cmd/kasi/notify.go;
+#   - the host-gated /control/app endpoint (web/server.go), which allocates a free
+#     port from the registry (an apps.FreePort reader), reads ./store/apps/<name>/
+#     app.json RAW, and injects register-app / unregister-app — mirror s.notify;
+#   - apps.json provisioning: a workspace write + a step in agents/
+#     command_start_agent_run.go beside WriteMemory/Store.Link, aggregating each
+#     store app.json into in/apps.json (store RAW, parse at the edge — [[memory]]);
+#   - serve wiring for the Runner edge's real value, the /apps route, the sim
+#     `app` test vocab, and scenarios under t/.
+
+# --- the domain ------------------------------------------------------------
+
+kasi module {
+	name apps
+	description "the app registry: name -> port, start command, operations; rebuilt by replay (feature-apps.md)"
+}
+
+kasi model {
+	module apps
+	name app
+	description "one registered app: name (slug/unit), port, start command, raw app.json operations, and status (registered|running|removing)"
+}
+
+# --- the runner edge (the one genuinely new capability) --------------------
+
+kasi edge {
+	module apps
+	name Runner
+	type apprunner.Runner
+	sim "apprunner.NewSim()"
+	real appRunner
+	shared false
+	description "keeps an app's process up under systemd --user: write/start/stop/remove its unit, read status + journald logs"
+}
+
+# --- log directives injected by the /control/app endpoint ------------------
+
+kasi message {
+	module apps
+	tag register-app
+	contract true
+	fields {
+		name string
+		port int
+		start_cmd string
+		operations string
+		url string
+	}
+	description "record a registered app (add, or replace-in-place on re-add); keyed by name like remember updates a memory"
+	intent {
+		Record the app in the registry (copy-on-write over s.Apps), keyed by
+		name: if an app with this name exists, REPLACE it in place (keep nothing
+		stale) and reset Status to "registered"; else append. Store operations
+		as the RAW app.json bytes verbatim — do NOT parse them here; the agent
+		edge re-parses when it aggregates apps.json (store raw, derive on replay,
+		like a memory's Content vs its remember directive). Set Status =
+		"registered" — the DESIRED state; the apps-reconcile subscription drives
+		the systemd unit to match. Return NO command: registering only records
+		intent; the subscription is the sole launcher (decision-015), so a crash
+		between this append and the unit write is recovered on replay. Port is
+		assigned at the edge (apps.FreePort over the current registry) and
+		carried in verbatim so replay reconstructs the same map without
+		re-allocating (record the derived edge value, decision-018).
+	}
+}
+
+kasi message {
+	module apps
+	tag unregister-app
+	contract true
+	fields {
+		name string
+	}
+	description "mark an app for removal (rm); the unit is torn down by reconciliation, then the entry is dropped"
+	intent {
+		Find the app by name (copy-on-write over s.Apps); if absent, no-op
+		(return s, nil). Set its Status = "removing" — the desired state the
+		apps-reconcile subscription acts on. Return NO command: like register,
+		removal only records intent so the subscription is the single teardown
+		path and a crash mid-teardown re-asserts on replay. Do NOT delete the
+		entry yet; mark-app-removed drops it once the unit is actually gone. The
+		code in ./store/apps/<name>/ is untouched — deleting it is a separate
+		store operation (feature-apps.md).
+	}
+}
+
+# --- reconciliation: desired registry -> actual systemd units --------------
+
+kasi subscription {
+	module apps
+	name apps-reconcile
+	emits run-app
+	description "for each registered app not yet running, emit run-app; for each removing app, emit retire-app (crash-safe, decision-013)"
+	intent {
+		Pure state -> sources, one per app whose unit does NOT match its desired
+		Status, exactly like outbox-reconcile (email/subscription_outbox_reconcile
+		.go). For each app with Status == "registered": a one-shot source, ID
+		"run-app:<name>", Await true, that emits NewRunApp{name}. For each app
+		with Status == "removing": a one-shot source, ID "retire-app:<name>",
+		Await true, that emits NewRetireApp{name}. Apps with Status == "running"
+		have no source. Because Status only leaves "registered"/"removing" when
+		mark-app-running/mark-app-removed record the effect's success in the log,
+		a crash that loses an in-flight systemctl is rebuilt by replay and the
+		source fires again — and Runner.Install/Remove are idempotent, so the
+		re-fire is safe (docs/13).
+	}
+}
+
+kasi message {
+	module apps
+	tag run-app
+	fields {
+		name string
+	}
+	description "reconcile-driven: turn a registered app into its install-app-unit effect"
+	intent {
+		Find the app by name; if absent or Status != "registered", no-op. Return
+		one NewInstallAppUnit{name, port, start_cmd} carrying the app's fields —
+		the effect writes and starts the systemd unit. Emit nothing else. This
+		message exists only because a subscription emits Msgs, not Cmds: it is the
+		Msg->Cmd hop, the twin of email's send-outbox.
+	}
+}
+
+kasi message {
+	module apps
+	tag retire-app
+	fields {
+		name string
+	}
+	description "reconcile-driven: turn a removing app into its remove-app-unit effect"
+	intent {
+		Find the app by name; if absent or Status != "removing", no-op. Return one
+		NewRemoveAppUnit{name} — the effect stops and drops the systemd unit. Emit
+		nothing else.
+	}
+}
+
+# --- the systemd effects (edge, live-only, suppressed on replay) -----------
+
+kasi command {
+	module apps
+	tag install-app-unit
+	fields {
+		name string
+		port int
+		start_cmd string
+	}
+	emits mark-app-running
+	description "write the systemctl --user unit for the app and start it, on the Runner edge; idempotent"
+	intent {
+		Call e.Runner.Install(ctx, name, port, start_cmd) then Start(ctx, name) —
+		or a single Install that writes the unit (PORT=<port> in its environment),
+		enables linger, and starts it. Both are idempotent: re-running replaces the
+		unit and restarts, so a reconcile re-fire is safe. On success emit
+		NewMarkAppRunning{name}. This is an edge effect: it runs live only and is
+		suppressed on replay, so replay never touches systemd. Errors defer to
+		reconciliation — return the error, do not emit; the source fires again next
+		pass (docs/15).
+	}
+}
+
+kasi command {
+	module apps
+	tag remove-app-unit
+	fields {
+		name string
+	}
+	emits mark-app-removed
+	description "stop the app and drop its systemctl --user unit, on the Runner edge; idempotent"
+	intent {
+		Call e.Runner.Stop(ctx, name) then Remove(ctx, name) — stop the service,
+		disable it, delete the unit file, daemon-reload. Idempotent: removing an
+		already-gone unit is a no-op success. On success emit
+		NewMarkAppRemoved{name}. Live-only, suppressed on replay. The code in
+		./store/apps/<name>/ is left in place.
+	}
+}
+
+# --- record the effect's outcome, so reconciliation converges --------------
+
+kasi message {
+	module apps
+	tag mark-app-running
+	fields {
+		name string
+	}
+	description "the app's unit is installed and started; flip Status to running so reconcile leaves it alone"
+	intent {
+		Find the app by name (copy-on-write); set Status = "running". This drops it
+		from the apps-reconcile source set. If absent (a race with removal), no-op.
+	}
+}
+
+kasi message {
+	module apps
+	tag mark-app-removed
+	fields {
+		name string
+	}
+	description "the app's unit is gone; delete the registry entry"
+	intent {
+		Remove the app with this name from s.Apps entirely (copy-on-write, leaving
+		no tombstone). If absent, no-op. After this the name is free to re-add.
+	}
+}
+
+# --- the /apps page --------------------------------------------------------
+
+kasi view {
+	name apps
+	render page
+	props {
+		apps example
+	}
+	description "the /apps page: every registered app, its URL, up/down status, and recent logs (feature-apps.md)"
+	intent {
+		Render a host-gated page (decision-006, no app tokens) listing each
+		registered app: name, its URL (https://<vm>.exe.xyz:<port>/), Status, and
+		recent journald lines from e.Runner.Logs/Status at render time. The View
+		struct is built by a view_apps.go helper from the apps.Model plus a live
+		Runner status read — the registry is käsi's (from the log), the liveness is
+		the machine's. Compose a per-app row sub-component if it helps. The web
+		route (/apps) and its handler are wired by hand in web/server.go alongside
+		the other browse pages.
+	}
+}

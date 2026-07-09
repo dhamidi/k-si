@@ -1,0 +1,67 @@
+# t/apps/register-and-run.test — the apps control plane (docs/feature-apps.md,
+# decision-015), the exact twin of t/research/notify.test. An agent, mid-run,
+# registers a long-lived web app: `kasi app add` POSTs to the host-gated
+# /control/app with its per-run token; the endpoint validates it, assigns the
+# lowest free forwarded port, and records register-app. The apps-reconcile
+# subscription then drives the sim Runner (Install→Start), which reports the unit
+# up and fires mark-app-running — so the registry converges to `running` without
+# the scenario touching the machine. A second turn removes it: `kasi app rm`
+# records unregister-app; reconcile tears the unit down and drops the entry.
+#
+# The sim `app` directive drives the REAL endpoint with the run's minted token
+# while the run is still live, so this exercises token validation and the full
+# register→reconcile→runner path, not a shortcut.
+
+send allow-sender { address dario@example.test }
+
+deliver {
+    from    dario@example.test
+    to      research@kasi.test
+    subject "stand up the ledger service"
+    body    "Register the ledger app so the team can reach it."
+}
+
+task 1 status is awaiting-agent
+
+# Turn 1: the agent registers an app, then replies.
+agent {
+    app add ledger "bun run src/server.ts"
+    out reply.txt "The ledger app is up — I registered it."
+}
+
+task 1 status is awaiting-user
+
+# The registry converged: the app is recorded and reconcile has flipped it to
+# running (the sim Runner installed+started it and mark-app-running fired). The
+# model verb can't index into a slice, so match the rendered registry blob.
+model apps apps matches "*ledger*"
+model apps apps matches "*running*"
+model apps apps matches "*bun run src/server.ts*"
+
+# The /apps browse page lists the app and its registry status. (The live column
+# reads "unknown" here — the in-process test server wires a nil Runner — so we
+# assert the registry status "running", which the page renders, not the live
+# "up".)
+visit /apps matches "*ledger*"
+visit /apps matches "*running*"
+
+# Turn 2: the user follows up in-thread; the agent removes the app.
+deliver {
+    from dario@example.test
+    reply-to-last
+    body "Thanks — you can tear it down now."
+}
+
+task 1 status is awaiting-agent
+
+agent {
+    app rm ledger
+    out reply.txt "Removed — the ledger app is gone."
+}
+
+task 1 status is awaiting-user
+
+# retire-app → remove-app-unit → mark-app-removed dropped the entry: the registry
+# is empty again and /apps no longer lists it.
+model apps apps is ""
+visit /apps matches "*No apps registered yet.*"

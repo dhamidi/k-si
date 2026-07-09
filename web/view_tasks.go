@@ -18,10 +18,12 @@ import (
 type TasksView struct {
 	Groups []TaskGroup
 	// SkillsPath links to the skills registry, MemoryPath to the memory curation
-	// page (the small cross-nav the list pages carry). Reverse-routed, never
-	// string-built (rule no-url-string-building).
+	// page, AppsPath to the registered-apps page (the small cross-nav the list
+	// pages carry). Reverse-routed, never string-built (rule
+	// no-url-string-building).
 	SkillsPath string
 	MemoryPath string
+	AppsPath   string
 }
 
 // TaskGroup is one status bucket of the list: a heading plus its rows, newest

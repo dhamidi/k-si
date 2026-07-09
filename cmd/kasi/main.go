@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/dhamidi/k-si/apps"
 	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/skills"
 	"os"
@@ -26,6 +27,7 @@ import (
 // world (simworld.go). main.go stays the one place modules are named (docs/01).
 func assembly() []*runtime.Module {
 	return []*runtime.Module{
+		apps.Module(apps.SimEdges()),
 		memory.Module(memory.SimEdges()),
 		skills.Module(skills.SimEdges()),
 		counter.Module(counter.SimEdges()),
@@ -54,6 +56,8 @@ func main() {
 		os.Exit(runCaptureInbox(os.Args[2:]))
 	case "notify":
 		os.Exit(runNotify(os.Args[2:]))
+	case "app":
+		os.Exit(runApp(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -69,5 +73,6 @@ Commands:
   secret  manage the secrets store: kasi secret <set secret://ns/key | ls> [-state ./data]  (set reads the value from stdin)
   probe   run live ring-3 probes and refresh their cassettes: kasi probe [--dry-run] [path ...]  (spends real money — real agents and mail)
   capture-inbox  capture REAL inbound mail into the parse corpus: kasi capture-inbox [-n 10] [-state ./data] [-dir t/fixtures/mime]  (reads the live inbox, read-only)
-  notify  send a mid-run notification from inside an agent run: kasi notify "<message>"  (reads KASI_* env, POSTs to the control endpoint)`)
+  notify  send a mid-run notification from inside an agent run: kasi notify "<message>"  (reads KASI_* env, POSTs to the control endpoint)
+  app     register/remove an app from inside an agent run: kasi app <add <name> [--start "<cmd>"] | rm <name>>  (reads KASI_* env, POSTs to the control endpoint)`)
 }

@@ -23,7 +23,8 @@ func (s *Server) showTasks(w http.ResponseWriter, r *http.Request) {
 
 	skillsPath, _ := s.router.Path("skills.index", nil)
 	memoryPath, _ := s.router.Path("memory.index", nil)
-	view := TasksView{Groups: groupTasks(all, s.taskShowPath, s.taskMarkDonePath), SkillsPath: skillsPath, MemoryPath: memoryPath}
+	appsPath, _ := s.router.Path("apps.index", nil)
+	view := TasksView{Groups: groupTasks(all, s.taskShowPath, s.taskMarkDonePath), SkillsPath: skillsPath, MemoryPath: memoryPath, AppsPath: appsPath}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := RenderTasks(r.Context(), w, s.engine, view); err != nil {

@@ -506,6 +506,14 @@ func applyReplyToLast(inst *instance, m *inboundMail) error {
 
 // --- agent -------------------------------------------------------------------
 
+// appAction is one `app add|rm` request collected from an agent block, fired
+// through the real /control/app endpoint after the block is parsed (feature-apps.md).
+type appAction struct {
+	action string // "add" | "rm"
+	name   string
+	start  string // add only
+}
+
 func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 	lines, err := blockLines(in, block)
 	if err != nil {
@@ -515,6 +523,7 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 	var out []mime.Part
 	var deletions []string
 	var notifies []string
+	var appActions []appAction
 	exit := 0
 	for _, words := range lines {
 		switch words[0] {
@@ -545,6 +554,28 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 				return fmt.Errorf("agent: notify needs a single message, e.g. `notify \"Smart-ID code 4271\"`")
 			}
 			notifies = append(notifies, words[1])
+		case "app":
+			// The agent registers or removes an app mid-run (feature-apps.md).
+			// Collected here, fired below WHILE the run is still live through the
+			// REAL control endpoint — exactly what `kasi app` does from inside the
+			// agent. `app add <name> "<start>"` and `app rm <name>`.
+			if len(words) < 3 {
+				return fmt.Errorf("agent: app needs `add <name> \"<start>\"` or `rm <name>`")
+			}
+			switch words[1] {
+			case "add":
+				if len(words) != 4 {
+					return fmt.Errorf("agent: app add needs a name and a start command, e.g. `app add ledger \"bun run src/server.ts\"`")
+				}
+				appActions = append(appActions, appAction{action: "add", name: words[2], start: words[3]})
+			case "rm":
+				if len(words) != 3 {
+					return fmt.Errorf("agent: app rm needs a single name, e.g. `app rm ledger`")
+				}
+				appActions = append(appActions, appAction{action: "rm", name: words[2]})
+			default:
+				return fmt.Errorf("agent: app verb must be add|rm, got %q", words[1])
+			}
 		case "exit":
 			exit, err = strconv.Atoi(arg(words))
 			if err != nil {
@@ -583,6 +614,39 @@ func agentTurn(in *testlang.Interp, inst *instance, block string) error {
 		}
 		if status != "200" {
 			return fmt.Errorf("agent: notify: control endpoint returned %s, not 200", status)
+		}
+	}
+
+	// Fire any app register/remove requests through the real /control/app endpoint
+	// while the run is still running (same live token source as notify), so the
+	// scenario drives the true endpoint → register → reconcile → sim Runner path
+	// (feature-apps.md). A 403 is an EXPECTED outcome for a bad-token variant.
+	for _, a := range appActions {
+		token := running[0].NotifyToken
+		for _, r := range running {
+			if r.TaskID == taskID {
+				token = r.NotifyToken
+				break
+			}
+		}
+		form := url.Values{
+			"task_id": {strconv.FormatInt(taskID, 10)},
+			"token":   {token},
+			"action":  {a.action},
+			"name":    {a.name},
+		}
+		if a.action == "add" {
+			form.Set("start", a.start)
+			// The directive tests the endpoint→register→reconcile→runner path; it
+			// need not read a real store, so operations is a minimal valid app.json.
+			form.Set("operations", "{}")
+		}
+		status, err := inst.webPOST("/control/app", form)
+		if err != nil {
+			return fmt.Errorf("agent: app: %w", err)
+		}
+		if status != "200" && status != "403" {
+			return fmt.Errorf("agent: app: control endpoint returned %s, not 200/403", status)
 		}
 	}
 
@@ -1097,7 +1161,9 @@ func archiveRead(inst *instance, args []string) (string, error) {
 // across visits is safe; boot() nils it so a fresh App rebinds.
 func (inst *instance) webServer() (*web.Server, error) {
 	if inst.server == nil {
-		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work)
+		// runner is nil until the apprunner edge is built (feature-apps.md): the
+		// /apps page still renders the registry, with liveness "unknown".
+		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil)
 		if err != nil {
 			return nil, fmt.Errorf("visit: build server: %w", err)
 		}

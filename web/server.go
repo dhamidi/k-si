@@ -9,14 +9,18 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 
 	"github.com/dhamidi/dispatch"
 	"github.com/dhamidi/htmlc"
 
 	"github.com/dhamidi/k-si/agents"
+	"github.com/dhamidi/k-si/apps"
+	appsmsg "github.com/dhamidi/k-si/apps/msg"
 	"github.com/dhamidi/k-si/counter"
 	"github.com/dhamidi/k-si/link"
 	"github.com/dhamidi/k-si/runtime"
@@ -52,14 +56,57 @@ type Server struct {
 	// work is the filesystem edge for reading a running run's in-progress
 	// transcript; a finished run reads from content instead (decision-007).
 	work workspace.Workspace
+	// runner reads an app's live state from the machine for the /apps page
+	// (feature-apps.md); nil until the apprunner edge is wired (docs/15), in
+	// which case the page still renders the registry, with liveness "unknown".
+	runner AppRunner
+	// appsOrigin is the public scheme+host (no port) apps are addressed under —
+	// e.g. "https://vm.exe.xyz" — set by SetAppsOrigin from the server's base URL
+	// (feature-apps.md). Empty falls back to http://localhost:<port>/, which is
+	// the loopback address a locally-run app answers on.
+	appsOrigin string
+}
+
+// appNameRE is the slug an app name must be: a systemd unit name and a URL
+// segment (feature-apps.md). Lowercase alphanumeric, then alphanumerics,
+// hyphens, or underscores.
+var appNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// SetAppsOrigin records the public scheme+host apps are reachable under, so the
+// control endpoint mints a public-correct app URL (feature-apps.md). origin is a
+// scheme+host with no port (e.g. https://vm.exe.xyz); the port is appended per
+// app. The supervisor derives it from -base-url after NewServer, keeping that
+// signature untouched.
+func (s *Server) SetAppsOrigin(origin string) {
+	s.appsOrigin = origin
+}
+
+// appURL builds an app's public URL at the given forwarded port: <origin>:<port>/
+// when an apps origin is set, else the loopback http://localhost:<port>/
+// (feature-apps.md). Built through net/url, never string-concatenated
+// (rule no-url-string-building).
+func (s *Server) appURL(port int) string {
+	u := url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort("localhost", strconv.Itoa(port)),
+		Path:   "/",
+	}
+	if s.appsOrigin != "" {
+		if origin, err := url.Parse(s.appsOrigin); err == nil && origin.Hostname() != "" {
+			u.Scheme = origin.Scheme
+			u.Host = net.JoinHostPort(origin.Hostname(), strconv.Itoa(port))
+		}
+	}
+	return u.String()
 }
 
 // NewServer wires the running App plus the edge-I/O capabilities the pages need:
 // secrets writes a UI-request secret field's plaintext and hands back a reference;
 // content stores uploaded files and reads archived transcripts/artifacts; work
-// reads a running run's in-progress transcript from its workspace (decision-007).
+// reads a running run's in-progress transcript from its workspace (decision-007);
+// runner reads an app's live status/logs for the /apps page (feature-apps.md).
 // The supervisor owns the one call site.
-func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace) (*Server, error) {
+func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner) (*Server, error) {
 	engine, err := htmlc.New(htmlc.Options{FS: templates, ComponentDir: "."})
 	if err != nil {
 		return nil, err
@@ -71,7 +118,7 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	// preserves method and body, so a POST that arrives with a stray trailing slash
 	// re-issues as a POST, not a GET.
 	s := &Server{
-		app: app, engine: engine, secrets: secrets, content: content, work: work,
+		app: app, engine: engine, secrets: secrets, content: content, work: work, runner: runner,
 		router: dispatch.New(
 			dispatch.WithDefaultSlashPolicy(dispatch.SlashRedirect),
 			dispatch.WithDefaultRedirectCode(http.StatusPermanentRedirect),
@@ -145,6 +192,13 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.POST("memory.forget", "/memory/{name}/forget", http.HandlerFunc(s.forgetMemory)); err != nil {
 		return nil, err
 	}
+	// The apps browse page (docs/08, feature-apps.md): every registered app,
+	// its URL, registry status, and live state. Host-gated, no token
+	// (decision-006), read-only — registering/removing an app is `kasi app`'s
+	// job, not this page's.
+	if err := s.router.GET("apps.index", "/apps", http.HandlerFunc(s.showApps)); err != nil {
+		return nil, err
+	}
 	// The control endpoint (feature-notifications.md): `kasi notify` POSTs a mid-run
 	// one-liner here. Host-gated (decision-006), and the per-run notify token is the
 	// credential — the same trust model as the capability links, but for a one-way
@@ -152,8 +206,93 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	if err := s.router.POST("control.notify", "/control/notify", http.HandlerFunc(s.notify)); err != nil {
 		return nil, err
 	}
+	// The apps control endpoint (feature-apps.md): `kasi app add|rm` POSTs here to
+	// register or remove an app mid-run. Host-gated (decision-006), and the per-run
+	// token is the credential — the same trust model as `/control/notify`. The
+	// endpoint records intent (register-app / unregister-app); the apps-reconcile
+	// subscription makes the machine match (docs/15).
+	if err := s.router.POST("control.app", "/control/app", http.HandlerFunc(s.controlApp)); err != nil {
+		return nil, err
+	}
 
 	return s, nil
+}
+
+// app is the host-gated control endpoint behind `kasi app` (feature-apps.md): it
+// validates the per-run token against the live AgentRun for the task, constant-
+// time — exactly as notify does — then records the agent's intent. `add`
+// registers (or re-registers) an app on a deterministically-assigned port and
+// answers with its URL; `rm` unregisters it. A missing run and a wrong token both
+// return 403, so the endpoint never leaks whether a task exists.
+func (s *Server) controlApp(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.ParseInt(r.FormValue("task_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	token := r.FormValue("token")
+	action := r.FormValue("action")
+	name := r.FormValue("name")
+	if !appNameRE.MatchString(name) {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Find the live run for this task and validate the token constant-time. Not
+	// found, empty token, or mismatch all return 403 — never a signal that the
+	// task exists (mirrors s.notify).
+	var run agents.AgentRun
+	found := false
+	for _, candidate := range agents.RunningRuns(s.app.View()) {
+		if candidate.TaskID == taskID {
+			run = candidate
+			found = true
+			break
+		}
+	}
+	if !found || token == "" ||
+		subtle.ConstantTimeCompare([]byte(run.NotifyToken), []byte(token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	switch action {
+	case "add":
+		start := r.FormValue("start")
+		operations := r.FormValue("operations")
+		// Reuse the app's port on a re-add (a name is unique, feature-apps.md);
+		// otherwise take the lowest free port. A full band is a 503.
+		port := 0
+		if existing, ok := apps.Find(s.app.View(), name); ok {
+			port = existing.Port
+		} else {
+			port = apps.FreePort(s.app.View())
+		}
+		if port == 0 {
+			http.Error(w, "no free port", http.StatusServiceUnavailable)
+			return
+		}
+		u := s.appURL(port)
+		s.app.Send(appsmsg.NewRegisterApp(appsmsg.RegisterAppPayload{
+			Name:       name,
+			Port:       port,
+			StartCmd:   start,
+			Operations: operations,
+			URL:        u,
+		}))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, u)
+	case "rm":
+		s.app.Send(appsmsg.NewUnregisterApp(appsmsg.UnregisterAppPayload{Name: name}))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	default:
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}
 }
 
 // notify is the host-gated control endpoint behind `kasi notify` (feature-

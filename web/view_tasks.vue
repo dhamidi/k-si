@@ -13,7 +13,7 @@
 	</head>
 	<body>
 		<main class="view-tasks">
-			<nav class="crumbs"><a :href="tasks.SkillsPath">Skills</a> · <a :href="tasks.MemoryPath">Memory</a></nav>
+			<nav class="crumbs"><a :href="tasks.SkillsPath">Skills</a> · <a :href="tasks.MemoryPath">Memory</a> · <a :href="tasks.AppsPath">Apps</a></nav>
 			<h1>Tasks</h1>
 
 			<p v-if="tasks.Groups.length == 0" class="empty">No tasks yet.</p>
