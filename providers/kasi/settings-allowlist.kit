@@ -1,0 +1,22 @@
+# settings-allowlist.kit — set-allowlist, the whole-value replace write behind the
+# initiators setting (docs/16, decision-020, phase 3). A whole-list edit from the
+# settings UI needs replace semantics the incremental allow-sender/revoke-sender
+# cannot express; those stay for CC-granting and programmatic single writes. The
+# Allowlist value type, its dynamic ToForm, and email.Settings() are hand-filled.
+
+kasi message {
+	module email
+	tag set-allowlist
+	contract true
+	fields {
+		addresses []string
+	}
+	description "replace the whole initiator allowlist (the settings-UI whole-value write; incremental allow-sender/revoke-sender stay)"
+	intent {
+		Replace s.Allowlist with a sorted, de-duplicated copy of p.Addresses
+		(copy-on-write; reuse the sort.Strings + dedup shape withAllowed uses). No
+		commands. This is the UI-replace half of the split memory already uses:
+		allow-sender/revoke-sender append/remove one address, set-allowlist replaces
+		the list; both write the same email.Model.Allowlist slice.
+	}
+}

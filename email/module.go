@@ -31,6 +31,7 @@ func Module(e Edges) *runtime.Module {
 	registerSendOutbox(mod)
 	registerSendNotification(mod)
 	registerRecordPollState(mod)
+	registerSetAllowlist(mod)
 	return mod
 }
 
