@@ -12,6 +12,9 @@ import { Glob } from 'bun'
  * - form          web/form_<name>.go: bind + validate + construct the message; re-renders with errors
  * - edge          a capability a module gets from the world: one field on its Edges,
  *                 scaffolded AND wired across all five sites in one declaration (docs/12)
+ * - setting       a typed, editable piece of configuration a domain contributes:
+ *                 <module>/settings.go's Settings() descriptor + its flag.Value/ToForm
+ *                 value type; rendered by the runtime form engine (docs/16)
  *
  * Discovery is structural (ast-grep over Go source); generation emits the
  * canonical shapes from the pattern book, so generated code and documented
@@ -34,6 +37,12 @@ class KasiProvider {
 	}
 
 	async *types() {
+		// Order matters for `kit generate`'s CLI type resolver: it registers only
+		// the first eight yielded types as subcommands; a token past that falls
+		// through to the generic `component` handler. `component` is unaffected —
+		// that fallback IS its handler — so it sits at nine, and `edge` (already
+		// manifest-only, never CLI-resolved) stays last. setting must be in the
+		// first eight to be `kit generate kasi setting.<module>.<key>`-able.
 		yield new ModuleType(this.kit)
 		yield new MessageType(this.kit)
 		yield new CommandType(this.kit)
@@ -41,6 +50,7 @@ class KasiProvider {
 		yield new SubscriptionType(this.kit)
 		yield new ViewType(this.kit)
 		yield new FormType(this.kit)
+		yield new SettingType(this.kit)
 		yield new ComponentType(this.kit)
 		yield new EdgeType(this.kit)
 	}
@@ -137,17 +147,27 @@ class KasiProvider {
 				details: {},
 			})
 		}
+
+		for (const setting of scan.settings) {
+			yield new KasiComponent({
+				kind: 'setting',
+				id: `setting.${setting.key}`,
+				description: setting.short ?? `Setting ${setting.key} (${setting.module})`,
+				files: setting.files,
+				details: { module: setting.module, key: setting.key },
+			})
+		}
 	}
 
 	async create(spec, env) {
-		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription, view, form) to generate')
+		throw new this.kit.UserError('Use a component type (module, message, command, model, subscription, view, form, component, edge, setting) to generate')
 	}
 }
 
 // --- Discovery ---------------------------------------------------------------
 
 async function scanRepository(kit) {
-	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [], views: [], forms: [] }
+	const scan = { modules: [], messages: [], commands: [], models: [], subscriptions: [], scenarios: [], views: [], forms: [], settings: [] }
 
 	for await (const path of new Glob('web/form_*.go').scan({ cwd: process.cwd() })) {
 		const snake = path.replace(/^web\/form_([a-z0-9_]+)\.go$/, '$1')
@@ -231,7 +251,41 @@ async function scanRepository(kit) {
 		})
 	}
 
+	// Each domain contributes settings from a pure `func Settings() []settings.Setting`
+	// (docs/16). One ast-grep match per contributing module; the Key: (and Short:)
+	// string literals inside the returned slice name each setting.
+	for (const match of await astGrep(kit, 'func Settings() []settings.Setting { $$$ }')) {
+		const module = moduleOf(match.file)
+		for (const { key, short } of settingDescriptors(match.text)) {
+			scan.settings.push({ module, key, short, files: [match.file] })
+		}
+	}
+
 	return scan
+}
+
+/**
+ * Pulls each setting's Key (and, when present, its Short) out of a Settings()
+ * function body. Robust-but-partial: every Key: literal becomes a setting even
+ * if its Short: is missing or unusual; Short is read from the slice of text
+ * between this Key and the next one, so multiple settings per module resolve
+ * independently.
+ */
+function settingDescriptors(text) {
+	if (typeof text !== 'string') return []
+
+	const keyRe = /Key:\s*"([a-z0-9_]+)"/g
+	const hits = []
+	let m
+	while ((m = keyRe.exec(text)) !== null) {
+		hits.push({ key: m[1], index: m.index })
+	}
+
+	return hits.map((hit, i) => {
+		const end = i + 1 < hits.length ? hits[i + 1].index : text.length
+		const block = text.slice(hit.index, end)
+		return { key: hit.key, short: block.match(/Short:\s*"([^"]*)"/)?.[1] }
+	})
 }
 
 /**
@@ -1295,6 +1349,117 @@ code.`,
 	}
 }
 
+// --- setting -----------------------------------------------------------------
+
+class SettingType extends KasiType {
+	id() {
+		return 'setting'
+	}
+
+	description() {
+		return 'A typed, editable setting a domain contributes: <module>/settings.go\'s Settings() descriptor + its flag.Value/ToForm value type, rendered by the runtime form engine (docs/16)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			module: this.moduleField(),
+			key: Type.Optional(
+				Type.String({
+					description: 'Setting key: a stable snake_case (or kebab-case) id — the route param and the form\'s scope (docs/16)',
+					examples: ['base_url', 'reply_from', 'max_task_runs'],
+					pattern: '^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$',
+					cli: false,
+				}),
+			),
+			short: Type.Optional(
+				Type.String({
+					description: 'One line, shown in the settings list',
+					examples: ['Reply-from address', 'Public base URL for capability links'],
+				}),
+			),
+			long: Type.Optional(
+				Type.String({
+					description: 'Help text, shown on the setting\'s form',
+					examples: ['The deliverable From address käsi sends replies as (docs/04).'],
+				}),
+			),
+			value_type: Type.Optional(
+				Type.String({
+					description: 'Go type name of the value — a leaf implementing flag.Value (Set/String) + ToForm; defaults to the PascalCase key',
+					examples: ['MaxConcurrent', 'BaseURL', 'FromAddress'],
+					pattern: '^[A-Z][A-Za-z0-9]*$',
+				}),
+			),
+			message: Type.Optional(
+				this.tagField('The set-* message tag a write emits (defaults to set-<key>)', ['set-base-url', 'set-max-concurrent-runs']),
+			),
+		})
+	}
+
+	normalize(rawSpec) {
+		const module = rawSpec.module ?? rawSpec.parent
+		const rawKey = rawSpec.key ?? rawSpec.name
+
+		if (module === undefined || !/^[a-z][a-z0-9]*$/.test(module)) {
+			throw new this.kit.UserError(`setting: module must be a lower-case Go package name, got ${JSON.stringify(module)}`)
+		}
+		if (RESERVED_DIRS.has(module)) {
+			throw new this.kit.UserError(`setting: ${module} is not a domain module`)
+		}
+		if (rawKey === undefined || !/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(rawKey)) {
+			throw new this.kit.UserError(`setting: key must be snake_case or kebab-case, got ${JSON.stringify(rawKey)}`)
+		}
+
+		const key = rawKey.replaceAll('-', '_')
+		const valueType = rawSpec.value_type ?? pascalCase(key)
+		const short = rawSpec.short ?? `The ${key.replaceAll('_', ' ')} setting`
+		const long = rawSpec.long ?? short
+		const message = rawSpec.message ?? `set-${key.replaceAll('_', '-')}`
+
+		return { ...rawSpec, module, key, name: key, valueType, short, long, message }
+	}
+
+	async *generate(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const gomod = await goModulePath(env)
+		const settingsFile = `${spec.module}/settings.go`
+
+		// A fresh module: write the whole contribution — a Settings() returning the
+		// one descriptor plus the value-type skeleton — deterministically (~80%).
+		if (!(await Bun.file(settingsFile).exists())) {
+			yield* this.createFresh(env, settingsFile, settingsFileTemplate(spec, gomod))
+
+			if (spec.intent !== undefined) {
+				yield this.plan(
+					spec,
+					`Implement the "${spec.key}" setting`,
+					[settingsFile],
+					newSettingPrompt(spec),
+				)
+			}
+			return
+		}
+
+		// settings.go already exists: splicing into the returned slice literal is
+		// brittle, so we don't. Emit the value-type skeleton as its own file (if the
+		// type is new) and hand the descriptor addition to the implementer as a plan.
+		const settingsSource = await env.readFile(settingsFile)
+		const valueFile = `${spec.module}/setting_${spec.key}.go`
+
+		if (!new RegExp(`type ${escapeRegExp(spec.valueType)}\\b`).test(settingsSource)) {
+			yield* this.createFresh(env, valueFile, settingValueTemplate(spec, gomod))
+		}
+
+		yield this.plan(
+			spec,
+			`Add the "${spec.key}" setting to ${spec.module}.Settings()`,
+			[settingsFile, valueFile],
+			existingSettingPrompt(spec),
+		)
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1547,6 +1712,122 @@ func ${camel}Subs(v runtime.View, s Model) []runtime.Sub {
 	return nil
 }
 `
+}
+
+// settingValueTemplate is the setting's value type: a flag.Value leaf (Set +
+// String) that forms through the default former (settings.FormOf). A string-based
+// skeleton compiles as-is; the implementer refines Set (parse-don't-validate) and
+// switches to an int/struct base where the setting calls for one (docs/16).
+function settingValueTemplate(spec, gomod) {
+	const vt = spec.valueType
+	return `package ${spec.module}
+
+import "${gomod}/settings"
+
+// ${vt} is the typed value of the "${spec.key}" setting — ${spec.short}.
+// It parses through flag.Value (Set/String) and forms through the default former
+// (settings.FormOf, one field). The value's state stays in ${spec.module}.Model;
+// this type is the read/write shape over it (docs/16).
+type ${vt} string
+
+func (v *${vt}) Set(raw string) error {
+	// TODO: parse-don't-validate — reject anything ${vt} must not hold (docs/15).
+	*v = ${vt}(raw)
+	return nil
+}
+
+func (v ${vt}) String() string          { return string(v) }
+func (v ${vt}) ToForm() settings.Form { return settings.FormOf(&v) }
+`
+}
+
+// settingsFileTemplate is the whole <module>/settings.go for a module that has no
+// settings yet: the value-type skeleton plus a Settings() returning its one
+// descriptor. Read/Write are TODO closures that still compile (Read returns the
+// zero value, Write the zero Msg), so the file is gofmt-clean and buildable while
+// the implementer fills them in (docs/16, decision-020).
+function settingsFileTemplate(spec, gomod) {
+	const vt = spec.valueType
+	return `package ${spec.module}
+
+import (
+	"${gomod}/runtime"
+	"${gomod}/settings"
+)
+
+// ${vt} is the typed value of the "${spec.key}" setting — ${spec.short}.
+// It parses through flag.Value (Set/String) and forms through the default former
+// (settings.FormOf, one field). The value's state stays in ${spec.module}.Model;
+// this type is the read/write shape over it (docs/16).
+type ${vt} string
+
+func (v *${vt}) Set(raw string) error {
+	// TODO: parse-don't-validate — reject anything ${vt} must not hold (docs/15).
+	*v = ${vt}(raw)
+	return nil
+}
+
+func (v ${vt}) String() string          { return string(v) }
+func (v ${vt}) ToForm() settings.Form { return settings.FormOf(&v) }
+
+// Settings is ${spec.module}'s contribution to the settings surface (docs/16,
+// decision-020). A pure function main.go concatenates into web.Settings(...); no
+// registry, no init(). The value stays in ${spec.module}'s own model — this is a
+// read plus a write over it, not a relocation.
+func Settings() []settings.Setting {
+	return []settings.Setting{{
+		Key:   "${spec.key}",
+		Short: "${spec.short}",
+		Long:  "${spec.long}",
+		Owner: "${spec.module}",
+		Read: func(v runtime.View) settings.Value {
+			// TODO: read the current value out of the model through a pure View
+			// read helper (docs/15), wrapped in ${vt}.
+			return ${vt}("")
+		},
+		Write: func(val settings.Value) runtime.Msg {
+			// TODO: build the "${spec.message}" message this setting writes, e.g.
+			// msg.New${pascalCase(spec.message)}(...); its payload carries val.(${vt}).
+			return runtime.Msg{}
+		},
+	}}
+}
+`
+}
+
+function newSettingPrompt(spec) {
+	return `Intent: ${spec.intent ?? `the ${spec.key} setting for ${spec.module}`}
+
+Finish ${spec.module}/settings.go. Make ${spec.valueType}.Set enforce what the
+value may hold (parse-don't-validate, docs/15), switching to an int/struct base
+if a string is wrong. Fill the descriptor's Read to pull the live value out of
+${spec.module}.Model through a pure View helper, and Write to build the
+"${spec.message}" set-* message (add the message + its payload if it does not
+exist yet). Wire ${spec.module}.Settings() into web.Settings(...) in
+cmd/kasi/serve.go beside the other modules (docs/16). Do not refactor unrelated
+code.`
+}
+
+function existingSettingPrompt(spec) {
+	return `Intent: ${spec.intent ?? `add the ${spec.key} setting to ${spec.module}`}
+
+${spec.module}/settings.go already has a Settings() slice; add one more
+settings.Setting descriptor to it (do not rewrite the others):
+
+	{
+		Key:   "${spec.key}",
+		Short: "${spec.short}",
+		Long:  "${spec.long}",
+		Owner: "${spec.module}",
+		Read:  func(v runtime.View) settings.Value { return ${spec.valueType}(/* model field */) },
+		Write: func(val settings.Value) runtime.Msg { return msg.New${pascalCase(spec.message)}(/* payload from val.(${spec.valueType}) */) },
+	}
+
+The ${spec.valueType} value type is scaffolded in
+${spec.module}/setting_${spec.key}.go — refine its Set (parse-don't-validate,
+docs/15). Read wraps the live model field in ${spec.valueType}; Write builds the
+"${spec.message}" message (add it + its payload to ${spec.module}/msg if it does
+not exist). Do not refactor unrelated code.`
 }
 
 function payloadStruct(pascal, fields) {

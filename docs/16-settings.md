@@ -509,3 +509,35 @@ reads it back), so no effect re-derives a URL during replay. An old log with no
 hazard the migration had to clear was the boot-seed clobber the guarded seeding
 above closes, not replay
 ([decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)).
+
+## A setting is a kit component type
+
+Settings are a scaffoldable shape like every other domain primitive
+([15](./15-tactical-patterns.md)), so the `kasi` kit provider knows them
+directly — the executable-shapes rule ([15](./15-tactical-patterns.md)): the
+documented shape and the generated shape are the same shape.
+
+- **Discovery.** `kit component list` surfaces each contributed setting as
+  `kasi.setting.<key>` with its `Short` and its `<module>/settings.go` file. The
+  provider finds them structurally — one ast-grep match per
+  `func Settings() []settings.Setting { … }`, reading the `Key:` (and `Short:`)
+  string literals out of the returned slice — so the list tracks the code with no
+  registry to keep in sync.
+- **Generation.** `kit generate kasi setting.<module>.<key>` scaffolds the
+  descriptor and its value type. When the module has no `settings.go` yet, it
+  writes the whole file — a `Settings()` returning the one descriptor plus a
+  value-type skeleton (a named type with `Set`/`String` and
+  `ToForm() settings.Form { return settings.FormOf(&v) }`), deterministic and
+  gofmt-clean. When `settings.go` already exists, it does **not** splice into the
+  returned slice literal (brittle); it writes the value-type skeleton as its own
+  `setting_<key>.go` and hands the descriptor addition to the implementer as one
+  `kit.Event.plan(…)` — the deterministic-file-plus-plan convention every käsi
+  provider type follows. Fields: `module`, `key`, `short`, `long`, `value_type`
+  (the Go value type name, defaulting to the PascalCase key), and an optional
+  `message` (the `set-*` tag a write emits).
+
+The value type the provider generates is a flat leaf — a `flag.Value` formed by
+the default former — the same shape `admin.BaseURL`, `tasks.FromAddress`, and
+`agents.MaxConcurrent` above already take. A dynamic setting (an `Allowlist`-style
+`Update`/`Parse` form) is the implementer's follow-up on top of that leaf, not
+something the scaffold guesses.
