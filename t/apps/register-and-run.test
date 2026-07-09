@@ -45,6 +45,12 @@ model apps apps matches "*bun run src/server.ts*"
 visit /apps matches "*ledger*"
 visit /apps matches "*running*"
 
+# The row carries an Open link to the app's own URL, so the page is a launcher,
+# not just a status board (the test server has no public origin, so the URL is the
+# localhost fallback the endpoint mints).
+visit /apps matches "*Open*"
+visit /apps matches "*http://localhost:*"
+
 # Turn 2: the user follows up in-thread; the agent removes the app.
 deliver {
     from dario@example.test
