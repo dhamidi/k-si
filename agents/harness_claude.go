@@ -63,6 +63,15 @@ finishes. Keep SQLite databases, caches, and scratch files there, and read from 
 before re-fetching anything you cached before. It is shared across all your tasks
 but never shown to the user: it is your working state, not the user's memory.
 
+When the right answer to a request is a small web app — a dashboard, a form, a
+viewer — build it under ./store/<name>/ as a program that reads $PORT from its
+environment and serves on it, then register it by running: kasi app add <name>.
+käsi assigns a port, keeps it running, and lists it on its web UI at /apps; the
+URL is returned so you can confirm it is live. Describe the app's HTTP operations
+in a ./store/<name>/app.json so a later run can call them; kasi app rm <name>
+stops and unregisters it. Registering does not change how the app starts, so "run
+it to try it" and "let käsi run it" are the same program.
+
 ./out/memory/ is that user-visible memory — the durable facts about the user and
 their world (a preference, an account detail, a decision) that käsi shows and
 curates on its web UI. This is DISTINCT from ./store/: store is your private
