@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/dhamidi/k-si/admin"
 	"github.com/dhamidi/k-si/apps"
+	"github.com/dhamidi/k-si/credentials"
 	"github.com/dhamidi/k-si/memory"
 	"github.com/dhamidi/k-si/skills"
 	"os"
@@ -28,6 +29,7 @@ import (
 // world (simworld.go). main.go stays the one place modules are named (docs/01).
 func assembly() []*runtime.Module {
 	return []*runtime.Module{
+		credentials.Module(credentials.SimEdges()),
 		admin.Module(admin.SimEdges()),
 		apps.Module(apps.SimEdges()),
 		memory.Module(memory.SimEdges()),

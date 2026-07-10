@@ -14,13 +14,14 @@ import (
 // never be (docs/06 invariants). The runner keeps one across a simulated crash.
 type SimSecrets struct {
 	mu     sync.Mutex
-	issued map[string]string // url -> sentinel
+	issued map[string]string   // url -> sentinel (Set OR Resolve — the leak-scan set)
+	stored map[string]struct{} // url -> present (Set only — the management-surface view)
 }
 
 var _ Secrets = (*SimSecrets)(nil)
 
 func NewSim() *SimSecrets {
-	return &SimSecrets{issued: map[string]string{}}
+	return &SimSecrets{issued: map[string]string{}, stored: map[string]struct{}{}}
 }
 
 // Set records that a secret exists at url and DISCARDS the plaintext — the sim
@@ -40,7 +41,39 @@ func (s *SimSecrets) Set(url, plaintext string) error {
 	defer s.mu.Unlock()
 
 	s.issued[url] = fmt.Sprintf("SENTINEL-SECRET(%s/%s)", ns, key)
+	s.stored[url] = struct{}{}
 	return nil
+}
+
+// Delete drops a stored secret — the sim twin of *SQLiteSecrets.Delete. Removing
+// an absent secret is a no-op success (idempotent). The sentinel stays in issued
+// so a leak scan of prior state is unaffected; only the management view forgets it.
+func (s *SimSecrets) Delete(url string) error {
+	if _, _, err := parseURL(url); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.stored, url)
+	return nil
+}
+
+// Entries lists the SET secrets as references with a zero set-time (the sim edge
+// tracks no clock) — the twin of *SQLiteSecrets.Entries, so a scenario sees the
+// same management view a real store would, minus the timestamp.
+func (s *SimSecrets) Entries() ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	refs := make([]string, 0, len(s.stored))
+	for url := range s.stored {
+		refs = append(refs, url)
+	}
+	sort.Strings(refs)
+	entries := make([]Entry, len(refs))
+	for i, ref := range refs {
+		entries[i] = Entry{Ref: ref}
+	}
+	return entries, nil
 }
 
 // Resolve returns a deterministic sentinel for a valid secret:// URL and records

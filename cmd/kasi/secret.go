@@ -28,7 +28,7 @@ func runSecret(args []string) int {
 
 	rest := flags.Args()
 	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: kasi secret <set|ls> [args]")
+		fmt.Fprintln(os.Stderr, "usage: kasi secret <set|ls|rm> [args]")
 		return 2
 	}
 
@@ -81,8 +81,20 @@ func runSecret(args []string) int {
 		}
 		return 0
 
+	case "rm":
+		if len(rest) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: kasi secret rm <secret://namespace/key>")
+			return 2
+		}
+		if err := store.Delete(rest[1]); err != nil {
+			fmt.Fprintln(os.Stderr, "kasi secret:", err)
+			return 1
+		}
+		fmt.Printf("removed %s\n", rest[1]) // the reference, never the value
+		return 0
+
 	default:
-		fmt.Fprintf(os.Stderr, "kasi secret: unknown command %q (set, ls)\n", rest[0])
+		fmt.Fprintf(os.Stderr, "kasi secret: unknown command %q (set, ls, rm)\n", rest[0])
 		return 2
 	}
 }

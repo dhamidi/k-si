@@ -138,6 +138,43 @@ func (s *SQLiteSecrets) List() ([]string, error) {
 	return urls, rows.Err()
 }
 
+// Entries returns every stored secret as a reference plus its last-set time, in
+// sorted order — references only, never values (docs/06). It backs the /secrets
+// management page, which shows what exists and when it was last set. A malformed
+// updated_at is tolerated (zero time) rather than failing the whole listing.
+func (s *SQLiteSecrets) Entries() ([]Entry, error) {
+	rows, err := s.db.Query(`SELECT namespace, key, updated_at FROM secret ORDER BY namespace, key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []Entry
+	for rows.Next() {
+		var ns, key, updated string
+		if err := rows.Scan(&ns, &key, &updated); err != nil {
+			return nil, err
+		}
+		at, _ := time.Parse(time.RFC3339, updated)
+		entries = append(entries, Entry{Ref: URL(ns, key), UpdatedAt: at})
+	}
+	return entries, rows.Err()
+}
+
+// Delete removes the secret at url, sealing off a credential the operator has
+// retired (docs/06). Deleting an absent secret is a no-op success — idempotent,
+// so a retry or a double-submit is harmless.
+func (s *SQLiteSecrets) Delete(url string) error {
+	ns, key, err := parseURL(url)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM secret WHERE namespace = ? AND key = ?`, ns, key); err != nil {
+		return fmt.Errorf("secrets: delete %s: %w", url, err)
+	}
+	return nil
+}
+
 // LoadKey returns the 32-byte encryption key from the host: the base64 value of
 // $KASI_SECRETS_KEY if set, otherwise a per-deployment key file beside the
 // databases (created on first use, 0600). Either way the key lives OUTSIDE the

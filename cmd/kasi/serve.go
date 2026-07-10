@@ -25,6 +25,7 @@ import (
 
 	"github.com/dhamidi/k-si/admin"
 	adminmsg "github.com/dhamidi/k-si/admin/msg"
+	"github.com/dhamidi/k-si/credentials"
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/apprunner"
@@ -125,6 +126,7 @@ func runServe(args []string) int {
 	}
 
 	app := runtime.New(
+		credentials.Module(credentials.Edges{Clock: clock}),
 		admin.Module(admin.Edges{Clock: clock}),
 		apps.Module(apps.Edges{Clock: clock, Runner: appRunner}),
 		memory.Module(memory.Edges{Clock: clock}),

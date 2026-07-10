@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Secrets resolves a secret:// URL to its plaintext value, only at the instant
@@ -22,6 +23,16 @@ import (
 // one interface; nothing outside an effect ever calls it.
 type Secrets interface {
 	Resolve(ctx context.Context, url string) (string, error)
+}
+
+// Entry is one stored secret as the management surface SEES it (docs/06): its
+// reference and when it was last set — NEVER its value. It is what a /secrets
+// list renders; the value stays sealed in the store and is only ever Resolved
+// inside an effect (decision-004). UpdatedAt is zero when the edge does not track
+// a set time (the sim twin).
+type Entry struct {
+	Ref       string
+	UpdatedAt time.Time
 }
 
 const scheme = "secret"
