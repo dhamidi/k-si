@@ -1,8 +1,54 @@
 # 04 — Email & routing
 
-Email is käsi's primary interface. All of it flows through a single Fastmail
-account over **JMAP**. This document covers inbound delivery, address-based
-routing, outbound sending, and threading.
+Email is käsi's primary interface. It flows through one or more **delivery
+mechanisms** — pluggable providers, each contributing inbound, outbound, or both,
+configured from the web UI rather than wired at boot
+([decision-023](./decision-023-delivery-mechanisms-are-configured-in-the-model.md)).
+Fastmail over **JMAP** is the built-in mechanism and the running example
+throughout. This document covers inbound delivery, address-based routing, outbound
+sending, threading, and how mechanisms plug in.
+
+## Delivery mechanisms
+
+Mail reaches käsi, and leaves it, through a **delivery mechanism** — a named
+provider that contributes an outbound sender, an inbound source, or both. Fastmail
+(below) is one; ForwardEmail is another; the development spool is a third. You add
+and configure them from the settings UI, not by redeploying
+([16](./16-settings.md),
+[decision-023](./decision-023-delivery-mechanisms-are-configured-in-the-model.md)).
+
+Two rules keep this from fighting boot-time assembly ([01](./01-architecture.md)):
+
+- **Every mechanism is built at boot; the model decides which are used.** Nothing
+  starts or stops a goroutine or swaps an edge at runtime — a mechanism is *gated*,
+  not lifecycled. The outbound path is a dispatcher that sends through whichever
+  mechanism `OutboundVia` names; the inbound webhook route is always mounted but
+  only accepts when its mechanism is enabled and its token matches; the poller
+  checks per tick whether it is on.
+- **Configuration is model state; credentials are references.** Which mechanisms
+  are enabled, which one sends, and each provider's domain live in the email model,
+  logged and replayable. A provider's API token is a secret (`secret://…`,
+  [06](./06-secrets.md)); an inbound webhook token is a minted capability value
+  stored in the model, like the completion token.
+
+A mechanism is **inert until configured** — it can neither send nor receive until
+its credential is stored and it is switched on — so a fresh install sends nothing
+by accident, and enabling real mail is a deliberate act. The `-poll` / `-send` /
+`-from` flags remain only as the safe boot default and a dev escape hatch.
+
+**Inbound over a webhook.** A mechanism may deliver mail by POSTing it to käsi
+rather than being polled. The route `POST /inbound/{mechanism}/{token}` validates
+the token, re-runs the authorisation gates below, stores the raw MIME to `inbox`
+**before it answers 200**, then emits `route-email` exactly as the poller does —
+deduped on `Message-ID` so a provider's retry is harmless. This is the one public
+entry point in an otherwise host-gated deployment ([08](./08-web-ui.md)); the
+unguessable token in its URL is what guards it.
+
+**ForwardEmail** is the first webhook mechanism: enter its API token and domain in
+the settings UI, käsi mints the webhook token and shows the DNS `TXT` record to
+paste (`forward-email=https://…/inbound/forwardemail/<token>`), and mail flows —
+inbound over the webhook, outbound over ForwardEmail's API with DKIM on your
+domain. See the feature guide *Delivery mechanisms* for the walkthrough.
 
 ## Fastmail over JMAP
 
@@ -135,9 +181,10 @@ When a task produces a response ([05](./05-agents-and-tasks.md)):
    headers.
 2. The assemble effect writes a `pending` row to the `outbox`
    ([03](./03-persistence.md)) and emits `mark-reply-queued`.
-3. A **send** subscription/command transmits every `pending` outbox row via JMAP
-   (`Email/set` + `EmailSubmission/set`), then emits `mark-email-sent`, whose
-   handler marks the row `sent`.
+3. A **send** subscription/command transmits every `pending` outbox row through
+   the active mechanism — JMAP for Fastmail, a REST call for ForwardEmail, a file
+   for the spool — selected by `OutboundVia` (see *Delivery mechanisms* above). It
+   then emits `mark-email-sent`, whose handler marks the row `sent`.
 
 Because the outbox is a durable, idempotent queue, a crash mid-send is
 recoverable: reconciliation re-sends anything still `pending`
