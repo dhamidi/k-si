@@ -21,34 +21,36 @@ Two rules keep this from fighting boot-time assembly ([01](./01-architecture.md)
 
 - **Every mechanism is built at boot; the model decides which are used.** Nothing
   starts or stops a goroutine or swaps an edge at runtime — a mechanism is *gated*,
-  not lifecycled. The outbound path is a dispatcher that sends through whichever
-  mechanism `OutboundVia` names; the inbound webhook route is always mounted but
-  only accepts when its mechanism is enabled and its token matches; the poller
-  checks per tick whether it is on.
-- **Configuration is model state; credentials are references.** Which mechanisms
-  are enabled, which one sends, and each provider's domain live in the email model,
-  logged and replayable. A provider's API token is a secret (`secret://…`,
-  [06](./06-secrets.md)); an inbound webhook token is a minted capability value
-  stored in the model, like the completion token.
+  not lifecycled. Outbound is a dispatcher that sends through whichever mechanism
+  `OutboundVia` names; each inbound poller checks per tick whether its mechanism is
+  enabled and no-ops otherwise.
+- **Configuration is model state; credentials are secrets.** Which mechanisms are
+  enabled, which one sends, and each provider's domain live in the email model,
+  logged and replayable. Credentials — an API token, an IMAP password — are written
+  to the secrets store and referenced as `secret://…` ([06](./06-secrets.md)),
+  never in the model or log.
 
 A mechanism is **inert until configured** — it can neither send nor receive until
-its credential is stored and it is switched on — so a fresh install sends nothing
-by accident, and enabling real mail is a deliberate act. The `-poll` / `-send` /
-`-from` flags remain only as the safe boot default and a dev escape hatch.
+its credential is stored and it is switched on — so a fresh install sends nothing by
+accident, and enabling real mail is a deliberate act. Turning outbound on also
+requires a deliverable reply-from and a reachable base-url, so a live sender can
+never emit mail nobody receives. The `-poll` / `-send` / `-from` flags remain only
+as the safe boot default and a dev escape hatch.
 
-**Inbound over a webhook.** A mechanism may deliver mail by POSTing it to käsi
-rather than being polled. The route `POST /inbound/{mechanism}/{token}` validates
-the token, re-runs the authorisation gates below, stores the raw MIME to `inbox`
-**before it answers 200**, then emits `route-email` exactly as the poller does —
-deduped on `Message-ID` so a provider's retry is harmless. This is the one public
-entry point in an otherwise host-gated deployment ([08](./08-web-ui.md)); the
-unguessable token in its URL is what guards it.
+**ForwardEmail** is the first added mechanism: enter its API token, IMAP password,
+and domain in the settings UI and flip inbound and/or outbound on. Inbound is
+**polled over IMAP**, exactly as Fastmail is polled over JMAP — feeding the same
+`route()` → `route-email` pipeline, with retry-safety from `route-email`'s
+idempotency on the inbox row. Outbound goes over ForwardEmail's API with DKIM on
+your domain. No public endpoint is involved; the mechanism inherits Fastmail's
+host-gated posture. See the feature guide *Delivery mechanisms* for the walkthrough.
 
-**ForwardEmail** is the first webhook mechanism: enter its API token and domain in
-the settings UI, käsi mints the webhook token and shows the DNS `TXT` record to
-paste (`forward-email=https://…/inbound/forwardemail/<token>`), and mail flows —
-inbound over the webhook, outbound over ForwardEmail's API with DKIM on your
-domain. See the feature guide *Delivery mechanisms* for the walkthrough.
+> A real-time inbound **webhook** (a provider POSTing mail to käsi) is deliberately
+> deferred: on this deployment an unauthenticated external POST cannot reach käsi
+> without exposing the whole private UI, and a DNS-published token is not a real
+> authenticator
+> ([decision-023](./decision-023-delivery-mechanisms-are-configured-in-the-model.md)).
+> Polling needs no public surface, so it is the inbound path.
 
 ## Fastmail over JMAP
 

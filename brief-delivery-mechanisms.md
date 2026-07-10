@@ -2,69 +2,73 @@
 
 Actions to build [decision-023](docs/decision-023-delivery-mechanisms-are-configured-in-the-model.md).
 Rides on the settings engine ([decision-020](docs/decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)) —
-land or stub the settings `Setting`/`Form`/secret-gate first, since the setup UI is
-how a mechanism is configured. Spec only; no code exists yet.
+its `settings/` package, reshape, and base-url migration (`admin.BaseURLOf`) are
+built, but its **decision-004 secret gate is a no-op today** and no former yields a
+`group`; both are prerequisites here (§4). ForwardEmail inbound is **polled over
+IMAP** — no webhook (deferred, see end). Spec only; no code exists yet.
 
 ## The mechanisms today and after
 
 | Mechanism | Outbound | Inbound | Config | Credential |
 |---|---|---|---|---|
 | `spool` | writes `.eml` files | — | boot default | none |
-| `fastmail` | JMAP `Email/set`+`EmailSubmission/set` | poller (`Email/changes`) | model | `secret://fastmail/api-token` |
-| `forwardemail` | REST `POST /v1/emails` (or SMTP :465) | webhook `POST /inbound/forwardemail/{token}` | model | `secret://forwardemail/api-token` + minted webhook token |
+| `fastmail` | JMAP `Email/set`+`EmailSubmission/set` | poll `Email/changes` | model | `secret://fastmail/api-token` |
+| `forwardemail` | REST `POST /v1/emails` (or SMTP :465) | **poll IMAP** `imap.forwardemail.net` | model | `secret://forwardemail/api-token` + `secret://forwardemail/imap-password` |
 
 Later: `exedev-maildir` (inotify on `~/Maildir/new`), `smtp` (raw). Same abstraction.
 
 ## 0. Model (email module owns it)
 
-- [ ] `email/model_email.go` — add `Mechanisms map[string]Mechanism` and `OutboundVia string` to `Model`. `Mechanism{Inbound, Outbound bool; Domain string; APITokenRef string /* secret:// */; WebhookToken string /* minted */}`.
-- [ ] `email/msg/` — `set-mechanism` (upsert one mechanism's config), `set-outbound-via` (choose the active sender). Both are complete imperative messages, logged/replayable.
-- [ ] Reader helpers: `OutboundVia(v)`, `Mechanism(v, name)`, `InboundEnabled(v, name)`. Pure, exported (docs/15).
-- [ ] Credential split: **API token → secret** (`secret://…`, decision-004, written at the web edge). **Webhook token → minted capability value** in the model (128-bit `mintToken`, like completion tokens, decision-003), displayed once at setup.
+- [ ] `email/model_email.go` — add `Mechanisms map[string]Mechanism` and `OutboundVia string`. `Mechanism{Inbound, Outbound bool; Domain string; SendCredRef, RecvCredRef string /* secret:// */}`.
+- [ ] `email/msg/` — `set-mechanism` (upsert one mechanism's config), `set-outbound-via` (choose the active sender). Complete imperative messages, logged/replayable.
+- [ ] Readers: `OutboundVia(v)`, `Mechanism(v, name)`, `InboundEnabled(v, name)`. Pure, exported (docs/15).
+- [ ] No minted webhook token — there is no webhook. Credentials are all secrets (§4).
 
-## 1. Outbound dispatcher (effects stay model-blind)
+## 1. Outbound dispatcher (effects stay model-blind; minimal machinery)
 
-- [ ] `email/mail.go` — keep `Mail interface { Submit(ctx, raw) error }`. Add a `Sender` per mechanism (JMAP, ForwardEmail, Spool), all built at boot and held in a `map[string]Mail` on the send edge.
-- [ ] `email/subscription_outbox_reconcile.go` (reads the model already) — read `OutboundVia` + that mechanism's `APITokenRef`; thread `{Mechanism, CredRef}` into the `send-email`/`send-outbox` payload.
-- [ ] `email/command_send_email.go` — the effect resolves `CredRef` via the `Secrets` edge and calls `senders[p.Mechanism].Submit(raw)`. Never reads the model. Unknown/disabled mechanism → leave the row `pending` (reconcile retries), don't drop.
+- [ ] `email/mail.go` — keep `Mail interface { Submit(ctx, raw) error }`. Build one `Mail` per mechanism at boot, each resolving its own cred ref the way `NewJMAP(sec, ref)` does. Hold them in `senders map[string]Mail` on the send edge. **No new `Secrets` edge on `email`.**
+- [ ] `email/message_send_outbox.go` — this handler reads the live model: resolve `OutboundVia` to a mechanism **name** and thread it into the `send-email` payload (`{Mechanism string}`). Resolve here, NOT in `subscription_outbox_reconcile.go` (which captures the entry at sub-build time and would use a stale `OutboundVia`).
+- [ ] `email/command_send_email.go` — `senders[p.Mechanism].Submit(raw)`. Never reads the model. Unknown/disabled mechanism → leave the row `pending` (retried once per restart, see note) — don't drop.
 
-## 2. Inbound webhook (the one public surface)
+## 2. Inbound over IMAP (ForwardEmail as a polled source, like Fastmail)
 
-- [ ] `web/server.go` — mount `POST /inbound/{mechanism}/{token}` at boot (static route). No app token, but NOT host-gated: this is the deliberate public exception (decision-023), guarded by the URL token.
-- [ ] Handler `inboundWebhook`: (1) look up the mechanism in the model (`app.View()`), 403 if `!Inbound`; (2) constant-time compare `{token}` against `Mechanism.WebhookToken`; (3) parse the provider payload → raw MIME + envelope recipient + Message-ID + DKIM/SPF/ARC results; (4) reject on failed auth results; (5) `content.AddInbox(...)` (idempotent on Message-ID) **then** `200` (ack-after-commit); (6) `app.Send(NewRouteEmail(...))` reusing the existing `route()` shape (mint a completion token as today). Duplicate Message-ID → `200` without re-emitting (retry-safe).
-- [ ] The existing initiator-allowlist / participant gates run unchanged inside `route-email` — no new authz.
+- [ ] `email/imap.go` — a minimal IMAP client (net-new; käsi speaks JMAP only today). Fetch new messages since the cursor; return raw RFC-5322 + envelope recipient + Message-ID.
+- [ ] `cmd/kasi/serve.go` — a second poller goroutine for ForwardEmail, structured like `pollInbox`, calling the same `route()`. Per tick, read `email.InboundEnabled(app.View(), "forwardemail")`; no-op when off. Cursor (IMAP UIDVALIDITY/UID) rides the log like the JMAP state (decision-018).
+- [ ] Reuse `route()` verbatim: `content.AddInbox(...)` then emit `route-email` **unconditionally**. Retry-safety is `route-email`'s idempotency on `InboxID` (`tasks.HasIngestedInbox`, `email/message_route_email.go`) — the existing poll path already relies on this. Do NOT invent a Message-ID dedupe branch (`AddInbox` returns the existing id but does not signal duplicate-vs-new).
+- [ ] Gate the existing Fastmail poller the same way (`InboundEnabled(…, "fastmail")`).
 
-## 3. Poller gating (Fastmail stays, one source among several)
+## 3. (No inbound webhook — deferred)
 
-- [ ] `cmd/kasi/serve.go` `pollInbox` — per tick, read `email.InboundEnabled(app.View(), "fastmail")`; no-op when off. The poll cursor stays in the log (decision-018).
-- [ ] `-poll` flag: on first boot only, seed `fastmail.Inbound = true` **if unset** (guarded seeding, decision-020 ruling). Thereafter the UI owns it.
+See "Deferred" at the end. No public route, no token, no `web/server.go` change for inbound.
 
-## 4. Set it up through käsi (the decision-020 customer)
+## 4. Set it up through käsi — the settings customer (build the secret gate first)
 
-- [ ] `email/settings.go` — contribute a `forwardemail` **group** Setting (short/long descriptions): fields `domain` (text), `api_token` (**secret** kind → decision-004 gate writes `secrets.Set` → `secret://forwardemail/api-token`, never in model/log), `inbound` (bool), `outbound` (bool).
-- [ ] Generated value: a **"generate webhook & DNS record"** form action (ToFormer `Update`) that mints `WebhookToken`, then renders the exact record to copy: `forward-email=https://<base>/inbound/forwardemail/<token>`. `<base>` comes from the (migrated) base-url setting.
-- [ ] On save: emit `set-mechanism{forwardemail, …}`; flipping `outbound` on is also `set-outbound-via` when the user makes it the active sender.
-- [ ] This is the first structured + secret + generated setting — exercises the group kind, the decision-004 gate, and a generate-value action end to end.
+- [ ] **Prerequisite:** implement decision-020's decision-004 **secret gate** in `web/form_setting.go` (a no-op today): a `secret`-kind field is written to `secrets.Set` → `secret://…` at the web edge and substituted as a reference *before* `Form.Parse`; plaintext never enters the model, the log, or a re-render.
+- [ ] **Prerequisite:** a `group`-kind former (none exists) so a mechanism renders as a flat set of labelled fields.
+- [ ] `email/settings.go` — contribute a **flat** `forwardemail` group Setting (short/long descriptions): `domain` (text), `api_token` (**secret**), `imap_password` (**secret**), `inbound` (bool), `outbound` (bool). **No shape-changing action** — flat only, so the secret fields never ride a reshape (decision-020's secret×dynamic rule).
+- [ ] On save: emit `set-mechanism{forwardemail, …}`. Enabling `outbound` as the active sender also emits `set-outbound-via`.
+- [ ] **Outbound deliverability guard:** enabling `outbound` requires a resolvable reply-from + base-url (the check `cmd/kasi/serve.go:71` does for `-send` today) — validate at save time and reject otherwise, so a UI toggle can't start sending undeliverable mail.
 
 ## 5. ForwardEmail sender (the `Mail` twin)
 
-- [ ] `email/forwardemail.go` — `NewForwardEmail(secrets, tokenRef, domain)`; `Submit(ctx, raw)` does REST `POST https://api.forwardemail.net/v1/emails` (Basic auth `API_TOKEN:`), or SMTP `smtp.forwardemail.net:465`. The assembled RFC-5322 already carries `In-Reply-To`/`References`/`From` (threading, docs/04); ForwardEmail auto-adds DKIM for the domain.
-- [ ] Verify their retry/bounce policy for the inbound webhook (ack-after-commit assumes retry-until-200). Confirm the inbound payload includes raw + envelope recipient + auth results.
+- [ ] `email/forwardemail.go` — `NewForwardEmail(secrets, sendCredRef)`; `Submit(ctx, raw)` does REST `POST https://api.forwardemail.net/v1/emails` (Basic auth `API_TOKEN:`) or SMTP `smtp.forwardemail.net:465`. The assembled RFC-5322 already carries `From`/`In-Reply-To`/`References` (docs/04); ForwardEmail derives the **DKIM signing domain from `From`**, so the sender needs no `domain` argument.
+- [ ] Confirm ForwardEmail's paid tier is required for both sending and IMAP inbox.
 
 ## 6. serve.go wiring
 
-- [ ] Build all senders at boot; pass the `map[string]Mail` + `Secrets` to the email module edges. Keep `spool` as the default `OutboundVia` on a fresh model.
-- [ ] Boot flags become guarded seeds (decision-020): `-send` → seed `fastmail.Outbound`+`OutboundVia=fastmail` if unset; `-from` → `set-reply-from` if unset; `-poll` → `fastmail.Inbound` if unset.
+- [ ] Build all senders at boot into the `senders` map; pass it to the email module edges. `spool` is the default `OutboundVia` on a fresh model.
+- [ ] Boot flags become **guarded seeds** (decision-020 only-if-unset, matching `seedAllowlist` — NOT the current unconditional re-sends): `-send` → seed `fastmail.Outbound`+`OutboundVia=fastmail` if unset; `-from` → `set-reply-from` if unset; `-poll` → `fastmail.Inbound` if unset.
 
 ## 7. Tests (rings per docs/13)
 
-- [ ] `t/mail/mechanism-outbound-dispatch.test` — `OutboundVia` selects the backend; unknown mechanism leaves the row pending.
-- [ ] `t/mail/forwardemail-inbound.test` — webhook POST → `route-email`; bad token → 403; duplicate Message-ID → 200, no second task; committed to `inbox` before 200.
-- [ ] `t/web/settings-forwardemail.test` — `visit /settings`, set the group, secret goes to the store (not the model), the DNS record renders with the minted token (decision-008 `visit` assertion).
+- [ ] `t/mail/mechanism-outbound-dispatch.test` — `OutboundVia` selects the backend; unknown mechanism leaves the row pending, no drop.
+- [ ] `t/mail/forwardemail-poll-inbound.test` — IMAP poll → `route()` → task; a re-polled (same `InboxID`) message creates no second task.
+- [ ] `t/web/settings-forwardemail.test` — `visit /settings`, set the flat group; the two secrets go to the store (not the model/log); `visit` render assertion (decision-008). Enabling outbound with no reply-from is rejected.
 - [ ] Ring-3 live probe (spends real mail) — behind the existing `probe` gate.
 
-## Out of scope / deferred
+## Notes / deferred
 
-- Multi-sender fallback/priority (one `OutboundVia` at a time).
-- exe.dev Maildir + raw SMTP mechanisms (same abstraction, later).
-- Inbound webhook signature verification (rely on the URL token + DKIM results until ForwardEmail signs).
+- **"Pending" recovery is once-per-restart.** A pending outbox row gets a one-shot `Await` sub; the runtime keeps a completed sub and won't re-fire it in-process (`runtime/loop.go`). A poison row (disabled/missing-secret mechanism) re-attempts only on restart — it does not block other rows (each has its own sub). Consider a bounded retry / dead-letter later.
+- **Multi-sender fallback/priority** — one `OutboundVia` at a time.
+- **exe.dev Maildir + raw SMTP** mechanisms — same abstraction, later.
+- **The inbound webhook (real-time push) is deferred** (decision-023): it needs a public ingress this deployment can't offer safely (an unauthenticated external POST vs the IAM-gated single public port) *and* real HMAC signature auth (a stored secret, not a DNS-published token; do not trust payload-reported DKIM). Until both exist, IMAP polling is the inbound path.
