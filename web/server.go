@@ -9,6 +9,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -71,6 +72,12 @@ type Server struct {
 	// (feature-apps.md); nil until the apprunner edge is wired (docs/15), in
 	// which case the page still renders the registry, with liveness "unknown".
 	runner AppRunner
+	// store is käsi's READ-ONLY view of the agent's persistent store directory
+	// (Flow F, decision-012) — what the /store browse page walks. A datastore.Store
+	// satisfies it; production passes the real os.DirFS-backed store, scenarios the
+	// in-memory sim twin. Host-gated, never written through (a browse page reads).
+	// Nil renders an empty store.
+	store fs.FS
 	// appsOrigin is the public scheme+host (no port) apps are addressed under —
 	// e.g. "https://vm.exe.xyz" — set by SetAppsOrigin from the server's base URL
 	// (feature-apps.md). Empty falls back to http://localhost:<port>/, which is
@@ -135,7 +142,7 @@ func (s *Server) appURL(port int) string {
 // reads a running run's in-progress transcript from its workspace (decision-007);
 // runner reads an app's live status/logs for the /apps page (feature-apps.md).
 // The supervisor owns the one call site.
-func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner, settingList []settings.Setting) (*Server, error) {
+func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner, storeFS fs.FS, settingList []settings.Setting) (*Server, error) {
 	engine, err := htmlc.New(htmlc.Options{FS: templates, ComponentDir: "."})
 	if err != nil {
 		return nil, err
@@ -160,7 +167,7 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	// preserves method and body, so a POST that arrives with a stray trailing slash
 	// re-issues as a POST, not a GET.
 	s := &Server{
-		app: app, engine: engine, secrets: secrets, content: content, work: work, runner: runner, settings: settingList,
+		app: app, engine: engine, secrets: secrets, content: content, work: work, runner: runner, store: storeFS, settings: settingList,
 		router: dispatch.New(
 			dispatch.WithDefaultSlashPolicy(dispatch.SlashRedirect),
 			dispatch.WithDefaultRedirectCode(http.StatusPermanentRedirect),
@@ -239,6 +246,20 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 	// (decision-006), read-only — registering/removing an app is `kasi app`'s
 	// job, not this page's.
 	if err := s.router.GET("apps.index", "/apps", http.HandlerFunc(s.showApps)); err != nil {
+		return nil, err
+	}
+	// The store browse page (docs/08, Flow F decision-012): the operator's window
+	// into the agent's persistent store directory. store.index lists the root;
+	// store.show lists a subdirectory or shows a file — its {+path} is a
+	// reserved-expansion catch-all, so a multi-segment store path
+	// (accounting/ledger.db) rides one segment, reverse-routed with clean slashes,
+	// and is validated with fs.ValidPath (an invalid path is a 404). A file's
+	// download rides the same route with ?raw=1. Host-gated, no token
+	// (decision-006), READ-ONLY — a browse page never writes.
+	if err := s.router.GET("store.index", "/store", http.HandlerFunc(s.showStore)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("store.show", "/store/{+path}", http.HandlerFunc(s.showStorePath)); err != nil {
 		return nil, err
 	}
 	// The settings surface (docs/16, decision-020): the index lists every

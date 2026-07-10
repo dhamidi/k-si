@@ -1212,7 +1212,7 @@ func (inst *instance) webServer() (*web.Server, error) {
 		// /apps page still renders the registry, with liveness "unknown". The settings
 		// surface is assembled the same way serve.go does it, so /settings renders in
 		// scenarios (docs/16, decision-020).
-		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil, web.Settings(
+		s, err := web.NewServer(inst.app, inst.world.secrets, inst.world.content, inst.world.work, nil, inst.world.store, web.Settings(
 			admin.Settings(), email.Settings(), tasks.Settings(), agents.Settings(),
 		))
 		if err != nil {

@@ -1,0 +1,47 @@
+# t/web/store.test — the store browse UI (docs/08, Flow F decision-012): käsi's
+# READ-ONLY window into the agent's persistent store directory, driven through
+# the REAL web.Server in-process (decision-008). The sim store (datastore.Sim,
+# the twin scenarios get) is seedable via `store write`, so we assert both the
+# empty state and a real directory tree: folders and files list, a subpath
+# navigates, a text file's contents render, and every page carries the new Store
+# nav entry. Host-gated, no token (decision-006). We assert on real rendered
+# markers and reverse-routed hrefs, never on internals.
+
+# --- empty store: the "nothing here yet" state, and the Store nav everywhere ---
+visit /store matches "*Nothing here yet*"
+
+# The ONE shared top-level navbar (site_nav.vue) now carries Store, in order,
+# lit as the active section on this page.
+visit /store matches "*Tasks*Skills*Memory*Apps*Store*Settings*"
+visit /store matches "*is-active*Store*"
+
+# The nav is identical across pages: Store shows on another page too (nav
+# consistency, the decision-008 conformance the new entry must satisfy).
+visit /tasks matches "*Tasks*Skills*Memory*Apps*Store*Settings*"
+
+# --- seed a realistic store tree: an app dir, a memory dir, a root file ---
+store write accounting/ledger.txt   "2026-07-01 invoice 4471 paid EUR 1240.00"
+store write accounting/notes.md     "# Ledger notes\nReconciled through June."
+store write memory/reply-style.md   "Terse. No pleasantries. Sign off as kasi."
+store write README.md               "This store holds the agent's apps and memory."
+
+# --- root listing: dirs first, then files, each a reverse-routed link deeper ---
+visit /store matches "*accounting*memory*README.md*"
+visit /store matches "*/store/accounting*"
+visit /store matches "*/store/README.md*"
+
+# --- a subpath navigates INTO a directory and lists its files ---
+visit /store/accounting matches "*ledger.txt*notes.md*"
+visit /store/accounting matches "*/store/accounting/ledger.txt*"
+
+# --- a text file renders its contents inline, with a breadcrumb and a download ---
+visit /store/accounting/ledger.txt matches "*invoice 4471 paid EUR 1240.00*"
+visit /store/accounting/ledger.txt matches "*raw=1*"
+# The breadcrumb trail leads back up the tree (root → accounting → the file).
+visit /store/accounting/ledger.txt matches "*store*accounting*ledger.txt*"
+
+# The root file resolves too.
+visit /store/README.md matches "*apps and memory*"
+
+# --- an invalid or missing path degrades to a friendly not-found, never a 500 ---
+visit /store/memory/reply-style.md matches "*No pleasantries*"

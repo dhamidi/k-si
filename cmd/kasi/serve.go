@@ -175,7 +175,7 @@ func runServe(args []string) int {
 	// the typed contributions, assembled in the open beside the module list (docs/16,
 	// decision-020). email.Settings() contributes the DYNAMIC initiator allowlist,
 	// which the reshape round-trip and content-negotiated Turbo drive (phase 3).
-	server, err := web.NewServer(app, sec, content, work, appRunner, web.Settings(
+	server, err := web.NewServer(app, sec, content, work, appRunner, dataStore, web.Settings(
 		admin.Settings(), email.Settings(), tasks.Settings(), agents.Settings(),
 	))
 	if err != nil {
