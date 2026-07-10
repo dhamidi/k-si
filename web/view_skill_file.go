@@ -15,8 +15,12 @@ type SkillFileView struct {
 	SkillName string
 	Path      string
 	Content   string
-	// BackPath links back to the skill's detail page (reverse-routed).
+	// BackPath links back to the skill's detail page (reverse-routed) — the local
+	// secondary crumb, kept beside the shared top-level nav.
 	BackPath string
+	// Nav is the shared top-level navbar (navView) — a skill file lights the Skills
+	// section.
+	Nav NavView
 }
 
 // RenderSkillFile writes the full skill-file page (docs/08).

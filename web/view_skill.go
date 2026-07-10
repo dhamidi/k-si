@@ -27,8 +27,9 @@ type SkillView struct {
 	Files []SkillFileLink
 	// SkillMD is the raw SKILL.md body, shown inline in a <pre> (structure first).
 	SkillMD string
-	// SkillsPath links back to the registry list.
-	SkillsPath string
+	// Nav is the shared top-level navbar (navView) — a skill detail lights the
+	// Skills section.
+	Nav NavView
 }
 
 // SkillFileLink is one tree entry in the detail's file list: its relative path

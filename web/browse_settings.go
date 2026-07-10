@@ -14,10 +14,9 @@ import (
 // Host-gated, no token (decision-006). The values come from each setting's own
 // Read against the live model (docs/15).
 func (s *Server) showSettings(w http.ResponseWriter, r *http.Request) {
-	tasksPath, _ := s.router.Path("tasks.index", nil)
 	view := SettingsView{
-		Settings:  s.settingRows(s.app.View(), s.settingShowPath),
-		TasksPath: tasksPath,
+		Settings: s.settingRows(s.app.View(), s.settingShowPath),
+		Nav:      s.navView("settings.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

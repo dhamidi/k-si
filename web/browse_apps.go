@@ -28,10 +28,9 @@ const recentAppLogLines = 20
 // liveness is a live Runner read, degrading gracefully when the edge is absent
 // or the machine can't answer — the registry still renders regardless.
 func (s *Server) showApps(w http.ResponseWriter, r *http.Request) {
-	tasksPath, _ := s.router.Path("tasks.index", nil)
 	view := AppsView{
-		Apps:      s.appRows(r.Context(), apps.All(s.app.View())),
-		TasksPath: tasksPath,
+		Apps: s.appRows(r.Context(), apps.All(s.app.View())),
+		Nav:  s.navView("apps.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -16,10 +16,10 @@ import (
 // job, not this page's.
 type AppsView struct {
 	Apps []AppRow
-	// TasksPath is the cross-nav back to the hub list page — the pattern skills
-	// and memory already carry. Reverse-routed, never string-built (rule
-	// no-url-string-building).
-	TasksPath string
+	// Nav is the shared top-level navbar site_nav.vue renders (navView) — the same
+	// five entries on every page, this one lit. Reverse-routed, never string-built
+	// (rule no-url-string-building).
+	Nav NavView
 }
 
 // AppRow is one app in the list. Name, URL, and Status come from the registry

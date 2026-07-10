@@ -11,8 +11,8 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="settings.Nav"></site_nav>
 		<main class="view-settings">
-			<nav class="crumbs"><a :href="settings.TasksPath">Tasks</a></nav>
 			<h1>Settings</h1>
 			<p class="lead">The system's configuration. Edit any setting here; the change is logged and takes effect at once.</p>
 
@@ -34,7 +34,6 @@
 
 <style scoped>
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-.crumbs { font-size: 0.875rem; margin: 0 0 0.5rem; }
 h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
 .lead { font-size: 0.875rem; margin: 0 0 1.5rem; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }

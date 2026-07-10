@@ -25,6 +25,18 @@ visit /settings matches "*reply_from*"
 visit /settings matches "*max_task_runs*"
 visit /settings matches "*max_concurrent_runs*"
 
+# The ONE shared top-level navbar (site_nav.vue): every page shows all five
+# sections in the same order, with the current one marked active. On /settings the
+# labels Tasks/Skills/Memory/Apps appear ONLY in the nav (nowhere else on the page),
+# so matching all five in order proves the nav is consistent, and is-active before
+# Settings proves the current section is indicated.
+visit /settings matches "*Tasks*Skills*Memory*Apps*Settings*"
+visit /settings matches "*is-active*Settings*"
+visit /settings matches "*/tasks*"
+visit /settings matches "*/skills*"
+visit /settings matches "*/memory*"
+visit /settings matches "*/apps*"
+
 # email contributes the DYNAMIC initiator allowlist (phase 3, docs/16): it shows on
 # the index with its key and the seeded address as its current value.
 visit /settings matches "*Initiator allowlist*"

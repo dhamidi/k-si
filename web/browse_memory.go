@@ -23,12 +23,11 @@ func (s *Server) showMemory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderMemory(w http.ResponseWriter, r *http.Request, status int, form RememberForm) {
 	all := memory.All(s.app.View())
 
-	tasksPath, _ := s.router.Path("tasks.index", nil)
 	view := MemoryView{
-		Memories:  memoryRows(all, s.memoryForgetPath),
-		Form:      form,
-		SavePath:  s.memorySavePath(),
-		TasksPath: tasksPath,
+		Memories: memoryRows(all, s.memoryForgetPath),
+		Form:     form,
+		SavePath: s.memorySavePath(),
+		Nav:      s.navView("memory.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

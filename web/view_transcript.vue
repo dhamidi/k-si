@@ -14,6 +14,7 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="transcript.Nav"></site_nav>
 		<main class="view-transcript">
 			<header>
 				<p><a :href="transcript.BackPath">← Task</a></p>

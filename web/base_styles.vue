@@ -51,5 +51,42 @@
 		}
 
 		hr { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0; }
+
+		/* site_nav.vue — the ONE top-level navbar, on every page. Mobile-first:
+		   the five links collapse behind a native <details>/<summary> tap toggle,
+		   so the menu works with NO JavaScript (docs/08). At >=40rem the links
+		   show inline as a horizontal bar and the toggle is hidden. The wide-screen
+		   `.site-nav > .site-nav-links` rule out-specifies the UA rule that hides a
+		   closed <details>'s content, so the bar is always visible there. */
+		.site-nav { max-width: 40rem; margin: 1rem auto 0; padding: 0 1rem; }
+		.site-nav-toggle {
+			display: inline-block; cursor: pointer; list-style: none;
+			font-size: 0.875rem; padding: 0.3rem 0.6rem;
+			border: 1px solid var(--line); border-radius: 0.35rem; color: var(--fg);
+		}
+		.site-nav-toggle::-webkit-details-marker { display: none; }
+		.site-nav-links {
+			list-style: none; margin: 0.5rem 0 0; padding: 0;
+			display: flex; flex-direction: column; gap: 0;
+			border: 1px solid var(--line); border-radius: 0.35rem; overflow: hidden;
+		}
+		.site-nav-item { margin: 0; }
+		.site-nav-link {
+			display: block; padding: 0.55rem 0.75rem;
+			text-decoration: none; color: var(--link);
+		}
+		.site-nav-link:hover { background: rgba(127, 127, 127, 0.12); text-decoration: none; }
+		.site-nav-link.is-active { color: var(--fg); font-weight: 600; background: rgba(127, 127, 127, 0.14); }
+
+		@media (min-width: 40rem) {
+			.site-nav-toggle { display: none; }
+			.site-nav > .site-nav-links {
+				display: flex; flex-direction: row; flex-wrap: wrap; gap: 0.25rem;
+				margin: 0; padding: 0.15rem 0; border: 0;
+				border-bottom: 1px solid var(--line); border-radius: 0; overflow: visible;
+			}
+			.site-nav-link { padding: 0.35rem 0.6rem; border-radius: 0.35rem; }
+			.site-nav-link.is-active { background: none; border-radius: 0; border-bottom: 2px solid currentColor; }
+		}
 	</style>
 </template>

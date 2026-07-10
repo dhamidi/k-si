@@ -39,8 +39,9 @@ type SettingView struct {
 	// ReshapePath is the add/remove target — reverse-routed settings.reshape. Empty
 	// string on a flat setting (no reshape).
 	ReshapePath string
-	// IndexPath is the crumb back to the settings index (GET /settings).
-	IndexPath string
+	// Nav is the shared top-level navbar (navView) — a setting form lights the
+	// Settings section.
+	Nav NavView
 	// FrameID is the <turbo-frame> id ("setting-{key}") Turbo targets on a swap.
 	FrameID string
 	// FrameHTML is the pre-rendered <turbo-frame>…form…</turbo-frame>, injected into
@@ -94,7 +95,6 @@ func settingFieldViews(fields []settings.Field) []SettingFieldView {
 // form fields. dynamic comes from the setting's form (Update != nil) — the handler
 // reads it once and threads it here.
 func (s *Server) settingView(setting settings.Setting, dynamic bool, fields []settings.Field) SettingView {
-	index, _ := s.router.Path("settings.index", nil)
 	reshape := ""
 	if dynamic {
 		reshape = s.settingReshapePath(setting.Key)
@@ -107,7 +107,7 @@ func (s *Server) settingView(setting settings.Setting, dynamic bool, fields []se
 		Dynamic:     dynamic,
 		SavePath:    s.settingSavePath(setting.Key),
 		ReshapePath: reshape,
-		IndexPath:   index,
+		Nav:         s.navView("settings.index"),
 		FrameID:     "setting-" + setting.Key,
 		TurboSrc:    s.turboSrc(),
 	}

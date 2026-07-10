@@ -11,8 +11,8 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="memory.Nav"></site_nav>
 		<main class="view-memory">
-			<nav class="crumbs"><a :href="memory.TasksPath">Tasks</a></nav>
 			<h1>Memory</h1>
 			<p class="lead">Durable facts käsi carries into every task. Add, edit, or forget them here.</p>
 
@@ -52,7 +52,6 @@
 
 <style scoped>
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-.crumbs { font-size: 0.875rem; margin: 0 0 0.5rem; }
 h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
 h2 { font-size: 1rem; margin: 0 0 0.25rem; }
 .lead { font-size: 0.875rem; margin: 0 0 1.5rem; }

@@ -18,10 +18,9 @@ import (
 func (s *Server) showSkills(w http.ResponseWriter, r *http.Request) {
 	all := skills.All(s.app.View())
 
-	tasksPath, _ := s.router.Path("tasks.index", nil)
 	view := SkillsView{
-		Skills:    skillRows(all, s.skillShowPath),
-		TasksPath: tasksPath,
+		Skills: skillRows(all, s.skillShowPath),
+		Nav:    s.navView("skills.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -74,7 +73,7 @@ func (s *Server) showSkill(w http.ResponseWriter, r *http.Request) {
 		Version:     row.Version,
 		Files:       files,
 		SkillMD:     string(md),
-		SkillsPath:  s.skillsIndexPath(),
+		Nav:         s.navView("skills.index"),
 	}
 	// An agent-origin skill links back to the task that authored it (docs/08).
 	if row.Origin == "agent" && row.OriginTask != 0 {
@@ -128,18 +127,13 @@ func (s *Server) showSkillFile(w http.ResponseWriter, r *http.Request) {
 		Path:      path,
 		Content:   string(b),
 		BackPath:  s.skillShowPath(name),
+		Nav:       s.navView("skills.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := RenderSkillFile(r.Context(), w, s.engine, view); err != nil {
 		log.Printf("web: render skill %q file %q: %v", name, path, err)
 	}
-}
-
-// skillsIndexPath reverse-routes the skills registry list (rule no-url-string-building).
-func (s *Server) skillsIndexPath() string {
-	p, _ := s.router.Path("skills.index", nil)
-	return p
 }
 
 // skillShowPath reverse-routes a skill's detail path for its name.

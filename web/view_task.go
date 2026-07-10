@@ -24,6 +24,9 @@ type TaskView struct {
 	Request RequestLink
 	// Artifacts are the filenames archived for this task (docs/08).
 	Artifacts []string
+	// Nav is the shared top-level navbar (navView) — a task detail lights the
+	// Tasks section.
+	Nav NavView
 }
 
 // RunRow is one agent run in the detail view: its number, the path to its

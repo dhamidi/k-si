@@ -19,11 +19,12 @@ type MemoryView struct {
 	// Form is the add/edit form object — empty on a plain GET, echoed with values
 	// and errors on an invalid submit.
 	Form RememberForm
-	// SavePath is the POST target of the remember form (add or edit); TasksPath is
-	// the small cross-nav both list pages carry. Reverse-routed, never string-built
-	// (rule no-url-string-building).
-	SavePath  string
-	TasksPath string
+	// SavePath is the POST target of the remember form (add or edit). Reverse-routed,
+	// never string-built (rule no-url-string-building).
+	SavePath string
+	// Nav is the shared top-level navbar site_nav.vue renders (navView) — the same
+	// five entries on every page, this one lit.
+	Nav NavView
 }
 
 // MemoryRow is one memory in the list — its name, derived description, the raw

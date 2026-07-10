@@ -17,13 +17,10 @@ import (
 // (decision-005).
 type TasksView struct {
 	Groups []TaskGroup
-	// SkillsPath links to the skills registry, MemoryPath to the memory curation
-	// page, AppsPath to the registered-apps page (the small cross-nav the list
-	// pages carry). Reverse-routed, never string-built (rule
-	// no-url-string-building).
-	SkillsPath string
-	MemoryPath string
-	AppsPath   string
+	// Nav is the shared top-level navbar site_nav.vue renders — the same five
+	// entries on every page, this one lit (navView). Reverse-routed, never
+	// string-built (rule no-url-string-building).
+	Nav NavView
 }
 
 // TaskGroup is one status bucket of the list: a heading plus its rows, newest

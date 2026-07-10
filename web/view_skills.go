@@ -15,8 +15,9 @@ import (
 // object (docs/08, docs/15). Single column, mobile-first, structure before style.
 type SkillsView struct {
 	Skills []SkillRow
-	// TasksPath links back to the task list (the small cross-nav both pages carry).
-	TasksPath string
+	// Nav is the shared top-level navbar site_nav.vue renders (navView) — the same
+	// five entries on every page, this one lit.
+	Nav NavView
 }
 
 // SkillRow is one skill in the list — its name, description, origin

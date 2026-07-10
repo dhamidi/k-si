@@ -16,8 +16,8 @@
 		<base_styles :turbo="setting.TurboSrc"></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="setting.Nav"></site_nav>
 		<main class="view-setting">
-			<nav class="crumbs"><a :href="setting.IndexPath">Settings</a></nav>
 			<h1>{{ setting.Short }}</h1>
 			<p class="key"><code>{{ setting.Key }}</code></p>
 			<p class="long">{{ setting.Long }}</p>
@@ -30,7 +30,6 @@
 
 <style scoped>
 main { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
-.crumbs { font-size: 0.875rem; margin: 0 0 0.5rem; }
 h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
 .key { margin: 0 0 0.75rem; font-size: 0.875rem; }
 .long { font-size: 0.9375rem; margin: 0 0 1.5rem; }

@@ -12,8 +12,8 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="tasks.Nav"></site_nav>
 		<main class="view-tasks">
-			<nav class="crumbs"><a :href="tasks.SkillsPath">Skills</a> · <a :href="tasks.MemoryPath">Memory</a> · <a :href="tasks.AppsPath">Apps</a></nav>
 			<h1>Tasks</h1>
 
 			<p v-if="tasks.Groups.length == 0" class="empty">No tasks yet.</p>
@@ -31,7 +31,6 @@
 
 <style scoped>
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-.crumbs { font-size: 0.875rem; margin: 0 0 0.5rem; }
 h1 { font-size: 1.5rem; margin: 0 0 1rem; }
 h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

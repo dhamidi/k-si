@@ -11,8 +11,9 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="file.Nav"></site_nav>
 		<main class="view-skill-file">
-			<nav class="crumbs"><a :href="file.BackPath">{{ file.SkillName }}</a></nav>
+			<nav class="crumbs"><a :href="file.BackPath">← {{ file.SkillName }}</a></nav>
 			<h1>{{ file.Path }}</h1>
 			<pre>{{ file.Content }}</pre>
 		</main>

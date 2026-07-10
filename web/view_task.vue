@@ -13,6 +13,7 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="task.Nav"></site_nav>
 		<main class="view-task">
 			<!-- lead with status + subject + participants -->
 			<header>

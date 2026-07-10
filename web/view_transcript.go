@@ -22,8 +22,12 @@ type TranscriptView struct {
 	// (a <meta http-equiv=refresh>) so new turns appear, degrading to a manual
 	// refresh with no JavaScript (docs/08, decision-007).
 	Active bool
-	// BackPath returns to the task detail (reverse-routed).
+	// BackPath returns to the task detail (reverse-routed) — the local secondary
+	// crumb, kept beside the shared top-level nav.
 	BackPath string
+	// Nav is the shared top-level navbar (navView) — a transcript lights the Tasks
+	// section.
+	Nav NavView
 }
 
 // TurnView is one rendered turn (decision-007). Kind selects the structural

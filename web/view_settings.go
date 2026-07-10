@@ -19,9 +19,10 @@ import (
 // as the other browse pages.
 type SettingsView struct {
 	Settings []SettingRow
-	// TasksPath is the cross-nav back to the hub list page — the crumb the other
-	// browse pages carry. Reverse-routed, never string-built (no-url-string-building).
-	TasksPath string
+	// Nav is the shared top-level navbar site_nav.vue renders (navView) — the same
+	// five entries on every page, this one lit. Reverse-routed, never string-built
+	// (no-url-string-building).
+	Nav NavView
 }
 
 // SettingRow is one setting in the index list: its key, short description, owning

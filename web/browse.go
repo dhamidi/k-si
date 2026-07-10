@@ -21,10 +21,7 @@ import (
 func (s *Server) showTasks(w http.ResponseWriter, r *http.Request) {
 	all := tasks.All(s.app.View())
 
-	skillsPath, _ := s.router.Path("skills.index", nil)
-	memoryPath, _ := s.router.Path("memory.index", nil)
-	appsPath, _ := s.router.Path("apps.index", nil)
-	view := TasksView{Groups: groupTasks(all, s.taskShowPath, s.taskMarkDonePath), SkillsPath: skillsPath, MemoryPath: memoryPath, AppsPath: appsPath}
+	view := TasksView{Groups: groupTasks(all, s.taskShowPath, s.taskMarkDonePath), Nav: s.navView("tasks.index")}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := RenderTasks(r.Context(), w, s.engine, view); err != nil {
@@ -56,6 +53,7 @@ func (s *Server) showTask(w http.ResponseWriter, r *http.Request) {
 		Runs:         s.runRows(id, task),
 		Request:      s.openRequest(task),
 		Artifacts:    s.artifactNames(id),
+		Nav:          s.navView("tasks.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -93,6 +91,7 @@ func (s *Server) showTranscript(w http.ResponseWriter, r *http.Request) {
 		Turns:     turnViews(transcript.Parse(b)),
 		Active:    runID == s.activeRunID(id),
 		BackPath:  back,
+		Nav:       s.navView("tasks.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

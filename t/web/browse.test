@@ -24,6 +24,15 @@ visit /tasks matches "*Awaiting agent*"
 visit /tasks matches "*count the files*"
 visit /tasks matches "*/tasks/$id*"
 
+# The ONE shared top-level navbar (site_nav.vue) is present and identical on every
+# page: all five sections in the same order, the current one (Tasks) marked active.
+# The other four labels appear ONLY in the nav on this page, so matching all five in
+# order proves the nav is consistent across pages (cf. settings.test).
+visit /tasks matches "*Tasks*Skills*Memory*Apps*Settings*"
+visit /tasks matches "*is-active*Tasks*"
+# The task detail sub-page carries the same nav, still lighting the Tasks section.
+visit /tasks/$id matches "*Tasks*Skills*Memory*Apps*Settings*"
+
 # --- transcript render (decision-007): parse a fixture stream-json into turns ---
 # A running run's transcript is sourced from the workspace, so seat the fixture
 # there. It carries a system/init line and a rate_limit_event (BOTH unknown types

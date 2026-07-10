@@ -13,9 +13,8 @@
 		<base_styles></base_styles>
 	</head>
 	<body>
+		<site_nav :nav="skill.Nav"></site_nav>
 		<main class="view-skill">
-			<nav class="crumbs"><a :href="skill.SkillsPath">Skills</a></nav>
-
 			<header>
 				<h1>{{ skill.Name }}</h1>
 				<p class="description">{{ skill.Description }}</p>
@@ -47,7 +46,6 @@
 
 <style scoped>
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-.crumbs { font-size: 0.875rem; margin: 0 0 0.5rem; }
 h1 { font-size: 1.5rem; margin: 0.25rem 0; }
 .description { margin: 0.25rem 0; }
 .meta { font-size: 0.875rem; margin: 0.5rem 0; list-style: none; padding: 0; display: flex; flex-direction: row; flex-wrap: wrap; gap: 0.75rem; }
