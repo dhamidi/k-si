@@ -46,13 +46,17 @@ var templates embed.FS
 //go:embed turbo.min.js
 var turboJS []byte
 
-// SecretWriter writes a secret plaintext to the secrets store under a
-// secret:// URL, returning nothing but the write's success (decision-004). The
-// web edge holds only this narrow capability — it writes at answer time; the
-// plaintext never enters the model, a message, the view, or a log line. The
+// SecretStore is the web edge's narrow capability over the secrets store
+// (decision-004): it writes a plaintext under a secret:// reference, deletes a
+// reference, and lists the stored references with their last-set time — NEVER a
+// value (secrets.Entry carries only a Ref and UpdatedAt). Set writes at the web
+// edge and the plaintext is dropped; it never enters the model, a message, the
+// view, a URL, or a log line. Entries and Delete deal in references alone. The
 // production SQLiteSecrets and the sim's SimSecrets both satisfy it.
-type SecretWriter interface {
+type SecretStore interface {
 	Set(url, plaintext string) error
+	Delete(url string) error
+	Entries() ([]secrets.Entry, error)
 }
 
 // Server binds the router, the template engine, and the running App.
@@ -63,7 +67,7 @@ type Server struct {
 	app     *runtime.App
 	engine  *htmlc.Engine
 	router  *dispatch.Router
-	secrets SecretWriter
+	secrets SecretStore
 	content store.Content
 	// work is the filesystem edge for reading a running run's in-progress
 	// transcript; a finished run reads from content instead (decision-007).
@@ -142,7 +146,7 @@ func (s *Server) appURL(port int) string {
 // reads a running run's in-progress transcript from its workspace (decision-007);
 // runner reads an app's live status/logs for the /apps page (feature-apps.md).
 // The supervisor owns the one call site.
-func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, work workspace.Workspace, runner AppRunner, storeFS fs.FS, settingList []settings.Setting) (*Server, error) {
+func NewServer(app *runtime.App, secrets SecretStore, content store.Content, work workspace.Workspace, runner AppRunner, storeFS fs.FS, settingList []settings.Setting) (*Server, error) {
 	engine, err := htmlc.New(htmlc.Options{FS: templates, ComponentDir: "."})
 	if err != nil {
 		return nil, err
@@ -260,6 +264,27 @@ func NewServer(app *runtime.App, secrets SecretWriter, content store.Content, wo
 		return nil, err
 	}
 	if err := s.router.GET("store.show", "/store/{+path}", http.HandlerFunc(s.showStorePath)); err != nil {
+		return nil, err
+	}
+	// The secrets management surface (docs/06, decision-004): the index lists every
+	// stored reference (name only, NEVER a value) with its last-set time, carries an
+	// add/rotate form and a per-row delete, and shows the name-only audit trail. save
+	// writes the plaintext at the edge and records the audit event; confirm-delete is
+	// a no-JS safety step ("Delete <ref>? [Confirm] [Cancel]") so a critical
+	// credential is not fat-fingered away; delete removes the reference and records
+	// the removal. Host-gated, no token (decision-006). The plaintext touches ONLY the
+	// edge Set call — never the view, a message, the log, or a URL (the reference,
+	// which is safe, rides the delete round-trip in a hidden form field / query).
+	if err := s.router.GET("secrets.index", "/secrets", http.HandlerFunc(s.showSecrets)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("secrets.save", "/secrets", http.HandlerFunc(s.saveSecret)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("secrets.confirm-delete", "/secrets/confirm-delete", http.HandlerFunc(s.confirmDeleteSecret)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("secrets.delete", "/secrets/delete", http.HandlerFunc(s.deleteSecret)); err != nil {
 		return nil, err
 	}
 	// The settings surface (docs/16, decision-020): the index lists every
