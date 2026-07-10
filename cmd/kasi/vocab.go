@@ -9,6 +9,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -115,8 +116,9 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 
 	// store observes and seeds the agent's persistent store (Flow F,
 	// decision-012), the sim twin the edge type wired onto simWorld. Two forms:
-	//   store write <path> <content> — seed the store, simulating the agent's
-	//     cache write through the ./store symlink.
+	//   store write <path> <content> — seed the store with text, simulating the
+	//     agent's cache write through the ./store symlink.
+	//   store write-hex <path> <hex> — seed the store with arbitrary bytes (binary).
 	//   store <path>                 — read a store file back for is/matches.
 	// The store is outside the log and not replayable model state, so scenarios
 	// assert on its OBSERVABLE contents here, not on a rebuilt model.
@@ -292,22 +294,56 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 // is an edge outside the event log (decision-012), so scenarios assert on its
 // OBSERVABLE contents here, never on a rebuilt model.
 //
-//	store write <path> <content> — seed the store (simulating the agent's cache
-//	                               write through the ./store symlink).
-//	store <path>                 — read a store file back for is/matches.
+//	store write <path> <content>  — seed the store with TEXT (simulating the
+//	                                agent's cache write through the ./store symlink).
+//	store write-hex <path> <hex>  — seed the store with arbitrary BYTES decoded
+//	                                from a hex string, so a scenario can plant
+//	                                binary content (a NUL byte, a PNG header) a
+//	                                testlang text string cannot carry — e.g. to
+//	                                exercise the /store binary-file render/download.
+//	store <path>                  — read a store file back for is/matches.
+// storeWriter returns the sim store's seeding interface, or an error when the
+// wired store is not seedable (only the sim twin is). Shared by the text and hex
+// write forms.
+func storeWriter(inst *instance) (interface{ Write(string, []byte) error }, error) {
+	writer, ok := inst.world.store.(interface {
+		Write(string, []byte) error
+	})
+	if !ok {
+		return nil, fmt.Errorf("store write: the store does not support seeding (only the sim store does)")
+	}
+	return writer, nil
+}
+
 func storeVocab(inst *instance, args []string) (string, error) {
 	if len(args) >= 1 && args[0] == "write" {
 		if len(args) != 3 {
 			return "", fmt.Errorf("store write needs a path and content, e.g. `store write wise.db \"…\"`")
 		}
-		writer, ok := inst.world.store.(interface {
-			Write(string, []byte) error
-		})
-		if !ok {
-			return "", fmt.Errorf("store write: the store does not support seeding (only the sim store does)")
+		writer, err := storeWriter(inst)
+		if err != nil {
+			return "", err
 		}
 		if err := writer.Write(args[1], []byte(args[2])); err != nil {
 			return "", fmt.Errorf("store write %s: %w", args[1], err)
+		}
+		return "", nil
+	}
+
+	if len(args) >= 1 && args[0] == "write-hex" {
+		if len(args) != 3 {
+			return "", fmt.Errorf("store write-hex needs a path and a hex string, e.g. `store write-hex logo.png \"89504e470d0a1a0a\"`")
+		}
+		writer, err := storeWriter(inst)
+		if err != nil {
+			return "", err
+		}
+		raw, err := hex.DecodeString(strings.TrimSpace(args[2]))
+		if err != nil {
+			return "", fmt.Errorf("store write-hex %s: not a hex string: %w", args[1], err)
+		}
+		if err := writer.Write(args[1], raw); err != nil {
+			return "", fmt.Errorf("store write-hex %s: %w", args[1], err)
 		}
 		return "", nil
 	}

@@ -24,6 +24,10 @@ store write accounting/ledger.txt   "2026-07-01 invoice 4471 paid EUR 1240.00"
 store write accounting/notes.md     "# Ledger notes\nReconciled through June."
 store write memory/reply-style.md   "Terse. No pleasantries. Sign off as kasi."
 store write README.md               "This store holds the agent's apps and memory."
+# A real binary: a PNG signature + IHDR header. Seeded via write-hex because it
+# carries NUL bytes a testlang text string cannot hold — this is what makes the
+# /store binary-file branch scenario-coverable.
+store write-hex accounting/logo.png "89504e470d0a1a0a0000000d494844520000001000000010"
 
 # --- root listing: dirs first, then files, each a reverse-routed link deeper ---
 visit /store matches "*accounting*memory*README.md*"
@@ -42,6 +46,14 @@ visit /store/accounting/ledger.txt matches "*store*accounting*ledger.txt*"
 
 # The root file resolves too.
 visit /store/README.md matches "*apps and memory*"
+
+# --- a BINARY file is detected and offered as a DOWNLOAD, never inlined ---
+# The directory lists it beside the text files...
+visit /store/accounting matches "*logo.png*"
+# ...and opening it shows the "Binary file" notice with a ?raw=1 download link,
+# NOT a <pre> of raw bytes (the NUL/high-byte detection fired).
+visit /store/accounting/logo.png matches "*Binary file*"
+visit /store/accounting/logo.png matches "*raw=1*"
 
 # --- an invalid or missing path degrades to a friendly not-found, never a 500 ---
 visit /store/memory/reply-style.md matches "*No pleasantries*"
