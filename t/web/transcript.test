@@ -1,0 +1,70 @@
+# t/web/transcript.test — the run transcript in a self-refreshing Turbo frame
+# (docs/08, decision-007/020). The turns render inside a <turbo-frame
+# id="run-transcript"> so a LIVE run updates just that frame, not the whole page.
+# The frame is server-rendered (works with NO JavaScript); the live refresh is a
+# progressive enhancement over a no-JS <meta http-equiv=refresh> fallback. This
+# route is content-negotiated on the Turbo-Frame header, exactly like the settings
+# reshape: `visit` GETs the full page; `visit-frame` sets the header and gets the
+# bare fragment. Host-gated, no token (decision-006).
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "count the files"
+    body    "How many files are in the working directory?"
+}
+
+# The task's first run is live (not yet in the model's Runs slice); seat a fixture
+# transcript in its workspace so the page has turns to render.
+task 1 status is awaiting-agent
+set id  [task 1 id]
+set run [task 1 running-run]
+seed-transcript 1 $run
+
+# --- FULL PAGE (a normal visit) --------------------------------------------------
+# A full <html> page: it STARTS with <html>, carries the ONE shared nav, and the
+# back-link + run header live OUTSIDE the frame.
+visit /tasks/$id/runs/$run/transcript matches "<html*"
+visit /tasks/$id/runs/$run/transcript matches "*Tasks*Skills*Memory*Apps*Settings*"
+visit /tasks/$id/runs/$run/transcript matches "*← Task*Run 1*"
+
+# The turns render INSIDE <turbo-frame id="run-transcript">.
+visit /tasks/$id/runs/$run/transcript matches "*<turbo-frame id=*run-transcript*"
+visit /tasks/$id/runs/$run/transcript matches "*<turbo-frame*There are 3 files in the directory.*"
+# The full run renders, in order, inside the frame (the parser skipped the two
+# unknown lines without derailing).
+visit /tasks/$id/runs/$run/transcript matches "*Thinking*Tool: Bash*Result*Assistant*Run finished*success*"
+
+# --- LIVE-REFRESH AFFORDANCE (an ACTIVE run) -------------------------------------
+# The live note is present, Turbo is loaded (the frame reloads through it), the
+# no-JS <meta refresh> fallback is present, and the progressive-enhancement script
+# that swaps the meta for a frame-only reload is present.
+visit /tasks/$id/runs/$run/transcript matches "*Live — updating*"
+visit /tasks/$id/runs/$run/transcript matches "*/assets/turbo.min.js*"
+visit /tasks/$id/runs/$run/transcript matches "*http-equiv=*refresh*content=*5*"
+visit /tasks/$id/runs/$run/transcript matches "*id=*transcript-refresh*"
+
+# --- FRAME REQUEST (the Turbo-Frame header) --------------------------------------
+# The SAME url with a Turbo-Frame header returns a BARE fragment: it STARTS with
+# <turbo-frame (no <html> wrapper), so Turbo swaps it in place — with the same turns
+# and no page chrome (no nav).
+visit-frame /tasks/$id/runs/$run/transcript matches "<turbo-frame*"
+visit-frame /tasks/$id/runs/$run/transcript matches "*run-transcript*There are 3 files in the directory.*"
+visit-frame /tasks/$id/runs/$run/transcript lacks "*<html*"
+visit-frame /tasks/$id/runs/$run/transcript lacks "*site-nav*"
+
+# --- FINISHED RUN: a plain frame, NO refresh -------------------------------------
+# The run finishes and is no longer active. Its transcript still renders inside the
+# same <turbo-frame>, but the frame is now STATIC: NO live note, NO meta refresh, NO
+# progressive-enhancement script — a finished run never reloads.
+agent {
+    out reply.txt "There are 3 files."
+}
+task 1 status is awaiting-user
+
+visit /tasks/$id/runs/$run/transcript matches "*<turbo-frame id=*run-transcript*"
+visit /tasks/$id/runs/$run/transcript lacks "*Live — updating*"
+visit /tasks/$id/runs/$run/transcript lacks "*http-equiv=*refresh*"
+visit /tasks/$id/runs/$run/transcript lacks "*id=*transcript-refresh*"

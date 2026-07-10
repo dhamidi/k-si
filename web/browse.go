@@ -66,6 +66,12 @@ func (s *Server) showTask(w http.ResponseWriter, r *http.Request) {
 // bytes from two places: the archived transcript in content for a finished run,
 // else the workspace's in-progress transcript for a running one — the same
 // parser and view either way. 404 on a bad id or a missing task.
+//
+// It content-negotiates on the Turbo-Frame request header (docs/16), the same
+// pattern the settings reshape set: present → the bare <turbo-frame> fragment
+// Turbo swaps in place (a live run's frame reloads itself through this branch);
+// absent → the full page, which embeds the frame. No new route: the one
+// runs.transcript GET serves both.
 func (s *Server) showTranscript(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.pathInt(w, r, "id")
 	if !ok {
@@ -92,12 +98,15 @@ func (s *Server) showTranscript(w http.ResponseWriter, r *http.Request) {
 		Active:    runID == s.activeRunID(id),
 		BackPath:  back,
 		Nav:       s.navView("tasks.index"),
+		FrameID:   "run-transcript",
+		TurboSrc:  s.turboSrc(),
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := RenderTranscript(r.Context(), w, s.engine, view); err != nil {
-		log.Printf("web: render transcript task %d run %d: %v", id, runID, err)
+	if r.Header.Get("Turbo-Frame") != "" {
+		s.renderTranscriptFragment(w, r, http.StatusOK, view)
+		return
 	}
+	s.renderTranscriptPage(w, r, http.StatusOK, view)
 }
 
 // stopRun emits stop-agent-run for a running agent and redirects back to the

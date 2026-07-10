@@ -633,7 +633,7 @@ func registerVocabulary(in *testlang.Interp, inst *instance) {
 // splitVerb separates a read's path from its trailing assertion verb.
 func splitVerb(args []string) ([]string, []string) {
 	for i, a := range args {
-		if a == "is" || a == "are" || a == "matches" {
+		if a == "is" || a == "are" || a == "matches" || a == "lacks" {
 			return args[:i], args[i:]
 		}
 	}
@@ -658,8 +658,15 @@ func finishRead(what, value string, verb []string) (string, error) {
 		if !globMatch(want, value) {
 			return "", fmt.Errorf("%s is %q, does not match %q", what, value, want)
 		}
+	case "lacks":
+		// The negation of `matches`: assert the value does NOT match the glob — the
+		// only way to assert a marker is ABSENT (e.g. a finished run carries no live
+		// refresh affordance).
+		if globMatch(want, value) {
+			return "", fmt.Errorf("%s is %q, unexpectedly matches %q", what, value, want)
+		}
 	default:
-		return "", fmt.Errorf("unknown verb %q (is, are, matches)", verb[0])
+		return "", fmt.Errorf("unknown verb %q (is, are, matches, lacks)", verb[0])
 	}
 
 	return value, nil

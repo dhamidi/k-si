@@ -150,6 +150,26 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		return finishRead("visit "+read[0], body, verb)
 	}
 
+	// visit-frame is `visit` with a Turbo-Frame request header set — the GET
+	// counterpart of `post-frame turbo` (docs/16). Turbo reloads a <turbo-frame>
+	// by GETting its src with `Turbo-Frame: <id>`; the handler then answers with the
+	// bare fragment instead of the full page. This drives that negotiation so a
+	// scenario can assert the fragment shape:
+	//   visit-frame /tasks/1/runs/2/transcript matches "<turbo-frame*"
+	v["visit-frame"] = func(in *testlang.Interp, args []string) (string, error) {
+		read, verb := splitVerb(args)
+		if len(read) != 1 {
+			return "", fmt.Errorf("visit-frame needs a single path, e.g. `visit-frame /tasks/1/runs/2/transcript matches \"<turbo-frame*\"`")
+		}
+		// The value is the frame id a real Turbo reload sends; the handler only
+		// checks presence, so any non-empty id demonstrates the negotiation.
+		body, err := inst.webGETHeaders(read[0], map[string]string{"Turbo-Frame": "run-transcript"})
+		if err != nil {
+			return "", err
+		}
+		return finishRead("visit-frame "+read[0], body, verb)
+	}
+
 	v["post"] = func(in *testlang.Interp, args []string) (string, error) {
 		read, verb := splitVerb(args)
 		// Two forms: a bare POST (the Stop / forget action, no body), or a form POST
@@ -1230,12 +1250,25 @@ func (inst *instance) webServer() (*web.Server, error) {
 // must fail the scenario, not silently return an empty body) — the body is
 // included for diagnosis.
 func (inst *instance) webGET(path string) (string, error) {
+	return inst.webGETHeaders(path, nil)
+}
+
+// webGETHeaders is webGET with an optional set of request headers — the smallest
+// general affordance the Turbo-Frame content negotiation needs on a GET (docs/16),
+// mirroring webPOSTHeaders: a frame reload carries `Turbo-Frame: <id>` to get the
+// bare fragment, or no such header to get the full page. Header handling aside it
+// mirrors webGET exactly.
+func (inst *instance) webGETHeaders(path string, headers map[string]string) (string, error) {
 	s, err := inst.webServer()
 	if err != nil {
 		return "", err
 	}
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	s.ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if loc := rec.Header().Get("Location"); loc != "" {
 		return loc, nil
