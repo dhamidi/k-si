@@ -1,8 +1,10 @@
 package agents
 
 import (
+	"bufio"
+	"bytes"
 	"context"
-	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -116,12 +118,15 @@ Never wait for input — always stop.`
 // SimHarness — the same interface over a different subprocess — so nothing outside
 // this file knows which harness is in use.
 //
-// Unlike Claude, Codex MINTS its own session id rather than accepting a supplied
-// one, so Start returns a fresh id (recorded via record-session, decision-024) and
-// Resume continues by that id. The CLI must be signed in with the operator's
-// ChatGPT subscription in the process environment — käsi resolves no token into the
-// model or the log (decision-004); the subscription auth rides the CLI's own
-// logged-in credential, exactly as NewClaude assumes `claude` is authenticated.
+// Unlike Claude, Codex MINTS its own session id server-side and announces it on the
+// first stdout line as {"type":"thread.started","thread_id":"..."} — käsi never
+// supplies one. So Start HARVESTS that id off the stream and returns it on the
+// Handle (recorded via record-session, decision-024), and Resume continues by the
+// harvested id, falling back to `resume --last` when none was recorded yet. The CLI
+// must be signed in with the operator's ChatGPT subscription in the process
+// environment — käsi resolves no token into the model or the log (decision-004); the
+// subscription auth rides the CLI's own logged-in credential, exactly as NewClaude
+// assumes `claude` is authenticated.
 type Codex struct {
 	bin     string
 	workdir string
@@ -132,8 +137,14 @@ type Codex struct {
 }
 
 type codexRun struct {
-	cmd           *exec.Cmd
-	runID         int64
+	cmd   *exec.Cmd
+	runID int64
+	// session is the harvested thread id. It is seeded (empty for Start, the passed
+	// id for Resume) and then OVERWRITTEN by the harvest goroutine the moment a
+	// thread.started line is teed, so a resume that re-announces a (same or forked)
+	// id updates it and one that announces none keeps the seed. sessMu guards it
+	// because the goroutine writes while spawn reads.
+	sessMu        sync.Mutex
 	session       string
 	transcriptRel string
 	outDir        string
@@ -153,31 +164,39 @@ func NewCodex(workdir string) *Codex {
 }
 
 // Start opens a NEW Codex session for a task's first turn (decision-024). Codex
-// mints its own session id, so we generate one, hand it to the CLI, and return it
-// on the Handle for record-session to persist.
+// mints its own session id server-side, so we pass NO session flag and HARVEST the
+// thread_id off the first stdout line, returning it on the Handle for record-session
+// to persist. If the process dies before it announces one (the mint→record crash
+// window), Start returns an empty session and record-session does not fire; the next
+// Resume falls back to `resume --last`.
 func (c *Codex) Start(ctx context.Context, taskID, runID int64, env map[string]string) (Handle, error) {
-	return c.spawn(taskID, runID, mintSession(), false, env)
+	return c.spawn(taskID, runID, "", false, false, env)
 }
 
 // Resume continues an existing Codex session for a later turn. session is the
-// minted id recorded on the run; falling back to sessionFor keeps a resume that
-// somehow lost its id (the mint→record-session crash window) from starting blank —
-// the rollout-scan recovery fork hardens this further, out of this chunk's scope.
+// harvested id recorded on the run. When it is empty or the deterministic
+// sessionFor placeholder — the mint→record crash window, where no real Codex id was
+// ever recorded — no id can name a Codex thread, so Resume falls back to
+// `codex exec resume --last`, which continues the newest session in the task's own
+// workspace (cwd-scoped to task-<id> via cmd.Dir). Either way the resumed
+// thread_id is harvested off the stream and record-session persists it for the next
+// turn.
 func (c *Codex) Resume(ctx context.Context, taskID, runID int64, session string, env map[string]string) (Handle, error) {
-	if session == "" {
-		session = sessionFor(taskID)
+	last := session == "" || session == sessionFor(taskID)
+	if last {
+		session = "" // seed empty: a --last resume names no id up front, it harvests one
 	}
-	return c.spawn(taskID, runID, session, true, env)
+	return c.spawn(taskID, runID, session, true, last, env)
 }
 
-func (c *Codex) spawn(taskID, runID int64, session string, resume bool, env map[string]string) (Handle, error) {
+func (c *Codex) spawn(taskID, runID int64, seed string, resume, last bool, env map[string]string) (Handle, error) {
 	dir := filepath.Join(c.workdir, fmt.Sprintf("task-%d", taskID))
 	if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
 		return Handle{}, err
 	}
 	transcriptRel := fmt.Sprintf("transcript-%d.jsonl", runID)
 
-	cmd, pipe, transcript, err := c.startProcess(dir, transcriptRel, session, resume, env)
+	cmd, pipe, transcript, err := c.startProcess(dir, transcriptRel, seed, resume, last, env)
 	if err != nil {
 		return Handle{}, err
 	}
@@ -185,53 +204,133 @@ func (c *Codex) spawn(taskID, runID int64, session string, resume bool, env map[
 	run := &codexRun{
 		cmd:           cmd,
 		runID:         runID,
-		session:       session,
+		session:       seed, // seeded now; a harvested thread.started overwrites it
 		transcriptRel: transcriptRel,
 		outDir:        filepath.Join(dir, "out"),
 		done:          make(chan error, 1),
 	}
+
+	// sessionReady carries the first-known session up to spawn: the harvested
+	// thread_id if Codex announces one, otherwise the seed once the stream ends.
+	// Size 1 + sync.Once so exactly one value is delivered and the goroutine never
+	// blocks on it.
+	sessionReady := make(chan string, 1)
+	var readyOnce sync.Once
+	signalReady := func(id string) { readyOnce.Do(func() { sessionReady <- id }) }
+
 	go func() {
-		_, _ = io.Copy(transcript, pipe) // streams events to disk as they arrive
-		err := cmd.Wait()
+		// Tee every stdout line VERBATIM to the transcript — including its trailing
+		// newline — and parse each for thread.started. ReadBytes preserves exact
+		// bytes and, unlike bufio.Scanner, has no 64KB line cap that would truncate a
+		// large command_execution event, so the recorded cassette replays
+		// byte-identically (decision-024, replay convergence).
+		reader := bufio.NewReader(pipe)
+		for {
+			line, readErr := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				_, _ = transcript.Write(line)
+				if id, ok := threadStarted(line); ok {
+					run.sessMu.Lock()
+					run.session = id // OVERWRITE the seed with the announced id
+					run.sessMu.Unlock()
+					signalReady(id)
+				}
+			}
+			if readErr != nil {
+				break // EOF or a read error: the stream is over
+			}
+		}
+		// The stream ended. If no thread.started was ever seen, release spawn with the
+		// seed — empty for Start (the mint→record crash window) or the passed id for a
+		// by-id Resume. A --last resume that announced nothing keeps its empty seed, so
+		// record-session does not fire and the next turn resumes --last again.
+		run.sessMu.Lock()
+		sess := run.session
+		run.sessMu.Unlock()
+		signalReady(sess)
+
+		waitErr := cmd.Wait()
 		transcript.Close()
-		run.done <- err
+		run.done <- waitErr
 	}()
+
+	// Block until the session is known (thread.started teed, or the stream ended),
+	// THEN register the run and return the harvested Handle so record-session gets
+	// the real id (decision-024).
+	harvested := <-sessionReady
 
 	c.mu.Lock()
 	c.runs[taskID] = run
 	c.cond.Broadcast()
 	c.mu.Unlock()
-	return Handle{TaskID: taskID, RunID: runID, Session: session}, nil
+	return Handle{TaskID: taskID, RunID: runID, Session: harvested}, nil
 }
 
-// startProcess builds and starts one codex worker process in dir. Codex records
-// its own event stream raw; käsi captures the raw bytes to the transcript for the
-// harness-dispatched reader (decision-024, transcript fork) — verbatim as-received,
-// like Claude's stream-json. --session picks the session id; resume continues it.
-// The exact flag surface is confirmed against the live CLI when the Codex cassette
-// is recorded (human-gated); käsi never runs an agent loop of its own.
-func (c *Codex) startProcess(dir, transcriptRel, session string, resume bool, env map[string]string) (*exec.Cmd, io.ReadCloser, *os.File, error) {
+// threadStarted reports the thread_id when line is Codex's session announcement
+// {"type":"thread.started","thread_id":"..."} — the id käsi harvests instead of
+// minting. Any non-JSON or other event line is skipped (returns false), keeping the
+// harvest tolerant of the rest of the stream.
+func threadStarted(line []byte) (string, bool) {
+	var ev struct {
+		Type     string `json:"type"`
+		ThreadID string `json:"thread_id"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(line), &ev); err != nil {
+		return "", false
+	}
+	if ev.Type == "thread.started" && ev.ThreadID != "" {
+		return ev.ThreadID, true
+	}
+	return "", false
+}
+
+// startProcess builds and starts one codex worker process in dir. Codex mints and
+// announces its own session, so no session flag is passed; käsi captures the raw
+// event stream to the transcript for the harness-dispatched reader (decision-024,
+// transcript fork) — verbatim as-received, like Claude's stream-json. A fresh turn
+// runs `codex exec ... -C <dir> <prompt>`; a later turn runs the resume subcommand,
+// `codex exec resume ... <session> <prompt>`, or `... --last <prompt>` when no id
+// was recorded. resume takes NO -C, so its cwd is scoped to the task only via
+// cmd.Dir. --skip-git-repo-check is required because task workspaces are not git
+// repos; --dangerously-bypass-approvals-and-sandbox runs headless without prompts.
+// The flag surface is confirmed against codex-cli when the Codex cassette is
+// recorded (human-gated); käsi never runs an agent loop of its own.
+func (c *Codex) startProcess(dir, transcriptRel, session string, resume, last bool, env map[string]string) (*exec.Cmd, io.ReadCloser, *os.File, error) {
 	transcript, err := os.Create(filepath.Join(dir, transcriptRel))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	args := []string{
-		"exec",
-		"--json",
-		"--cd", dir,
-		"--session", session,
-	}
 	prompt := codexPrompt
+	var args []string
 	if resume {
 		// A resumed session carries the prior turn's history; lead with the new-turn
 		// instruction so the agent acts on the new message instead of re-affirming
 		// completion and writing no reply (decision-019).
 		prompt = codexPreamble + codexPrompt
+		args = []string{
+			"exec", "resume",
+			"--json",
+			"--skip-git-repo-check",
+			"--dangerously-bypass-approvals-and-sandbox",
+		}
+		if last {
+			args = append(args, "--last") // continue the newest session in cmd.Dir
+		} else {
+			args = append(args, session) // the recorded thread id, a positional
+		}
+	} else {
+		args = []string{
+			"exec",
+			"--json",
+			"--skip-git-repo-check",
+			"--dangerously-bypass-approvals-and-sandbox",
+			"-C", dir,
+		}
 	}
 	args = append(args, prompt) // the prompt is the trailing positional
 
 	cmd := exec.Command(c.bin, args...) // not CommandContext: Wait/Signal own the lifetime
-	cmd.Dir = dir
+	cmd.Dir = dir                       // resume has no -C, so cmd.Dir scopes cwd to the task
 	if len(env) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range env {
@@ -356,17 +455,4 @@ func (c *Codex) manifest(run *codexRun) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// mintSession generates a fresh session id for a new Codex run — a UUIDv4, so the
-// value differs from the deterministic sessionFor and start-agent-run records it
-// (decision-024). Randomness enters at the edge, never in a pure handler.
-func mintSession() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic("agents: codex session mint: crypto/rand: " + err.Error())
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

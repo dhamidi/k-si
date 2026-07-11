@@ -8,6 +8,13 @@
 # If dispatch resolved the wrong (or a nil) harness, the watcher's Wait would block
 # forever and the turn would never finish — so a green run through here IS the
 # conformance proof that pinning works end to end.
+#
+# The last section adds the crash-in-mint-window recovery (decision-024, the --last
+# fallback): a codex run crashes on its FIRST turn before any session id is recorded,
+# so on restart the relaunch resumes with no known id. This sim ring proves the
+# dispatch — the pinned codex harness is relaunched exactly once and the turn
+# finishes; the live-ring cassette proves `resume --last` then picks the task's own
+# session.
 
 send allow-sender { address kasi@decode.ee }
 
@@ -78,3 +85,33 @@ agent {
 task 2 status is awaiting-user
 outbound count is 3
 outbound last body matches "*Claude here*"
+
+# Crash-in-mint-window recovery for codex (decision-024, the --last fallback). The
+# operator switches back to codex and opens a new task; it crashes on its FIRST turn,
+# before the harness ever announces a session id — so nothing was recorded and the
+# run still carries the deterministic fallback session, not a harvested codex id.
+send set-worker-harness { name codex }
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "codex recover"
+    body    "start work then vanish"
+}
+task 3 status is awaiting-agent
+task 3 harness is codex
+crash
+restart
+
+# After the restart the agent-watch source relaunches the orphaned run exactly once,
+# resolved against the SAME pinned codex harness (decision-015). With no recorded id
+# the real adapter would resume `--last`; here the sim ring proves that relaunch
+# dispatches and the resumed turn finishes.
+task 3 status is awaiting-agent
+task 3 harness is codex
+agent {
+    out reply.txt "Codex recovered — done."
+}
+task 3 status is awaiting-user
+task 3 harness is codex
+outbound count is 4
+outbound last body matches "*Codex recovered*"
