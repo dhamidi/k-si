@@ -19,8 +19,13 @@ import (
 // as the other browse pages.
 type SettingsView struct {
 	Settings []SettingRow
+	// CodexPath links to the Codex sign-in surface (decision-025) — an
+	// operator-facing sign-in action that the typed-setting engine does not model,
+	// so it lives beside the settings list as a link rather than a Setting row.
+	// Reverse-routed, never string-built (no-url-string-building).
+	CodexPath string
 	// Nav is the shared top-level navbar site_nav.vue renders (navView) — the same
-	// five entries on every page, this one lit. Reverse-routed, never string-built
+	// entries on every page, this one lit. Reverse-routed, never string-built
 	// (no-url-string-building).
 	Nav NavView
 }

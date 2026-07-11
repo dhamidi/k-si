@@ -1291,6 +1291,10 @@ func (inst *instance) webServer() (*web.Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("visit: build server: %w", err)
 		}
+		// The Codex sign-in launcher is a twinned edge (decision-025): scenarios wire
+		// the sim twin so the whole sign-in loop runs without a real login — canned
+		// public code+URL and a sentinel credential the SimSecrets edge discards.
+		s.SetCodexSignIn(web.NewSimCodexSignIn())
 		inst.server = s
 	}
 	return inst.server, nil

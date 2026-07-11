@@ -233,6 +233,10 @@ func runServe(args []string) int {
 	if err != nil {
 		return fail("kasi serve:", err)
 	}
+	// The Codex sign-in launcher is a twinned edge (decision-025): production shells
+	// `codex login --device-auth` against a dedicated käsi-managed home, harvesting
+	// the credential at the web edge on approval. Host-gated, no inbound callback.
+	server.SetCodexSignIn(web.NewExecCodexSignIn(""))
 	// Apps are addressed under the public origin (scheme+host, no port) so the
 	// control endpoint mints public-correct URLs; the per-app port is appended
 	// (feature-apps.md). Derived from -base-url, dropping any port it carries.

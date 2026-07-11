@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"sync"
 
 	"github.com/dhamidi/dispatch"
 	"github.com/dhamidi/htmlc"
@@ -92,6 +93,14 @@ type Server struct {
 	// and handed in here; there is no registry. Each is a read + a write over state
 	// that stays in its owning module's slice.
 	settings []settings.Setting
+	// codexSignIn launches the host-gated Codex sign-in (decision-025); nil until
+	// SetCodexSignIn wires a twin (the real device-auth launcher in production, the
+	// sim in scenarios), in which case the connect action reports it is unavailable.
+	// codexSession is the one sign-in the server may be holding — at most one runs at
+	// a time (the operator signs in once), so it needs no id; codexMu guards it.
+	codexSignIn  CodexSignIn
+	codexMu      sync.Mutex
+	codexSession CodexSignInSession
 }
 
 // Settings concatenates each module's settings contribution into the one slice the
@@ -302,6 +311,28 @@ func NewServer(app *runtime.App, secrets SecretStore, content store.Content, wor
 		return nil, err
 	}
 	if err := s.router.POST("settings.save", "/settings/{key}", http.HandlerFunc(s.saveSetting)); err != nil {
+		return nil, err
+	}
+	// The Codex sign-in surface (decision-025): käsi signs in to Codex once, on the
+	// operator's behalf, and holds the result as a decision-004 secret the Codex
+	// agent runs on. index shows the state (signed in / signing in / not signed in /
+	// last sign-in expired); connect starts the host-gated device-auth and shows the
+	// one-time public code + URL; poll re-checks a sign-in under way (the waiting
+	// page's meta-refresh and "Check now" both land here) and harvests the credential
+	// at the edge on success; disconnect signs out. Host-gated, no token
+	// (decision-006); no inbound callback — codex polls out and the operator approves
+	// in their own browser. The GET and POST on /codex/connect are distinct routes on
+	// the one pattern (re-check vs start).
+	if err := s.router.GET("codex.index", "/codex", http.HandlerFunc(s.showCodex)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("codex.connect", "/codex/connect", http.HandlerFunc(s.connectCodex)); err != nil {
+		return nil, err
+	}
+	if err := s.router.GET("codex.poll", "/codex/connect", http.HandlerFunc(s.pollCodex)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("codex.disconnect", "/codex/disconnect", http.HandlerFunc(s.disconnectCodex)); err != nil {
 		return nil, err
 	}
 	// The Turbo runtime, served from the embedded vendored file — the one script

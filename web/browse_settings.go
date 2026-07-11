@@ -15,8 +15,9 @@ import (
 // Read against the live model (docs/15).
 func (s *Server) showSettings(w http.ResponseWriter, r *http.Request) {
 	view := SettingsView{
-		Settings: s.settingRows(s.app.View(), s.settingShowPath),
-		Nav:      s.navView("settings.index"),
+		Settings:  s.settingRows(s.app.View(), s.settingShowPath),
+		CodexPath: s.codexIndexPath(),
+		Nav:       s.navView("settings.index"),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

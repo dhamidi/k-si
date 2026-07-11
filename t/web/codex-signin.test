@@ -1,0 +1,72 @@
+# t/web/codex-signin.test — the Codex sign-in surface (decision-025), driven through
+# the REAL web.Server in-process (decision-008). käsi signs in to Codex once, on the
+# operator's behalf, and holds the result as an ordinary decision-004 secret under
+# the reserved reference secret://codex/oauth/auth-json — "signed in" is defined as
+# that reference being present, no new model field. The sign-in launcher is the sim
+# twin (SimCodexSignIn): canned PUBLIC code + URL and a sentinel credential the
+# SimSecrets edge discards, so the whole loop — not signed in → signing in → signed
+# in → sign out — runs with NO real login. This scenario walks that loop and, per
+# decision-004, asserts the credential blob NEVER reaches the page.
+
+send allow-sender { address kasi@decode.ee }
+
+# --- not signed in: the starting state, reachable from the settings index --------
+visit /codex matches "*You are not signed in*"
+visit /codex matches "*Sign in to Codex*"
+# The page hangs off Settings — the shared navbar shows Settings lit.
+visit /codex matches "*is-active*Settings*"
+# The /settings index links here.
+visit /settings matches "*Codex sign-in*"
+visit /settings matches "*/codex*"
+
+# --- start the sign-in: the device-auth begins and the page shows the code -------
+post /codex/connect is /codex
+# The waiting state shows the one-time PUBLIC code and the URL to open (safe — the
+# operator types them into their own browser), plus a way to re-check and to cancel.
+visit /codex matches "*Finish signing in*"
+visit /codex matches "*KASI-CODEX-9F3A*"
+visit /codex matches "*auth.openai.com/device*"
+visit /codex matches "*Check now*"
+visit /codex matches "*Cancel*"
+# CRITICAL (decision-004): the credential blob is NOWHERE on the waiting page.
+visit /codex lacks "*SIM-CODEX-CREDENTIAL-NEVER-RENDERED*"
+
+# --- poll once: the sim reports still waiting, so the page stays on the code ------
+# The sim twin approves on the SECOND poll, so the first poll exercises the
+# waiting-after-poll branch: the harvest has not happened and the code still shows.
+visit /codex/connect is /codex
+visit /codex matches "*Finish signing in*"
+visit /codex matches "*KASI-CODEX-9F3A*"
+
+# --- poll again: the sim operator approves, the credential is harvested at the edge
+# The waiting page's "Check now" (and its meta-refresh) land on the poll route,
+# which redirects back to /codex once the credential is stored.
+visit /codex/connect is /codex
+
+# --- signed in: the reserved reference is stored, so the page reads "signed in" ---
+visit /codex matches "*You are signed in*"
+visit /codex matches "*Sign out*"
+# The connected page describes the sign-in plainly and links to the secrets list;
+# it never renders the raw secret:// reference to the operator (decision-004).
+visit /codex matches "*kept with your other*"
+visit /codex lacks "*secret://codex/oauth/auth-json*"
+# The reserved reference now shows on the secrets list like any other reference…
+visit /secrets matches "*secret://codex/oauth/auth-json*"
+# …and the name-only audit trail recorded the set (reference only, decision-004).
+model credentials events matches "*set*secret://codex/oauth/auth-json*"
+# CRITICAL (decision-004): the credential blob is on neither page nor the trail.
+visit /codex lacks "*SIM-CODEX-CREDENTIAL-NEVER-RENDERED*"
+visit /secrets lacks "*SIM-CODEX-CREDENTIAL-NEVER-RENDERED*"
+model credentials events lacks "*SIM-CODEX-CREDENTIAL-NEVER-RENDERED*"
+
+# --- sign out: the reference is removed and the page returns to "not signed in" ---
+post /codex/disconnect is /codex
+visit /codex matches "*You are not signed in*"
+visit /secrets matches "*No secrets stored yet*"
+model credentials events matches "*removed*secret://codex/oauth/auth-json*"
+
+# --- the expired state renders when a sign-in did not finish ----------------------
+# The poll redirects to this URL on a failed sign-in; a direct visit exercises the
+# same view branch.
+visit /codex?status=expired matches "*The sign-in did not finish*"
+visit /codex?status=expired matches "*Try again*"
