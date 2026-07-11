@@ -14,6 +14,12 @@ type Model struct {
 	// set-max-concurrent-runs (serve -max-concurrent-runs). 0 is unlimited — the
 	// sim-ring default, so the gate launches exactly as before.
 	MaxConcurrent int `json:"max_concurrent"`
+	// WorkerHarness is the harness a fresh run is pinned to (decision-024): the
+	// name the spawn handler stamps onto a new run's Harness field, chosen by the
+	// operator through the worker_harness setting (serve -harness). Empty is the
+	// clean unset sentinel — it resolves to the built-in "claude" — so a deployment
+	// that never chose keeps its log byte-identical and its cassettes untouched.
+	WorkerHarness string `json:"worker_harness,omitempty"`
 }
 
 // slice reads the agents model out of a View for the exported read helpers.
@@ -33,6 +39,21 @@ func RunningRuns(v runtime.View) []AgentRun {
 		}
 	}
 	return out
+}
+
+// LastRunHarness returns the harness pinned to a task's MOST RECENT run, resolved
+// through the same default as the edge (an unset pin reads as the built-in harness),
+// and whether the task has any run at all. A pure observability read — the harness
+// conformance suite asserts a task's run landed on the harness it was pinned to
+// (decision-024).
+func LastRunHarness(v runtime.View, taskID int64) (string, bool) {
+	s := slice(v)
+	for i := len(s.Runs) - 1; i >= 0; i-- {
+		if s.Runs[i].TaskID == taskID {
+			return harnessName(s.Runs[i].Harness), true
+		}
+	}
+	return "", false
 }
 
 // Run returns a copy of the run with the given id, if it exists — the exported

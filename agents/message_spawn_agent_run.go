@@ -28,7 +28,26 @@ func handleSpawnAgentRun(v runtime.View, s Model, p msg.SpawnAgentRunPayload,
 		Session:    sessionFor(p.TaskID),
 		Resume:     p.Resume,
 		SecretRefs: p.SecretRefs,
+		Harness:    pinHarness(v, s, p),
 	})
 	s.Runs = runs
 	return s, nil // the agent-watch source is the sole launcher (drives start-agent-run)
+}
+
+// pinHarness decides the harness a run is pinned to for its whole life
+// (decision-024): one task ⇔ one session ⇔ one harness. A fresh run (Resume false)
+// takes the operator's current worker_harness choice; a resume INHERITS the pin of
+// the task's most recent prior run, so a task can never switch harnesses mid-flight
+// even if the setting changed between turns. Empty is the unset sentinel — it
+// resolves to the built-in harness and, being omitted from the log, keeps default
+// deployments' runs byte-identical to before the registry existed.
+func pinHarness(v runtime.View, s Model, p msg.SpawnAgentRunPayload) string {
+	if p.Resume {
+		for i := len(s.Runs) - 1; i >= 0; i-- {
+			if s.Runs[i].TaskID == p.TaskID {
+				return s.Runs[i].Harness
+			}
+		}
+	}
+	return WorkerHarnessOf(v)
 }

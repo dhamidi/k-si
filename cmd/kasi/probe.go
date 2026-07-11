@@ -55,7 +55,7 @@ func runProbe(args []string) int {
 
 	failed := 0
 	for _, script := range scripts {
-		if err := runScriptFleet(script, 1, newLog, true, "live"); err != nil {
+		if err := runScriptFleet(script, 1, newLog, true, "live", "claude"); err != nil {
 			failed++
 			fmt.Fprintf(os.Stderr, "FAIL %s (recording left for debugging)\n%s\n", script, indent(err.Error()))
 		} else {

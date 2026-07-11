@@ -22,6 +22,13 @@ func handleStopAgentRun(v runtime.View, s Model, p msg.StopAgentRunPayload,
 	runs[i].Status = StatusStopping
 	s.Runs = runs
 	return s, []runtime.Cmd{
-		NewSignalAgentRun(SignalAgentRunPayload{TaskID: p.TaskID, RunID: p.RunID}),
+		// Carry the run's pinned harness + session so the effect signals the SAME
+		// harness that launched it (decision-024).
+		NewSignalAgentRun(SignalAgentRunPayload{
+			TaskID:  p.TaskID,
+			RunID:   p.RunID,
+			Harness: runs[i].Harness,
+			Session: runs[i].Session,
+		}),
 	}
 }

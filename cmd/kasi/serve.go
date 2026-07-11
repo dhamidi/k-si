@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,7 @@ func runServe(args []string) int {
 	poll := flags.Bool("poll", false, "poll Fastmail for inbound mail — routes REAL mail into agent runs (off by default)")
 	send := flags.Bool("send", false, "submit replies through Fastmail — sends REAL mail (off by default; spools otherwise)")
 	from := flags.String("from", "", "deliverable From address replies are sent as (an address you can send for, e.g. kasi@decode.ee)")
+	harness := flags.String("harness", "", "which agent works new tasks (claude, codex); set once here, then edit it in Settings")
 	// Runaway breakers (SEV1 self-reply loop, decision-016). Defaults are ON in
 	// production: this box realistically runs 1–2 concurrent claude processes, and a
 	// single task rarely needs more than ~20 turns, so these bound a loop's blast
@@ -76,6 +78,13 @@ func runServe(args []string) int {
 		if u, err := url.Parse(*baseURL); err != nil || u.Hostname() == "" || strings.HasSuffix(u.Hostname(), ".test") {
 			return fail("kasi serve:", fmt.Errorf("-send needs a real -base-url; %q won't resolve for recipients", *baseURL))
 		}
+	}
+
+	// A passed -harness must name a harness käsi knows, so a typo is caught at boot
+	// rather than silently pinning tasks to a name that resolves to the default
+	// (decision-024). Empty is fine — it leaves the model's choice untouched.
+	if *harness != "" && !knownHarness(*harness) {
+		return fail("kasi serve:", fmt.Errorf("-harness %q is not an agent käsi can run (choose one of: %s)", *harness, strings.Join(agents.HarnessNames(), ", ")))
 	}
 
 	if err := os.MkdirAll(*workdir, 0o755); err != nil {
@@ -140,7 +149,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Senders: senders, Content: content, Work: work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
+		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harnesses: buildHarnesses(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -156,6 +165,14 @@ func runServe(args []string) int {
 	// setting "editable thereafter" true (docs/16, decision-020).
 	if *from != "" && tasks.ReplyFrom(app.View()) == "" {
 		app.Send(taskmsg.NewSetReplyFrom(taskmsg.SetReplyFromPayload{Address: *from}))
+	}
+	// Seed the worker harness ONLY when unset, so a Settings edit survives a restart
+	// and a re-passed -harness never clobbers it — the same guarded seeding as
+	// reply-from and base-url (docs/16, decision-020, decision-024). Empty is the
+	// clean unset sentinel a fresh deployment carries, resolving to the built-in
+	// Claude harness, so leaving -harness off keeps the default.
+	if *harness != "" && agents.WorkerHarnessOf(app.View()) == "" {
+		app.Send(agentmsg.NewSetWorkerHarness(agentmsg.SetWorkerHarnessPayload{Name: *harness}))
 	}
 	// Seed the Fastmail mechanism from -send/-poll, only when it is not already
 	// configured (guarded, decision-020) — a UI edit survives a restart and a
@@ -239,6 +256,45 @@ func runServe(args []string) int {
 		return fail("kasi serve:", err)
 	}
 	return 0
+}
+
+// buildHarnesses assembles the agent-harness registry at boot (decision-024): a
+// real adapter per selectable harness, keyed by name. It boot-probes each binary
+// with exec.LookPath and logs which are installed, so an operator sees at startup
+// whether the harness they can select is actually runnable — but it KEEPS a map
+// entry for a missing one, so a task already pinned to it still resolves (the run
+// then fails at exec, recorded on the run, rather than the process panicking on a
+// nil harness). The set of names is agents.HarnessNames(), so the Settings choice
+// and the registry never drift.
+func buildHarnesses(workdir string) map[string]agents.Harness {
+	builders := map[string]func(string) agents.Harness{
+		"claude": func(dir string) agents.Harness { return agents.NewClaude(dir) },
+		"codex":  func(dir string) agents.Harness { return agents.NewCodex(dir) },
+	}
+	bins := map[string]string{"claude": "claude", "codex": "codex"}
+	harnesses := make(map[string]agents.Harness, len(agents.HarnessNames()))
+	for _, name := range agents.HarnessNames() {
+		build := builders[name]
+		if build == nil {
+			continue
+		}
+		harnesses[name] = build(workdir)
+		if _, err := exec.LookPath(bins[name]); err != nil {
+			log.Printf("kasi: %q is available to choose but its %q command is not on PATH — pick another in Settings, or install it before you run a task with it", name, bins[name])
+		}
+	}
+	return harnesses
+}
+
+// knownHarness reports whether name is a harness käsi can run — the -harness flag's
+// boot check (decision-024).
+func knownHarness(name string) bool {
+	for _, n := range agents.HarnessNames() {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // seedAllowlist adds the -allow addresses to the initiator allowlist, skipping

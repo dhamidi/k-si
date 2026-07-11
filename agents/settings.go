@@ -29,6 +29,44 @@ func (m MaxConcurrent) ToForm() settings.Form { return settings.FormOf(&m) }
 // MaxConcurrentOf reads the concurrent-run cap out of the model.
 func MaxConcurrentOf(v runtime.View) int { return slice(v).MaxConcurrent }
 
+// WorkerHarness is the chosen worker harness as a setting value — a name from
+// HarnessNames() rendered as a select (decision-024). It wraps Model.WorkerHarness.
+type WorkerHarness string
+
+func (h WorkerHarness) String() string { return string(h) }
+
+// ToForm renders the harness choice as a select over the harnesses käsi knows. A
+// custom former (not FormOf) because a plain string would render as a free-text
+// box; the choice must be constrained to names käsi can actually run.
+func (h WorkerHarness) ToForm() settings.Form {
+	f := settings.Form{Fields: []settings.Field{{
+		Name:    "value",
+		Label:   "Worker agent",
+		Kind:    settings.KindChoice,
+		Options: HarnessNames(),
+		Value:   harnessName(string(h)),
+	}}}
+	f.Parse = func(f settings.Form) (settings.Value, settings.FieldErrors) {
+		errs := settings.FieldErrors{}
+		raw := ""
+		if len(f.Fields) > 0 {
+			raw = f.Fields[0].Value
+		}
+		for _, name := range HarnessNames() {
+			if raw == name {
+				return WorkerHarness(raw), errs
+			}
+		}
+		errs.Set("value", "choose an agent käsi can run")
+		return nil, errs
+	}
+	return f
+}
+
+// WorkerHarnessOf reads the chosen worker harness out of the model. Empty is the
+// unset sentinel — a fresh run then resolves to the built-in harness.
+func WorkerHarnessOf(v runtime.View) string { return slice(v).WorkerHarness }
+
 // Settings is agents' contribution to the settings surface (docs/16): the
 // concurrent-run cap. A flat leaf — the default former gives it a number field.
 func Settings() []settings.Setting {
@@ -41,6 +79,18 @@ func Settings() []settings.Setting {
 			Read:  func(v runtime.View) settings.Value { return MaxConcurrent(MaxConcurrentOf(v)) },
 			Write: func(val settings.Value) []runtime.Msg {
 				return []runtime.Msg{msg.NewSetMaxConcurrentRuns(msg.SetMaxConcurrentRunsPayload{Max: int(val.(MaxConcurrent))})}
+			},
+		},
+		{
+			Key:   "worker_harness",
+			Short: "Worker agent",
+			Long:  "Which agent käsi runs to work on your tasks. Claude is the default; Codex runs your own OpenAI Codex, signed in with your ChatGPT subscription. Changing this affects new tasks; a task already under way keeps the agent it started with.",
+			Owner: "agents",
+			Read: func(v runtime.View) settings.Value {
+				return WorkerHarness(WorkerHarnessOf(v))
+			},
+			Write: func(val settings.Value) []runtime.Msg {
+				return []runtime.Msg{msg.NewSetWorkerHarness(msg.SetWorkerHarnessPayload{Name: string(val.(WorkerHarness))})}
 			},
 		},
 	}

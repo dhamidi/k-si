@@ -47,6 +47,11 @@ func handleLaunchAgentRun(v runtime.View, s Model, p LaunchAgentRunPayload,
 			SecretRefs: run.SecretRefs,
 			Memory:     memory.All(v),
 			Apps:       apps.Running(v),
+			// Carry the run's pinned harness and session so the effect — which has no
+			// View — dispatches to the SAME harness that launched and resumes the SAME
+			// session (decision-024).
+			Harness: run.Harness,
+			Session: run.Session,
 		}),
 	}
 }

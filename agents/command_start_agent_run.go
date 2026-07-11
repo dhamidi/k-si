@@ -46,6 +46,15 @@ type StartAgentRunPayload struct {
 	// a TRANSIENT effect input, never appended to the log, so it may carry the raw
 	// app.json bytes.
 	Apps []apps.App `json:"apps,omitempty"`
+	// Harness is the run's pinned harness name (decision-024). The effect has no
+	// View, so the launch handler resolves it from the run's pin and carries it
+	// here; the effect dispatches through the registry by this name.
+	Harness string `json:"harness,omitempty"`
+	// Session is the run's resumable session (decision-024). On a resume the effect
+	// hands it to Harness.Resume, so a harness that minted its own session id (Codex,
+	// recorded via record-session) continues the RIGHT session rather than the
+	// deterministic sessionFor.
+	Session string `json:"session,omitempty"`
 }
 
 func NewStartAgentRun(p StartAgentRunPayload) runtime.Cmd {
@@ -137,15 +146,33 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 
 	// Register the live run and return immediately; the agent-watch
 	// subscription emits finish-agent-run when the turn completes (docs/05).
-	// The only emit here is record-notify-token above (the minted per-run token);
-	// the run's RESULTS still leave only via that subscription.
+	// The run is dispatched to its PINNED harness (decision-024), resolved by name
+	// from the registry — the same harness across launch, watch, and signal, so a
+	// restart resolves the one that launched.
+	h := e.resolveHarness(p.Harness)
+	var handle Handle
 	var err error
 	if p.Resume {
-		_, err = e.Harness.Resume(ctx, p.TaskID, p.RunID, sessionFor(p.TaskID), env)
+		session := p.Session
+		if session == "" {
+			session = sessionFor(p.TaskID)
+		}
+		handle, err = h.Resume(ctx, p.TaskID, p.RunID, session, env)
 	} else {
-		_, err = e.Harness.Start(ctx, p.TaskID, p.RunID, env)
+		handle, err = h.Start(ctx, p.TaskID, p.RunID, env)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// Persist the session the harness returned, but ONLY when it minted its own —
+	// i.e. it differs from the deterministic sessionFor (decision-024). Claude, the
+	// sim, and the recorded twin all return sessionFor, so they never emit this and
+	// their logs stay byte-identical and cassette-safe; only a harness like Codex
+	// that mints a session id logs it, so the next turn's Resume reads it back.
+	if handle.Session != "" && handle.Session != sessionFor(p.TaskID) {
+		emit(NewRecordSession(RecordSessionPayload{TaskID: p.TaskID, RunID: p.RunID, Session: handle.Session}))
+	}
+	return nil
 }
 
 // provisionSkills lays every skill in the registry into the run's workspace

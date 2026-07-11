@@ -1019,6 +1019,23 @@ func taskRead(inst *instance, args []string) (string, error) {
 				return "", fmt.Errorf("task %d run-env: only the sim harness records the run environment", n)
 			}
 			return finishRead("task "+strings.Join(read, " "), h.EnvFor(id)[read[2]], verb)
+		case "harness":
+			// The harness the task's most recent run is pinned to (decision-024) —
+			// the read the harness conformance suite asserts a task landed on the
+			// harness it was chosen for. An unset pin resolves to the built-in harness,
+			// exactly as the edge dispatches it.
+			if len(read) != 2 {
+				return "", fmt.Errorf("task %d harness: takes no argument", n)
+			}
+			id, err := nthTaskID(inst, n)
+			if err != nil {
+				return "", err
+			}
+			name, ok := agents.LastRunHarness(inst.app.View(), id)
+			if !ok {
+				return "", fmt.Errorf("task %d has no agent run yet", n)
+			}
+			return finishRead("task "+strings.Join(read, " "), name, verb)
 		}
 	}
 

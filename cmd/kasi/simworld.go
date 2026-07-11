@@ -113,12 +113,15 @@ func newRecordedWorld(c cassette.HarnessCassette, mc cassette.MailCassette, hasM
 
 // newLiveWorld builds the live-capture world: the SAME deterministic sim
 // content/mail twins as sim/recorded (so the captured in/ bytes match what
-// replay lays down), but a real OS workspace and the real Claude harness wrapped
-// in the recording decorator (docs/13). Only work and harness are real.
-func newLiveWorld(workdir string, sec secrets.Secrets) *simWorld {
+// replay lays down), but a real OS workspace and a real harness wrapped in the
+// recording decorator (docs/13). Only work and harness are real. harness selects
+// WHICH real adapter records the cassette — "codex" drives the OpenAI Codex CLI,
+// anything else (the default) drives Claude (decision-024) — so a human recording a
+// live Codex cassette runs `kasi test --ring live --record -harness codex`.
+func newLiveWorld(workdir string, sec secrets.Secrets, harness string) *simWorld {
 	content := store.NewMemoryContent()
 	work := workspace.NewOS(workdir)
-	recording := agents.NewRecordingHarness(agents.NewClaude(workdir), work)
+	recording := agents.NewRecordingHarness(realHarness(harness, workdir), work)
 	recordingMail := email.NewRecordingMail(sec, "secret://fastmail/api-token")
 	return &simWorld{
 		store:         datastore.NewSim(),
@@ -133,6 +136,17 @@ func newLiveWorld(workdir string, sec secrets.Secrets) *simWorld {
 		recording:     recording,
 		workdir:       workdir,
 	}
+}
+
+// realHarness builds the real harness adapter a live-capture run drives, chosen by
+// name (decision-024). Only the live ring reaches this — sim and recorded use the
+// in-memory twins — so it is where the two real adapters diverge: Codex mints its
+// own session and records it, Claude uses the deterministic one.
+func realHarness(name, workdir string) agents.Harness {
+	if name == "codex" {
+		return agents.NewCodex(workdir)
+	}
+	return agents.NewClaude(workdir)
 }
 
 // crash resets the world's EPHEMERAL edge state — what a killed process loses.
@@ -164,6 +178,14 @@ func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Senders: email.SimSenders(w.outbound), Content: w.content, Work: w.work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
-		agents.Module(agents.Edges{Store: w.store, Clock: clock, Harness: w.harness, Work: w.work, Secrets: w.secrets, Content: w.content}),
+		agents.Module(agents.Edges{Store: w.store, Clock: clock, Harnesses: w.harnesses(), Work: w.work, Secrets: w.secrets, Content: w.content}),
 	}
+}
+
+// harnesses builds the ring's harness registry: the one twin registered under
+// EVERY selectable name (decision-024), so a scenario pinning any harness — claude
+// or codex — dispatches to the same sim/recorded/recording twin and the harness
+// conformance suite runs unchanged over every name.
+func (w *simWorld) harnesses() map[string]agents.Harness {
+	return agents.OverEveryName(w.harness)
 }

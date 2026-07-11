@@ -26,6 +26,19 @@ type AgentRun struct {
 	// The run's Session + NotifyToken it already carries complete the set.
 	Resume     bool              `json:"resume"`
 	SecretRefs map[string]string `json:"secret_refs,omitempty"`
+	// Harness is the harness this run is pinned to for its whole life (decision-024):
+	// one task ⇔ one session ⇔ one harness. The spawn handler stamps it once — from
+	// the worker_harness setting for a fresh run, inherited from the task's prior run
+	// on resume — and every edge call (launch, watch, signal) dispatches through the
+	// registry by this name so a restart resolves the SAME harness that launched.
+	// Empty is the unset sentinel that resolves to the built-in "claude", so legacy
+	// runs and default deployments keep their logs byte-identical.
+	Harness string `json:"harness,omitempty"`
+	// Session generalises the resumable session id (decision-024). The spawn handler
+	// seeds it to sessionFor(TaskID); a harness that mints its OWN session (Codex)
+	// records the minted id back via record-session so the next turn's Resume reads
+	// the right one. Claude, the sim, and the recorded twin all return sessionFor, so
+	// they never emit record-session and their logs stay identical.
 }
 
 // Run status values (docs/05 lifecycle): a run is "running" while the harness

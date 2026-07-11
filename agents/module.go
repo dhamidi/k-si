@@ -12,10 +12,15 @@ import (
 // wired in cmd/kasi/main.go; simulated twins live in this package (docs/12).
 type Edges struct {
 	// the agent's persistent data store, symlinked into every run (Flow F)
-	Store   datastore.Store
-	Clock   runtime.Clock
-	Harness Harness
-	Work    workspace.Workspace
+	Store datastore.Store
+	Clock runtime.Clock
+	// Harnesses is the registry of agent harnesses keyed by name (decision-024),
+	// built at boot in cmd/kasi. A run is pinned to one name and every edge call
+	// resolves through this map by that name (resolveHarness), so a restart drives
+	// the SAME harness that launched. The sim/recorded/recording twins register
+	// under EVERY selectable name, so a scenario pinning any harness runs the twin.
+	Harnesses map[string]Harness
+	Work      workspace.Workspace
 	// Secrets resolves secret:// references into the run environment at the edge
 	// (Flow C, decision-004) — plaintext never enters the model or the log.
 	Secrets secrets.Secrets
@@ -40,8 +45,10 @@ func Module(e Edges) *runtime.Module {
 	registerSignalAgentRun(mod)
 	runtime.Subscribe(mod, agentWatchSubs)
 	registerRecordNotifyToken(mod)
+	registerRecordSession(mod)
 	registerLaunchAgentRun(mod)
 	registerSetMaxConcurrentRuns(mod)
+	registerSetWorkerHarness(mod)
 	return mod
 }
 
@@ -54,12 +61,12 @@ func Module(e Edges) *runtime.Module {
 func SimEdges() Edges {
 	work := workspace.NewMemory()
 	return Edges{
-		Store:   datastore.NewSim(),
-		Clock:   runtime.SimClock(),
-		Harness: NewSimHarness(work),
-		Work:    work,
-		Secrets: secrets.NewSim(),
-		Content: store.NewMemoryContent(),
+		Store:     datastore.NewSim(),
+		Clock:     runtime.SimClock(),
+		Harnesses: OverEveryName(NewSimHarness(work)),
+		Work:      work,
+		Secrets:   secrets.NewSim(),
+		Content:   store.NewMemoryContent(),
 		// A harmless placeholder; sim runs don't POST through it.
 		ControlURL: "http://127.0.0.1:0",
 	}

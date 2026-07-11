@@ -20,10 +20,12 @@ visit /settings matches "*Reply-from address*"
 visit /settings matches "*kasi@decode.ee*"
 visit /settings matches "*Max agent runs per task*"
 visit /settings matches "*Max concurrent agent runs*"
+visit /settings matches "*Worker agent*"
 visit /settings matches "*base_url*"
 visit /settings matches "*reply_from*"
 visit /settings matches "*max_task_runs*"
 visit /settings matches "*max_concurrent_runs*"
+visit /settings matches "*worker_harness*"
 
 # The ONE shared top-level navbar (site_nav.vue): every page shows all five
 # sections in the same order, with the current one marked active. On /settings the
@@ -65,3 +67,10 @@ model tasks reply_from is "help@decode.ee"
 # And a number setting.
 post /settings/max_concurrent_runs { value 5 } matches "*/settings*"
 model agents max_concurrent is "5"
+
+# The worker-harness choice renders its help and offers the harnesses käsi knows;
+# saving a valid choice records it (decision-024).
+visit /settings/worker_harness matches "*Which agent käsi runs*"
+visit /settings/worker_harness matches "*codex*"
+post /settings/worker_harness { value codex } matches "*/settings*"
+model agents worker_harness is "codex"

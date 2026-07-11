@@ -1,0 +1,80 @@
+# t/research/harness-codex.test — harness conformance over a PINNED harness
+# (decision-024). The whole agent lifecycle — spawn → launch → watch → finish,
+# plus a resume and a mid-run restart — runs identically when the operator has
+# chosen "codex" instead of the built-in "claude". In the sim ring the one
+# SimHarness is registered under EVERY selectable name, so this exercises the
+# registry, the per-run pin, and the resolve-by-name dispatch, not a second twin.
+#
+# If dispatch resolved the wrong (or a nil) harness, the watcher's Wait would block
+# forever and the turn would never finish — so a green run through here IS the
+# conformance proof that pinning works end to end.
+
+send allow-sender { address kasi@decode.ee }
+
+# The operator chooses Codex as the worker harness — the setting serve -harness
+# seeds and the Settings page edits.
+send set-worker-harness { name codex }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "codex job"
+    body    "do the work and reply when done"
+}
+
+# The run is live and PINNED to codex — the pin the spawn handler stamped from the
+# worker_harness setting.
+task 1 status is awaiting-agent
+task 1 harness is codex
+
+# The pinned harness takes the turn and finishes normally — the codex-named twin
+# resolved for launch, watch, and finish.
+agent {
+    out reply.txt "Codex here — done."
+}
+task 1 status is awaiting-user
+task 1 harness is codex
+outbound count is 1
+outbound last body matches "*Codex here*"
+
+# A follow-up on the SAME task resumes and INHERITS the pin — a task can never
+# switch harnesses mid-flight, even though the setting has since changed to claude.
+send set-worker-harness { name claude }
+deliver {
+    from kasi@decode.ee
+    reply-to-last
+    body "one more thing"
+}
+task 1 status is awaiting-agent
+task 1 harness is codex
+agent {
+    out reply.txt "Still codex on the resume."
+}
+task 1 status is awaiting-user
+task 1 harness is codex
+outbound count is 2
+outbound last body matches "*Still codex*"
+
+# A NEW task opened while the setting says claude pins claude — the negative control
+# proving the pin follows the operator's choice at spawn time. The mid-run restart
+# then resolves liveness against the SAME pinned harness (decision-024): resolving by
+# the current default would answer this run's liveness against the wrong harness and
+# relaunch it a second time, breaking decision-015.
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "claude job"
+    body    "start a long one"
+}
+task 2 status is awaiting-agent
+task 2 harness is claude
+crash
+restart
+task 2 status is awaiting-agent
+task 2 harness is claude
+agent {
+    out reply.txt "Claude here."
+}
+task 2 status is awaiting-user
+outbound count is 3
+outbound last body matches "*Claude here*"

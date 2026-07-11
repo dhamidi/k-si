@@ -153,9 +153,35 @@ the worker process, watched by the subscription. The reducer is never blocked by
 a running agent ([01](./01-architecture.md)).
 
 Because harnesses differ, käsi defines a thin **harness interface** (start /
-resume / locate-transcript / signal) and adapts each official harness to it. The
-default adapter targets Claude; adding another is implementing the interface, not
-touching the runtime.
+resume / wait / signal / is-live) and adapts each official harness to it. käsi
+ships two adapters — **Claude** (the default) and **Codex** (OpenAI's Codex CLI,
+signed in with the operator's ChatGPT subscription) — and adding another is
+implementing the interface, not touching the runtime.
+
+### Choosing a harness
+
+The adapters are held in a **registry** keyed by name, assembled at boot. Which
+one works a task is the operator's choice, carried by the `worker_harness`
+setting ([16](./16-settings.md)) — `claude` by default, seeded once from the
+`serve -harness` flag and editable thereafter on the Settings page. Codex runs on
+the operator's own ChatGPT subscription, so no token ever enters the model, the
+log, a message, or a harvested file: the subscription credential rides the CLI's
+own logged-in state in the process environment, exactly as the Claude adapter
+assumes `claude` is authenticated ([06](./06-secrets.md), decision-004).
+
+A run is **pinned to one harness for its whole life**: one task ⇔ one session ⇔
+one harness. The pin is stamped once, when a run is spawned — from the
+`worker_harness` setting for a fresh task, or **inherited from the task's prior
+run on a resume**, so a task can never switch harnesses mid-conversation even if
+the setting changed between turns. Every edge call for that run — start, resume,
+watch, is-live, signal — dispatches through the registry by the pinned name, so a
+restart resolves the **same** harness that launched it and the
+relaunch-exactly-once guarantee (decision-015) holds across harnesses.
+
+Sessions are **generalized**: `start` returns the session id it opened, and a
+harness that mints its own id (Codex does; Claude uses käsi's deterministic one)
+has that id recorded back onto the run so the next turn resumes the right session.
+See [decision-024](./decision-024-harness-selection-and-generalized-session-identity.md).
 
 ## Capturing the transcript
 

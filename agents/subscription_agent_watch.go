@@ -81,7 +81,10 @@ func launchRun(run AgentRun) func(ctx context.Context, edges any, emit runtime.E
 	return func(ctx context.Context, edges any, emit runtime.Emit) {
 		e, _ := edges.(Edges)
 		h := Handle{TaskID: run.TaskID, RunID: int64(run.ID), Session: run.Session}
-		if !e.Harness.IsLive(h) {
+		// Liveness must be answered by the SAME harness that launched (decision-024):
+		// resolving by the current default after a restart would ask a Codex run's
+		// liveness of Claude and break the relaunch-exactly-once guarantee (decision-015).
+		if !e.resolveHarness(run.Harness).IsLive(h) {
 			emit(NewLaunchAgentRun(LaunchAgentRunPayload{TaskID: h.TaskID, RunID: h.RunID}))
 		}
 	}
@@ -94,7 +97,8 @@ func watchRun(run AgentRun) func(ctx context.Context, edges any, emit runtime.Em
 	return func(ctx context.Context, edges any, emit runtime.Emit) {
 		e, _ := edges.(Edges)
 		h := Handle{TaskID: run.TaskID, RunID: int64(run.ID), Session: run.Session}
-		res := e.Harness.Wait(ctx, h)
+		harness := e.resolveHarness(run.Harness)
+		res := harness.Wait(ctx, h)
 		emit(NewFinishAgentRun(FinishAgentRunPayload{
 			TaskID:         h.TaskID,
 			RunID:          h.RunID,
@@ -105,8 +109,9 @@ func watchRun(run AgentRun) func(ctx context.Context, edges any, emit runtime.Em
 		}))
 		// The sim harness blocks DeliverTurn until finish-agent-run is enqueued
 		// (the quiescence handshake, docs/05); release it. The Harness interface
-		// stays exactly per SEAMS, so this is an optional, sim-only method.
-		if m, ok := e.Harness.(interface{ MarkEmitted(Handle) }); ok {
+		// stays exactly per SEAMS, so this is an optional, sim-only method — asserted
+		// against the SAME resolved harness that ran the turn (decision-024).
+		if m, ok := harness.(interface{ MarkEmitted(Handle) }); ok {
 			m.MarkEmitted(h)
 		}
 	}

@@ -441,6 +441,7 @@ clobber ([decision-020](./decision-020-settings-are-typed-contributions-rendered
 | `-from` | seeds if unset | The reply-from identity; unconditional today, now guarded. |
 | `-max-concurrent-runs` | seeds if unset | The OOM breaker cap ([decision-016](./decision-016-kasi-never-acts-on-its-own-mail.md)); unconditional today, now guarded. |
 | `-max-task-runs` | seeds if unset | The loop breaker cap (decision-016); unconditional today, now guarded. |
+| `-harness` | seeds if unset | The worker harness fresh tasks use (decision-024); empty is the unset sentinel that resolves to the built-in Claude. |
 | `-state` | stays a flag | Locates the log itself — you cannot read a setting to find the database that stores the settings. Bootstrap. |
 | `-addr` | stays a flag | The socket bind; the control URL derives from it. Binding. |
 | `-workdir` / `-spool` | stays a flag | Host paths, derivable from `-state`. Binding. |
@@ -458,12 +459,19 @@ writes it:
 | Public base URL | `base_url` | `admin` (`Model.BaseURL`) | `BaseURL` | `set-base-url` *(new)* |
 | Max concurrent runs | `max_concurrent_runs` | `agents` (`Model.MaxConcurrent`) | `MaxConcurrent` (`int ≥ 0`) | `set-max-concurrent-runs` |
 | Max task runs | `max_task_runs` | `tasks` (`Model.LoopGuard`) | `LoopGuard` (`int ≥ 0`) | `set-loop-guard` |
+| Worker agent | `worker_harness` | `agents` (`Model.WorkerHarness`) | `WorkerHarness` (a **choice** over `HarnessNames()`) | `set-worker-harness` *(new)* |
 
-Four already live in the model; the settings surface gives them a home to be seen
-and edited. Two messages are new. **`set-base-url`** comes with the migration
+Most already live in the model; the settings surface gives them a home to be seen
+and edited. Three messages are new. **`set-base-url`** comes with the migration
 below. **`set-allowlist`** is new because a whole-list edit needs whole-value
 *replace* semantics that the incremental `allow-sender`/`revoke-sender` cannot
-express; those stay, for CC-granting and programmatic single-address writes. Both
+express; those stay, for CC-granting and programmatic single-address writes.
+**`set-worker-harness`** is new because harness selection is a fresh piece of
+config (decision-024): the value is a **choice**, so `WorkerHarness` implements
+`ToForm` to render a select over the harnesses käsi can run rather than a free-text
+box, and its parse rejects any name not in that set. Like `-base-url`/`-from`, the
+`serve -harness` flag seeds it only when unset, so a UI edit survives a restart.
+The allowlist's two writers both
 write the same `email.Model.Allowlist` slice — the UI-replaces-vs-incremental split
 memory already uses ([feature-memory.md](./feature-memory.md)), not two sources of
 truth.

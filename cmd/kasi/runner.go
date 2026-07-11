@@ -39,6 +39,10 @@ func runTest(args []string) int {
 	record := flags.Bool("record", false, "on success, save each script's log as a cassette under t/cassettes/logs/")
 	cassettes := flags.Bool("cassettes", false, "replay every committed log cassette against the current build")
 	selftest := flags.Bool("selftest", false, "run the test-language conformance corpus")
+	// Which real harness the LIVE ring records — claude (default) or codex; sim and
+	// recorded ignore it (they run the in-memory twin over every name). Recording a
+	// live Codex cassette is: kasi test --ring live --record -harness codex … (decision-024).
+	harness := flags.String("harness", "claude", "live ring: which agent to record (claude, codex)")
 	flags.Parse(args)
 
 	switch *ring {
@@ -82,7 +86,7 @@ func runTest(args []string) int {
 	start := time.Now()
 
 	for _, script := range scripts {
-		if err := runScriptFleet(script, *fleet, newLog, *record, *ring); err != nil {
+		if err := runScriptFleet(script, *fleet, newLog, *record, *ring, *harness); err != nil {
 			failed++
 			fmt.Fprintf(os.Stderr, "FAIL %s\n%s\n", script, indent(err.Error()))
 		} else {
@@ -129,14 +133,14 @@ func collectScripts(paths []string) ([]string, error) {
 	return scripts, nil
 }
 
-func runScriptFleet(path string, n int, newLog logMaker, record bool, ring string) error {
+func runScriptFleet(path string, n int, newLog logMaker, record bool, ring, harness string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
 	if n <= 1 {
-		inst, err := runScript(string(src), "0", newLog, ring, path)
+		inst, err := runScript(string(src), "0", newLog, ring, path, harness)
 		if err != nil {
 			return err
 		}
@@ -161,7 +165,7 @@ func runScriptFleet(path string, n int, newLog logMaker, record bool, ring strin
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = runScript(string(src), strconv.Itoa(i), newLog, ring, path)
+			_, errs[i] = runScript(string(src), strconv.Itoa(i), newLog, ring, path, harness)
 		}(i)
 	}
 	wg.Wait()
@@ -283,7 +287,7 @@ func moduleNames(mods []*runtime.Module) []string {
 	return names
 }
 
-func runScript(src, index string, newLog logMaker, ring, path string) (*instance, error) {
+func runScript(src, index string, newLog logMaker, ring, path, harness string) (*instance, error) {
 	cmds, err := testlang.Parse(src)
 	if err != nil {
 		return nil, err
@@ -294,7 +298,7 @@ func runScript(src, index string, newLog logMaker, ring, path string) (*instance
 		return nil, err
 	}
 
-	world, err := newWorld(ring, path)
+	world, err := newWorld(ring, path, harness)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -332,7 +336,7 @@ func runScript(src, index string, newLog logMaker, ring, path string) (*instance
 // twins; recorded loads the committed harness cassette and self-plays it; live
 // mints a real OS workspace and drives the real Claude harness through the
 // recording decorator (docs/13).
-func newWorld(ring, path string) (*simWorld, error) {
+func newWorld(ring, path, harness string) (*simWorld, error) {
 	switch ring {
 	case "sim":
 		return newSimWorld(), nil
@@ -362,7 +366,7 @@ func newWorld(ring, path string) (*simWorld, error) {
 			os.RemoveAll(dir)
 			return nil, fmt.Errorf("live ring needs the secrets store: %w", err)
 		}
-		return newLiveWorld(dir, sec), nil
+		return newLiveWorld(dir, sec, harness), nil
 	default:
 		return nil, fmt.Errorf("unknown ring %q (sim, recorded, live)", ring)
 	}
@@ -440,6 +444,14 @@ func versions() map[string]string {
 		line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
 		if line != "" {
 			v["claude"] = line
+		}
+	}
+	// Codex's version too, so a Codex cassette records which CLI recorded it — the
+	// same staleness diagnosis the claude line gives (decision-024).
+	if out, err := exec.Command("codex", "--version").Output(); err == nil {
+		line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+		if line != "" {
+			v["codex"] = line
 		}
 	}
 	if out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output(); err == nil {
