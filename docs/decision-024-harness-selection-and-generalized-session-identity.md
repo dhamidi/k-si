@@ -101,7 +101,10 @@ runs the whole lifecycle over the pin unchanged.
 - **What this decision does not cover.** Codex-native skills discovery, a
   harness-dispatched transcript reader, a per-run `CODEX_HOME` for the subscription
   blob, and rollout-scan session recovery are follow-on work, each riding this
-  registry rather than bending it.
+  registry rather than bending it. The first three land in
+  [decision-025](./decision-025-codex-oauth-and-per-run-codex-home.md), which also
+  corrects §4's "minted session" to a session **harvested** from codex's first-line
+  `thread.started` event.
 
 This is Elm-in-Go effects-over-edges to the letter: the harness *name* and
 *session* are transient decision state carried on messages/payloads by
