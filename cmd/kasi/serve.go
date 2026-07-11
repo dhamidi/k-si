@@ -118,7 +118,14 @@ func runServe(args []string) int {
 	// <root>/<taskID> (decision-025): outside the workspace and out/, so no OAuth
 	// credential is ever harvested or archived (decision-004). Threaded to the agents
 	// effect (which materializes it) and the tasks archive path (which reaps it).
+	// Absolute: CODEX_HOME rides the worker's env, and the codex child resolves a
+	// relative path against its OWN cwd (the task dir) — not the server's — so a
+	// relative root would seed auth.json in one place and let codex look in another
+	// (decision-025). Absolutise once at boot so both sides agree under any -state.
 	codexRoot := filepath.Join(*state, "codex")
+	if abs, err := filepath.Abs(codexRoot); err == nil {
+		codexRoot = abs
+	}
 	// The agent-edge write-back for a token codex rotates mid-run: it Sets the reserved
 	// reference AND records the name-only audit, exactly like the /codex web sign-in
 	// (decision-025, decision-023). Its App is bound after the App is built (harnesses
