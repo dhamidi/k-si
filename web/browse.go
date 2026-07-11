@@ -94,7 +94,7 @@ func (s *Server) showTranscript(w http.ResponseWriter, r *http.Request) {
 	view := TranscriptView{
 		TaskID:    id,
 		RunNumber: runOrdinal(task, runID),
-		Turns:     turnViews(transcript.Parse(b)),
+		Turns:     turnViews(s.parseTranscript(runID, b)),
 		Active:    runID == s.activeRunID(id),
 		BackPath:  back,
 		Nav:       s.navView("tasks.index"),
@@ -198,6 +198,23 @@ func (s *Server) artifactNames(taskID int64) []string {
 		names = append(names, row.Filename)
 	}
 	return names
+}
+
+// parseTranscript picks the harness's transcript reader (decision-024): a run
+// pinned to the Codex harness renders through transcript.ParseCodex (its
+// `codex exec --json` JSONL), everything else through the Claude stream-json
+// transcript.Parse. The AgentRun pin is authoritative; the IsCodexStream sniff is
+// only a fallback for a run whose pin did not resolve. Both readers emit the same
+// []transcript.Turn, so the view downstream stays harness-agnostic.
+func (s *Server) parseTranscript(runID int64, b []byte) []transcript.Turn {
+	codex := false
+	if run, ok := agents.Run(s.app.View(), agents.AgentRunID(runID)); ok {
+		codex = run.Harness == "codex"
+	}
+	if codex || transcript.IsCodexStream(b) {
+		return transcript.ParseCodex(b)
+	}
+	return transcript.Parse(b)
 }
 
 // transcriptBytes sources a run's transcript: the archived transcript row in

@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"019f5208-8aac-7a73-ac0c-ec14002eb362"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"I should list the files and count them with wc."}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls -1 | wc -l","aggregated_output":"3\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"There are 3 files in the directory."}}
+{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":0,"output_tokens":45}}

@@ -1,0 +1,68 @@
+# t/web/transcript-codex.test — a Codex run renders on the SAME transcript page as
+# a Claude run (decision-024). A worker running `codex exec --json` emits a
+# different stream (thread.started / item.completed / turn.completed) than Claude's
+# stream-json, so the web edge picks transcript.ParseCodex over transcript.Parse:
+# by the run's pinned harness, and — for a run the pin has not stamped — by the
+# belt-and-suspenders content sniff. The parsed turns land on the SAME Turn/Kind
+# shape, so the view stays harness-agnostic: it renders Codex turns with the same
+# headings — Thinking, Tool, Result, Assistant, the run footer — as Claude's.
+#
+# The fixtures are hand-authored from the live-verified codex-cli 0.142.5 event
+# shapes (thread.started + turn.started skipped; item.completed reasoning /
+# command_execution / agent_message; turn.completed and turn.failed footers). Host-
+# gated, no token (decision-006).
+
+send allow-sender { address kasi@decode.ee }
+
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "count the files"
+    body    "How many files are in the working directory?"
+}
+
+task 1 status is awaiting-agent
+set id  [task 1 id]
+set run [task 1 running-run]
+
+# --- the Claude sample still renders through Parse, unchanged --------------------
+# The run carries no harness pin, and Claude's stream-json opens on system/init —
+# disjoint from Codex's thread.started — so the sniff does not misfire: the page
+# renders the Claude turns exactly as before, byte-for-byte.
+seed-transcript 1 $run transcript/sample.jsonl
+visit /tasks/$id/runs/$run/transcript matches "*Thinking*list the files*Tool: Bash*ls -1 | wc -l*Result*3 files*Assistant*There are 3 files*Run finished*success*"
+
+# Seat the Codex-shaped transcript in the same run's workspace slot so the page has
+# bytes to render.
+seed-transcript 1 $run transcript/codex.jsonl
+
+# The page renders (full <html>, the one shared nav) — a Codex run is not blank.
+visit /tasks/$id/runs/$run/transcript matches "<html*"
+visit /tasks/$id/runs/$run/transcript matches "*Tasks*Skills*Memory*Apps*Settings*"
+
+# The turns render INSIDE the frame, correctly kinded and in order: reasoning as
+# Thinking, command_execution as a Shell tool call + its Result, agent_message as
+# Assistant, and turn.completed as the run footer. thread.started + turn.started
+# were skipped without derailing.
+visit /tasks/$id/runs/$run/transcript matches "*<turbo-frame id=*run-transcript*"
+visit /tasks/$id/runs/$run/transcript matches "*Thinking*Tool: Shell*Result*Assistant*Run finished*success*"
+visit /tasks/$id/runs/$run/transcript matches "*There are 3 files in the directory.*"
+
+# The tool call carries its command and its captured output — the two halves a
+# command_execution expands into.
+visit /tasks/$id/runs/$run/transcript matches "*ls -1 | wc -l*"
+
+# Not the empty state — the Codex reader produced turns.
+visit /tasks/$id/runs/$run/transcript lacks "*No turns yet.*"
+
+# --- skip-unknown-never-error + the failure footer -----------------------------
+# A noisy stream: a top-level reconnect notice, a blank line, an outright non-JSON
+# line, and an unknown item type (file_change) are all SKIPPED — the reader never
+# errors on a format it does not fully own. A non-zero command exit flags its
+# Result (error), and turn.failed renders the failed-run footer with its message.
+seed-transcript 1 $run transcript/codex-noise.jsonl
+
+visit /tasks/$id/runs/$run/transcript matches "<html*"
+visit /tasks/$id/runs/$run/transcript matches "*Thinking*Tool: Shell*Result*(error)*Assistant*Run failed*exceeded the turn limit*"
+visit /tasks/$id/runs/$run/transcript matches "*That file does not exist.*"
+visit /tasks/$id/runs/$run/transcript lacks "*No turns yet.*"

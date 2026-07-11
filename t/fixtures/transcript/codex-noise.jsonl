@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"019f5208-8aac-7a73-ac0c-ec14002eb362"}
+{"type":"turn.started"}
+{"type":"error","message":"transient reconnect — retrying"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"I will try to read the missing file."}}
+
+not json at all — the reader must skip me, not crash
+{"type":"item.completed","item":{"id":"item_1","type":"file_change","path":"notes.txt"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"cat missing.txt","aggregated_output":"cat: missing.txt: No such file or directory\n","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"That file does not exist."}}
+{"type":"turn.failed","error":{"message":"exceeded the turn limit"}}
