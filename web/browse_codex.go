@@ -20,31 +20,41 @@ var codexAuthRef = secrets.URL("codex/oauth", "auth-json")
 
 // CodexSignIn launches the host-gated Codex sign-in (decision-006, decision-025).
 // The real twin shells the Codex sign-in against a dedicated käsi-managed home,
-// captures the one-time public code and URL, and yields the credential once the
-// operator approves it in their own browser. The sim twin returns canned public
-// values and a sentinel credential, so scenarios exercise the whole loop without a
-// real login. There is no inbound callback: käsi polls the sign-in out; the
-// operator approves out-of-band. Start NEVER returns the credential — only the
-// session's AuthJSON does, read once at the web edge on a successful harvest.
+// captures the one-time public code and URL, and — the moment the sign-in
+// subprocess exits successfully — harvests the credential and hands it to the
+// harvest callback, all server-side, off any HTTP request. The sim twin returns
+// canned public values and calls harvest with a sentinel credential, so scenarios
+// exercise the whole loop without a real login. There is no inbound callback: the
+// sign-in polls OpenAI out and the operator approves out-of-band. The credential
+// NEVER rides an HTTP response or a poll GET — it flows only through harvest, at
+// the process edge, then is dropped (decision-004).
 type CodexSignIn interface {
-	Start(ctx context.Context) (CodexSignInSession, error)
+	Start(ctx context.Context, harvest CodexHarvest) (CodexSignInSession, error)
 }
+
+// CodexHarvest stores the harvested credential at the moment the sign-in
+// subprocess exits (decision-025). The blob is read at the process edge and handed
+// straight to this callback, which puts it in the secrets store and drops it
+// (decision-004) — it never reaches a view, a log, a message, or a URL. A non-nil
+// error marks the sign-in failed, so Poll reports it and the operator retries.
+type CodexHarvest func(authJSON []byte) error
 
 // CodexSignInSession is one sign-in in progress. Code and VerificationURL are the
 // PUBLIC one-time values shown to the operator (never the credential). Poll
-// reports progress without blocking; on CodexSignInDone, AuthJSON harvests the
-// credential blob (read only at the web edge, then dropped — decision-004); Close
-// tears the attempt down and removes its transient home.
+// reports progress without blocking — CodexSignInDone means the subprocess exited
+// and the harvest callback has already stored the credential (the poll edge only
+// READS this outcome, it never touches the store); Close tears the attempt down
+// and removes its transient home.
 type CodexSignInSession interface {
 	Code() string
 	VerificationURL() string
 	Poll() CodexSignInState
-	AuthJSON() ([]byte, error)
 	Close() error
 }
 
 // CodexSignInState is where a sign-in stands: still waiting on the operator, done
-// (the credential can be harvested), or failed (the code expired or was declined).
+// (the subprocess exited and the credential is already harvested and stored), or
+// failed (the code expired, was declined, or the harvest could not be stored).
 type CodexSignInState int
 
 const (
@@ -109,7 +119,22 @@ func (s *Server) connectCodex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := s.codexSignIn.Start(r.Context())
+	// The harvest runs server-side when the sign-in subprocess exits, never on a
+	// poll GET (decision-004, decision-025). It reads the credential at the process
+	// edge and hands it straight to the store — the blob lives only as this Set's
+	// argument, then is dropped: never a view, a log, a message, or a URL. The
+	// name-only record-secret-set is the sole trace (decision-023). A store error
+	// surfaces as a failed sign-in the operator retries.
+	harvest := func(blob []byte) error {
+		if err := s.secrets.Set(codexAuthRef, string(blob)); err != nil {
+			log.Printf("web: codex: store credential for %s: %v", codexAuthRef, err)
+			return err
+		}
+		s.app.Send(credentialsmsg.NewRecordSecretSet(credentialsmsg.RecordSecretSetPayload{Ref: codexAuthRef}))
+		return nil
+	}
+
+	session, err := s.codexSignIn.Start(r.Context(), harvest)
 	if err != nil {
 		log.Printf("web: codex: start sign-in: %v", err)
 		http.Error(w, "Could not start the Codex sign-in.", http.StatusInternalServerError)
@@ -121,12 +146,14 @@ func (s *Server) connectCodex(w http.ResponseWriter, r *http.Request) {
 }
 
 // pollCodex re-checks the sign-in in progress (decision-025): the waiting page's
-// meta-refresh and its "Check now" link both land here. Done harvests the
-// credential into the reserved reference at the web edge and drops it
-// (decision-004); failed clears the attempt and marks it expired; still waiting
-// falls back to /codex, which re-renders the code. It always redirects — a GET
-// that mutates the store on success, but idempotently: a second poll after a
-// harvest finds the attempt gone and just returns to the signed-in page.
+// meta-refresh and its "Check now" link both land here. This GET only READS where
+// the sign-in stands — it never writes the secrets store. The credential is
+// harvested and stored server-side the moment the sign-in subprocess exits (the
+// harvest callback wired in connectCodex), so by the time Poll reports Done the
+// store already holds it and this handler just returns to the signed-in page.
+// Failed clears the attempt and marks it expired; still waiting falls back to
+// /codex, which re-renders the code. It always redirects, and is idempotent: a
+// second poll after the attempt is cleared finds it gone and returns to /codex.
 func (s *Server) pollCodex(w http.ResponseWriter, r *http.Request) {
 	session := s.codexPending()
 	if session == nil {
@@ -136,23 +163,9 @@ func (s *Server) pollCodex(w http.ResponseWriter, r *http.Request) {
 
 	switch session.Poll() {
 	case CodexSignInDone:
-		blob, err := session.AuthJSON()
-		if err != nil {
-			log.Printf("web: codex: harvest credential: %v", err)
-			s.clearCodexPending()
-			http.Redirect(w, r, s.codexExpiredPath(), http.StatusSeeOther)
-			return
-		}
-		// decision-004: the credential is read at the edge, handed straight to the
-		// store, and dropped — it lives only as this Set's argument, never in a
-		// message, the log, the view, or a URL. Log the reference alone on failure.
-		if err := s.secrets.Set(codexAuthRef, string(blob)); err != nil {
-			log.Printf("web: codex: store credential for %s: %v", codexAuthRef, err)
-			s.clearCodexPending()
-			http.Redirect(w, r, s.codexExpiredPath(), http.StatusSeeOther)
-			return
-		}
-		s.app.Send(credentialsmsg.NewRecordSecretSet(credentialsmsg.RecordSecretSetPayload{Ref: codexAuthRef}))
+		// The credential was already harvested and stored when the subprocess
+		// exited; nothing to write here — drop the finished attempt and show the
+		// signed-in page, which derives "signed in" from the stored reference.
 		s.clearCodexPending()
 		http.Redirect(w, r, s.codexIndexPath(), http.StatusSeeOther)
 	case CodexSignInFailed:

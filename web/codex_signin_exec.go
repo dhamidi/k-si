@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,7 +50,7 @@ var (
 	codexCodeRE = regexp.MustCompile(`[A-Z0-9]{4,}-[A-Z0-9]{4,}`)
 )
 
-func (e *ExecCodexSignIn) Start(ctx context.Context) (CodexSignInSession, error) {
+func (e *ExecCodexSignIn) Start(ctx context.Context, harvest CodexHarvest) (CodexSignInSession, error) {
 	home, err := os.MkdirTemp("", "kasi-codex-signin-")
 	if err != nil {
 		return nil, fmt.Errorf("codex sign-in: make home: %w", err)
@@ -71,7 +72,7 @@ func (e *ExecCodexSignIn) Start(ctx context.Context) (CodexSignInSession, error)
 	}
 	cmd.Stderr = cmd.Stdout
 
-	sess := &execCodexSession{cmd: cmd, home: home, scanDone: make(chan struct{})}
+	sess := &execCodexSession{cmd: cmd, home: home, harvest: harvest, scanDone: make(chan struct{})}
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(home)
 		return nil, fmt.Errorf("codex sign-in: start: %w", err)
@@ -102,6 +103,12 @@ func (e *ExecCodexSignIn) Start(ctx context.Context) (CodexSignInSession, error)
 type execCodexSession struct {
 	cmd  *exec.Cmd
 	home string
+
+	// harvest stores the credential the moment the subprocess exits — never on a
+	// poll GET (decision-004, decision-025). reap reads auth.json at the process
+	// edge and hands it straight to this callback; the poll edge only reads the
+	// resulting state.
+	harvest CodexHarvest
 
 	// scanDone closes when scan has drained the pipe to EOF, so reap can call Wait
 	// only after all reads have completed (os/exec's ordering requirement).
@@ -147,13 +154,28 @@ func (s *execCodexSession) scan(r io.Reader, ready chan<- struct{}) {
 
 // reap waits for the process and records its outcome, so Poll never blocks. It
 // blocks on scanDone first: os/exec forbids Wait before every StdoutPipe read has
-// reached EOF, and scan closes scanDone exactly then.
+// reached EOF, and scan closes scanDone exactly then. On a clean exit it harvests
+// the credential server-side — reads auth.json at the process edge and hands it
+// straight to the store through the harvest callback (decision-004) — so the poll
+// GET only ever READS the resulting state, never writing the store. A failed
+// process, an unreadable auth.json, or a store error all record a failed sign-in
+// the operator retries; the reference alone is logged, never the blob.
 func (s *execCodexSession) reap() {
 	<-s.scanDone
 	err := s.cmd.Wait()
+	ok := err == nil
+	if ok && s.harvest != nil {
+		blob, rerr := os.ReadFile(filepath.Join(s.home, "auth.json"))
+		if rerr != nil {
+			log.Printf("web: codex: read harvested credential: %v", rerr)
+			ok = false
+		} else if herr := s.harvest(blob); herr != nil {
+			ok = false
+		}
+	}
 	s.mu.Lock()
 	s.exited = true
-	s.exitedOK = err == nil
+	s.exitedOK = ok
 	s.mu.Unlock()
 }
 
@@ -179,12 +201,6 @@ func (s *execCodexSession) Poll() CodexSignInState {
 		return CodexSignInDone
 	}
 	return CodexSignInFailed
-}
-
-// AuthJSON reads the harvested credential from the dedicated home. Read once at
-// the web edge on a successful sign-in and dropped (decision-004).
-func (s *execCodexSession) AuthJSON() ([]byte, error) {
-	return os.ReadFile(filepath.Join(s.home, "auth.json"))
 }
 
 // Close terminates the process if it is still running and removes the dedicated

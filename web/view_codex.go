@@ -46,7 +46,7 @@ type CodexView struct {
 	SecretsPath    string
 
 	// Refresh is the meta-refresh directive the waiting page carries so it
-	// re-checks the sign-in on its own without JavaScript (e.g. "3; url=/codex/connect").
+	// re-checks the sign-in on its own without JavaScript (e.g. "5; url=/codex/connect").
 	// Empty in every other state.
 	Refresh string
 

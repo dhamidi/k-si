@@ -317,9 +317,10 @@ func NewServer(app *runtime.App, secrets SecretStore, content store.Content, wor
 	// operator's behalf, and holds the result as a decision-004 secret the Codex
 	// agent runs on. index shows the state (signed in / signing in / not signed in /
 	// last sign-in expired); connect starts the host-gated device-auth and shows the
-	// one-time public code + URL; poll re-checks a sign-in under way (the waiting
-	// page's meta-refresh and "Check now" both land here) and harvests the credential
-	// at the edge on success; disconnect signs out. Host-gated, no token
+	// one-time public code + URL; poll only READS a sign-in under way (the waiting
+	// page's meta-refresh and "Check now" both land here) — the credential is
+	// harvested server-side when the sign-in subprocess exits, never on this GET;
+	// disconnect signs out. Host-gated, no token
 	// (decision-006); no inbound callback — codex polls out and the operator approves
 	// in their own browser. The GET and POST on /codex/connect are distinct routes on
 	// the one pattern (re-check vs start).

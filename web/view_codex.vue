@@ -23,7 +23,7 @@
 
 			<section v-if="codex.Disconnected" class="state disconnected">
 				<h2>You are not signed in</h2>
-				<p>käsi cannot run Codex agents until you sign in. Signing in opens a code you enter on OpenAI's site — you approve it in your own browser, and nothing is sent back to this machine.</p>
+				<p>käsi cannot run Codex agents until you sign in. Signing in gives you a code to enter on OpenAI's site; you approve it in your own browser and never type your OpenAI password here. The sign-in käsi gets back is kept here with your other secrets.</p>
 				<form method="post" :action="codex.ConnectPath">
 					<button type="submit">Sign in to Codex</button>
 				</form>
@@ -31,7 +31,7 @@
 
 			<section v-if="codex.Waiting" class="state waiting">
 				<h2>Finish signing in</h2>
-				<p>Open the sign-in page and enter this code. The code expires in about 15 minutes.</p>
+				<p>Open the sign-in page and enter this code. The code expires shortly.</p>
 				<p class="code-line">
 					<a class="url" :href="codex.VerificationURL">{{ codex.VerificationURL }}</a>
 					<code class="code">{{ codex.Code }}</code>
