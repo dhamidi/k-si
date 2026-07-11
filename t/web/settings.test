@@ -48,6 +48,9 @@ visit /settings matches "*/settings/base_url*"
 # One setting's form renders, with its long help text and the current value.
 visit /settings/base_url matches "*The web address käsi builds*"
 visit /settings/base_url matches "*https://kasi.test*"
+# Save breaks out of the turbo-frame to the top document, so its 303 navigates the
+# whole page to the index instead of blanking the frame with "Content missing".
+visit /settings/base_url matches "*data-turbo-frame=*_top*"
 
 # A valid submit (the flat leaf's field name is `value`) emits set-base-url and the
 # reloaded index shows the new value.

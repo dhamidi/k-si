@@ -10,8 +10,11 @@
      page (view_setting.vue, via v-html of the turbo-frame-wrapped output) and alone
      as the reshape fragment. The <turbo-frame> wrapper is applied at the render edge
      in Go, because htmlc reads a hyphenated tag as a component reference and cannot
-     emit <turbo-frame> itself (docs/16). Works without JavaScript: absent Turbo, a
-     reshape button does a full-page POST that re-renders with values preserved. -->
+     emit <turbo-frame> itself (docs/16). The reshape buttons stay in the frame, but
+     Save targets the top document (data-turbo-frame="_top") so its redirect navigates
+     the whole page back to the settings index instead of blanking the frame. Works
+     without JavaScript: absent Turbo, that attribute is ignored and Save (like a
+     reshape button) does a full-page POST that re-renders with values preserved. -->
 <template>
 	<form method="post" :action="setting.SavePath">
 		<div class="setting-row" v-for="row in setting.Fields">
@@ -24,7 +27,7 @@
 			<button type="submit" :formaction="setting.ReshapePath" name="add" value="1">Add address</button>
 		</div>
 
-		<button type="submit" class="save">Save</button>
+		<button type="submit" class="save" data-turbo-frame="_top">Save</button>
 	</form>
 </template>
 
