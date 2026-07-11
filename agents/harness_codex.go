@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dhamidi/k-si/secrets"
+	"github.com/dhamidi/k-si/workspace"
 )
 
 // codexAuthRef is the reserved reference the operator's Codex credential lives
@@ -59,9 +60,12 @@ nothing. Then stop.
 // codexPrompt is käsi's standing instruction to a Codex worker. It mirrors
 // workerPrompt's file contract (./in/ inputs → ./out/ reply and attachments,
 // requests, notify, store, memory, apps) but avoids Claude-specific phrasing so it
-// reads correctly to a Codex agent (the shared prompt leaks .claude/skills, which a
-// Codex run does not use — decision-024, skills-parity fork). The out/ reply
-// contract and in/MEMORY.md memory contract are identical across harnesses.
+// reads correctly to a Codex agent — the shared Claude prompt names .claude/skills
+// and stream-json, neither of which a Codex run sees. Codex gets its skills NATIVELY
+// instead (decision-025): käsi links every learned skill into $CODEX_HOME/skills/,
+// where codex discovers each one on its own, so the prompt only needs to point the
+// agent at them. The out/ reply contract and in/MEMORY.md memory contract are
+// identical across harnesses.
 const codexPrompt = `You are käsi's worker agent, running headless in a task workspace.
 
 Your inputs are in ./in/ — read ./in/body.txt (the message to act on; it opens
@@ -130,6 +134,10 @@ between --- fences and that line becomes the fact's summary in the index. Every
 fact käsi knows is provisioned into each run as ./in/memory/<name>.md files plus a
 ./in/MEMORY.md index: read them for what it already knows. To FORGET a fact, delete
 its ./in/memory/<name>.md. Names are flat slugs (no nested paths).
+
+Every skill käsi has learned is already installed for you — codex loads each one
+on its own the moment it fits the task. Before doing work by hand, check whether a
+skill already covers it and follow that skill.
 
 Never wait for input — always stop.`
 
@@ -247,6 +255,15 @@ func (c *Codex) spawn(taskID, runID int64, seed string, resume, last bool, env m
 			authBefore = blob
 			authFound = true
 		}
+		// Give this real-Codex turn its NATIVE skills (decision-025): provisionSkills
+		// already laid every learned skill into the workspace at task-<id>/.claude/skills/
+		// (the shared box, unchanged); link each into $CODEX_HOME/skills/<name>/ — the
+		// path codex discovers user skills under — so codex loads them like any other
+		// skill. A real-adapter-only on-disk side effect gated on a materialized home,
+		// so no twin ring (codexHome == "") ever runs it and the model, log, and
+		// cassettes are untouched (decision-004). Per-skill failures are logged and
+		// skipped, never fatal to the run (mirrors provisionSkills).
+		linkCodexSkills(codexHome, dir)
 	}
 
 	cmd, pipe, transcript, err := c.startProcess(dir, transcriptRel, seed, resume, last, env)
@@ -520,6 +537,46 @@ func (c *Codex) finalizeCredentials(run *codexRun) {
 	// is emitted and the replay/cassette rings stay byte-identical.
 	if err := c.refresh.Set(codexAuthRef, string(now)); err != nil {
 		log.Printf("agents: codex refresh credential: %v", err)
+	}
+}
+
+// linkCodexSkills mirrors the run's provisioned käsi skills into $CODEX_HOME/skills/
+// so codex discovers them natively (decision-025). provisionSkills already wrote each
+// learned skill into the workspace at task-<id>/.claude/skills/<name>/ (the shared
+// box, left untouched); this symlinks each skill DIRECTORY into home/skills/<name>,
+// which is where codex looks for user skills (its built-ins live under skills/.system/,
+// so a fresh per-run home carries no others). The link points at the workspace's
+// absolute path, so codex reads the same SKILL.md käsi laid down; the whole home —
+// links included — is removed after the turn, and RemoveAll deletes the symlinks
+// without following them, so the workspace skills are never touched. It is only ever
+// called with a real materialized home, so no twin ring runs it. Best-effort: a home
+// or skill that cannot be linked is logged and skipped, never fatal to the turn.
+func linkCodexSkills(codexHome, taskDir string) {
+	src := filepath.Join(taskDir, workspace.SkillsBox)
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("agents: codex skills: read %s: %v", src, err)
+		}
+		return // no skills provisioned this run — nothing to link
+	}
+	dstRoot := filepath.Join(codexHome, "skills")
+	if err := os.MkdirAll(dstRoot, 0o755); err != nil {
+		log.Printf("agents: codex skills: mkdir %s: %v", dstRoot, err)
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue // a skill is a directory holding SKILL.md
+		}
+		srcAbs, err := filepath.Abs(filepath.Join(src, e.Name()))
+		if err != nil {
+			log.Printf("agents: codex skill %q: abs: %v", e.Name(), err)
+			continue
+		}
+		if err := os.Symlink(srcAbs, filepath.Join(dstRoot, e.Name())); err != nil {
+			log.Printf("agents: codex skill %q: link: %v", e.Name(), err)
+		}
 	}
 }
 
