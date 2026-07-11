@@ -149,7 +149,7 @@ func runServe(args []string) int {
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Senders: senders, Content: content, Work: work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harnesses: buildHarnesses(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
+		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harnesses: buildHarnesses(*workdir, sec), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
 	).UseLog(logStore).UseClock(clock)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -270,10 +270,13 @@ func runServe(args []string) int {
 // then fails at exec, recorded on the run, rather than the process panicking on a
 // nil harness). The set of names is agents.HarnessNames(), so the Settings choice
 // and the registry never drift.
-func buildHarnesses(workdir string) map[string]agents.Harness {
+func buildHarnesses(workdir string, refresh agents.CredentialRefresher) map[string]agents.Harness {
 	builders := map[string]func(string) agents.Harness{
 		"claude": func(dir string) agents.Harness { return agents.NewClaude(dir) },
-		"codex":  func(dir string) agents.Harness { return agents.NewCodex(dir) },
+		// Codex materializes a per-run CODEX_HOME from the reserved credential and, when
+		// codex rotates the token, writes it back through refresh — the secrets edge, so
+		// the write-back stays at the edge (decision-025, decision-004).
+		"codex": func(dir string) agents.Harness { return agents.NewCodex(dir, refresh) },
 	}
 	bins := map[string]string{"claude": "claude", "codex": "codex"}
 	harnesses := make(map[string]agents.Harness, len(agents.HarnessNames()))

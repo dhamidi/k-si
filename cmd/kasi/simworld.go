@@ -144,7 +144,10 @@ func newLiveWorld(workdir string, sec secrets.Secrets, harness string) *simWorld
 // own session and records it, Claude uses the deterministic one.
 func realHarness(name, workdir string) agents.Harness {
 	if name == "codex" {
-		return agents.NewCodex(workdir)
+		// nil refresh: the live-capture ring wires the sim secrets edge and materializes
+		// no per-run home (the run resolves through RecordingHarness, not the bare *Codex),
+		// so there is no real credential to write back (decision-025).
+		return agents.NewCodex(workdir, nil)
 	}
 	return agents.NewClaude(workdir)
 }

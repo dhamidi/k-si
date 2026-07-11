@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,27 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/dhamidi/k-si/secrets"
 )
+
+// codexAuthRef is the reserved reference the operator's Codex credential lives
+// under (decision-025) — the same reference the /codex sign-in stores it at. The
+// per-run CODEX_HOME materializes auth.json FROM this reference and, when codex
+// rotates the token mid-turn, writes the fresh one back TO it, all at the edge so
+// the plaintext never touches the model or the log (decision-004).
+var codexAuthRef = secrets.URL("codex/oauth", "auth-json")
+
+// CredentialRefresher persists a rotated Codex credential back to its reserved
+// secret reference (decision-025). It is the secrets edge narrowed to a single
+// Set, so the harness can write back a token codex rotated mid-run WITHOUT the
+// plaintext ever entering the model or the log (decision-004). It is written
+// directly, never via a message, so no per-run log entry is emitted and the replay
+// and cassette rings stay byte-identical. nil where there is nothing real to
+// refresh (the sim/recorded/live-capture rings resolve a twin, not the real Codex).
+type CredentialRefresher interface {
+	Set(ref, plaintext string) error
+}
 
 // codexPreamble leads the prompt on a Codex RESUME turn — the Codex equivalent of
 // resumePreamble (decision-019). A resumed Codex session still holds the prior
@@ -130,6 +151,10 @@ Never wait for input — always stop.`
 type Codex struct {
 	bin     string
 	workdir string
+	// refresh persists a token codex rotated mid-turn back to codexAuthRef at the
+	// edge (decision-025). nil in the sim/recorded/live-capture rings — there is no
+	// real credential to refresh — so finalizeCredentials only cleans up the home.
+	refresh CredentialRefresher
 
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -149,6 +174,14 @@ type codexRun struct {
 	transcriptRel string
 	outDir        string
 	done          chan error
+
+	// codexHome is the transient per-run CODEX_HOME the effect materialized outside
+	// the workspace (decision-025), or "" for every twin ring (no home was set). The
+	// harness removes it after Wait; authBefore/authFound snapshot its auth.json at
+	// spawn so a token codex rotates during the turn is detected and written back.
+	codexHome  string
+	authBefore []byte
+	authFound  bool
 }
 
 var _ Harness = (*Codex)(nil)
@@ -157,8 +190,12 @@ var _ Harness = (*Codex)(nil)
 // CLI must be signed in with the operator's ChatGPT subscription in the process's
 // environment (decision-004: the subscription credential is the CLI's own, never a
 // token in the model or the log).
-func NewCodex(workdir string) *Codex {
-	c := &Codex{bin: "codex", workdir: workdir, runs: map[int64]*codexRun{}}
+// refresh persists a token codex rotates mid-turn back to the reserved reference
+// (decision-025); pass nil where there is no real credential store to write to (the
+// sim and live-capture rings). In production it is the secrets edge, so the
+// write-back happens at the edge, never through the model.
+func NewCodex(workdir string, refresh CredentialRefresher) *Codex {
+	c := &Codex{bin: "codex", workdir: workdir, refresh: refresh, runs: map[int64]*codexRun{}}
 	c.cond = sync.NewCond(&c.mu)
 	return c
 }
@@ -196,6 +233,22 @@ func (c *Codex) spawn(taskID, runID int64, seed string, resume, last bool, env m
 	}
 	transcriptRel := fmt.Sprintf("transcript-%d.jsonl", runID)
 
+	// Snapshot the per-run CODEX_HOME credential BEFORE the process can rotate it
+	// (decision-025). The effect wrote auth.json into this private home and passed
+	// only the DIR PATH through env; capturing the blob now lets finalizeCredentials
+	// detect a mid-turn rotation and write it back. Empty home in every twin ring —
+	// materialization is skipped unless the resolved harness is the real Codex — so
+	// finalize is a pure no-op there and the cassette/replay rings are untouched.
+	codexHome := env["CODEX_HOME"]
+	var authBefore []byte
+	var authFound bool
+	if codexHome != "" {
+		if blob, err := os.ReadFile(filepath.Join(codexHome, "auth.json")); err == nil {
+			authBefore = blob
+			authFound = true
+		}
+	}
+
 	cmd, pipe, transcript, err := c.startProcess(dir, transcriptRel, seed, resume, last, env)
 	if err != nil {
 		return Handle{}, err
@@ -208,6 +261,9 @@ func (c *Codex) spawn(taskID, runID int64, seed string, resume, last bool, env m
 		transcriptRel: transcriptRel,
 		outDir:        filepath.Join(dir, "out"),
 		done:          make(chan error, 1),
+		codexHome:     codexHome,
+		authBefore:    authBefore,
+		authFound:     authFound,
 	}
 
 	// sessionReady carries the first-known session up to spawn: the harvested
@@ -359,6 +415,11 @@ func (c *Codex) Wait(ctx context.Context, h Handle) Result {
 	if run == nil {
 		return Result{Stopped: true, TranscriptPath: fmt.Sprintf("transcript-%d.jsonl", h.RunID)}
 	}
+	// Both branches below block until the process has fully exited (run.done), so the
+	// deferred finalize runs only once the credential is final: it writes back any
+	// token codex rotated this turn and removes the transient CODEX_HOME
+	// (decision-025). A no-op when no home was materialized (every twin ring).
+	defer c.finalizeCredentials(run)
 	select {
 	case <-ctx.Done():
 		c.signalRun(run)
@@ -430,6 +491,100 @@ func (c *Codex) signalRun(run *codexRun) error {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL) // no-op if the group is already gone
 	}()
 	return nil
+}
+
+// finalizeCredentials closes out a per-run CODEX_HOME after the turn's process has
+// exited (decision-025): it writes back a token codex rotated during the turn and
+// removes the transient home so the ~4KB credential never lingers on disk. It runs
+// deferred from Wait after run.done, so auth.json is final. When no home was
+// materialized (codexHome == "" — every twin ring, and any harness but the real
+// Codex) it returns immediately, keeping the twin rings' behaviour and their logs
+// and cassettes untouched.
+func (c *Codex) finalizeCredentials(run *codexRun) {
+	if run.codexHome == "" {
+		return
+	}
+	defer os.RemoveAll(run.codexHome)
+	if c.refresh == nil {
+		return // no real credential store to refresh (live-capture ring)
+	}
+	now, err := os.ReadFile(filepath.Join(run.codexHome, "auth.json"))
+	if err != nil {
+		return // codex left no credential to persist
+	}
+	if run.authFound && bytes.Equal(now, run.authBefore) {
+		return // unchanged this turn — no rotation to write back
+	}
+	// codex rotated the token mid-turn: persist it back to the reserved reference at
+	// the edge (decision-004) — a direct Set, never a message, so no per-run log entry
+	// is emitted and the replay/cassette rings stay byte-identical.
+	if err := c.refresh.Set(codexAuthRef, string(now)); err != nil {
+		log.Printf("agents: codex refresh credential: %v", err)
+	}
+}
+
+// materializeCodexHome builds a PRIVATE, transient CODEX_HOME for one real Codex
+// turn (decision-025, the linchpin). It lives in the OS temp dir — OUTSIDE the task
+// workspace and out/, so the harvest and archive never touch it (decision-004) — and
+// carries a config.toml and the operator's credential as a 0600 auth.json. Only the
+// returned DIR PATH is meant to ride the run env; the ~4KB blob itself NEVER becomes
+// an OS env var, which would leak it via /proc/<pid>/environ. Called only when the
+// resolved harness is the real Codex, so it is inert in every twin ring.
+func materializeCodexHome(ctx context.Context, e Edges) (string, error) {
+	home, err := os.MkdirTemp("", "kasi-codex-home-")
+	if err != nil {
+		return "", fmt.Errorf("agents: codex home: %w", err)
+	}
+	if err := seedCodexConfig(home); err != nil {
+		os.RemoveAll(home)
+		return "", err
+	}
+	if err := seedCodexAuth(ctx, e, home); err != nil {
+		os.RemoveAll(home)
+		return "", err
+	}
+	return home, nil
+}
+
+// seedCodexConfig writes config.toml into a per-run home: the host's own
+// ~/.codex/config.toml when present (so a run inherits the operator's settings),
+// else a minimal placeholder — codex falls back to its built-in defaults without
+// one. 0600 because the home also holds the credential.
+func seedCodexConfig(home string) error {
+	dst := filepath.Join(home, "config.toml")
+	if data, err := os.ReadFile(hostCodexFile("config.toml")); err == nil {
+		return os.WriteFile(dst, data, 0o600)
+	}
+	return os.WriteFile(dst, []byte("# käsi-managed per-run Codex home\n"), 0o600)
+}
+
+// seedCodexAuth writes the operator's credential into a per-run home as a 0600
+// auth.json, materialized at the edge (decision-004). It prefers the reserved
+// secret — the /codex sign-in stores the credential there — and Resolve errors when
+// it is absent (the un-signed-in box), so it falls back to copying the host's
+// ~/.codex/auth.json, preserving today's host-logged-in posture. When neither
+// exists it leaves auth.json unwritten: codex then fails to authenticate and the run
+// records the error, rather than käsi inventing a credential.
+func seedCodexAuth(ctx context.Context, e Edges, home string) error {
+	dst := filepath.Join(home, "auth.json")
+	if blob, err := e.Secrets.Resolve(ctx, codexAuthRef); err == nil {
+		return os.WriteFile(dst, []byte(blob), 0o600)
+	}
+	if data, err := os.ReadFile(hostCodexFile("auth.json")); err == nil {
+		return os.WriteFile(dst, data, 0o600)
+	}
+	return nil
+}
+
+// hostCodexFile resolves a file under the host operator's ~/.codex directory. On a
+// box with no resolvable home it returns "", so the caller's ReadFile misses and
+// falls back to its default — never a panic.
+func hostCodexFile(name string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex", name)
 }
 
 // manifest lists out/ RECURSIVELY as sorted paths relative to out/, files only —
