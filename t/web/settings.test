@@ -14,7 +14,7 @@ send set-max-concurrent-runs { max 2 }
 send set-loop-guard        { max 20 }
 
 # The index lists every wired setting with its short text and current value.
-visit /settings matches "*Public base URL for capability links*"
+visit /settings matches "*Public base URL*"
 visit /settings matches "*https://kasi.test*"
 visit /settings matches "*Reply-from address*"
 visit /settings matches "*kasi@decode.ee*"
@@ -46,7 +46,7 @@ visit /settings matches "*initiators*"
 visit /settings matches "*/settings/base_url*"
 
 # One setting's form renders, with its long help text and the current value.
-visit /settings/base_url matches "*The origin*"
+visit /settings/base_url matches "*The web address käsi builds*"
 visit /settings/base_url matches "*https://kasi.test*"
 
 # A valid submit (the flat leaf's field name is `value`) emits set-base-url and the

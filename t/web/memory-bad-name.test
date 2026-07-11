@@ -17,7 +17,7 @@ memory write reply-style [fixture memory/reply-style.md]
 post /memory {
     name    ../../evil
     content [fixture memory/owner-timezone.md]
-} matches "*a name is a slug*"
+} matches "*a name may contain only*"
 
 # A name with a space is an injection vector into the one-line-per-entry index; it is
 # refused the same way. (Brackets/newlines can't even be typed as a slug — the rule
@@ -25,7 +25,7 @@ post /memory {
 post /memory {
     name    bad name
     content [fixture memory/owner-timezone.md]
-} matches "*a name is a slug*"
+} matches "*a name may contain only*"
 
 # The collection is EXACTLY what it was — no `evil`, no `bad name`, only reply-style.
 visit /memory matches "*reply-style*"

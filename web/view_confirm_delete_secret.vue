@@ -17,7 +17,7 @@
 		<site_nav :nav="confirm.Nav"></site_nav>
 		<main class="view-confirm-delete-secret">
 			<h1>Delete secret</h1>
-			<p class="prompt">Delete <code class="ref">{{ confirm.Ref }}</code>? This cannot be undone; any effect that resolves this reference will fail until it is set again.</p>
+			<p class="prompt">Delete <code class="ref">{{ confirm.Ref }}</code>? This cannot be undone. Anything that needs this credential will fail until you set it again.</p>
 			<div class="actions">
 				<form method="post" :action="confirm.DeletePath">
 					<input type="hidden" name="ref" :value="confirm.Ref">

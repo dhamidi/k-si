@@ -50,7 +50,7 @@ func (f RememberForm) Validate() RememberForm {
 	case f.Name == "":
 		f.Errors.Set("name", "a name is required")
 	case !memory.ValidName(f.Name):
-		f.Errors.Set("name", "a name is a slug: letters, digits, dashes, dots, underscores")
+		f.Errors.Set("name", "a name may contain only letters, digits, dashes, dots, or underscores")
 	}
 	if strings.TrimSpace(f.Content) == "" {
 		f.Errors.Set("content", "the memory body is required")

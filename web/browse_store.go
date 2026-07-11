@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -92,10 +93,11 @@ func (s *Server) writeStoreDir(w http.ResponseWriter, r *http.Request, dir strin
 			size = info.Size()
 		}
 		rows = append(rows, StoreEntry{
-			Name:  e.Name(),
-			IsDir: e.IsDir(),
-			Size:  size,
-			Path:  s.storeShowPath(full),
+			Name:     e.Name(),
+			IsDir:    e.IsDir(),
+			Size:     size,
+			SizeText: humanSize(size),
+			Path:     s.storeShowPath(full),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -133,7 +135,7 @@ func (s *Server) renderStoreFile(w http.ResponseWriter, r *http.Request, p strin
 	}
 
 	size := info.Size()
-	file := StoreFile{Size: size, RawPath: s.storeRawPath(p)}
+	file := StoreFile{Size: size, SizeText: humanSize(size), RawPath: s.storeRawPath(p)}
 	if size > storeMaxInlineBytes {
 		file.TooLarge = true
 	} else {
@@ -227,6 +229,22 @@ func (s *Server) storeRawPath(p string) string {
 	q.Set("raw", "1")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// humanSize renders a byte count the way a person reads it: "512 bytes" below a
+// kilobyte, then "1.5 KB" / "2.3 MB" / "1.1 GB". One consistent size string for
+// both the directory listing and the file view.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	div, exp := int64(unit), 0
+	for n/div >= unit && exp < 3 {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMG"[exp])
 }
 
 // storeDisplayPath renders the current path for the heading — the root (".") has

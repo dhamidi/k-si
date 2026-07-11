@@ -36,7 +36,7 @@ func Settings() []settings.Setting {
 		{
 			Key:   "max_concurrent_runs",
 			Short: "Max concurrent agent runs",
-			Long:  "The OOM breaker (decision-016): at most this many runs hold a live harness process at once; the rest queue. 0 is unlimited.",
+			Long:  "How many tasks käsi works on at once; the rest wait their turn. Keeping this low protects the machine's memory. 0 means no limit.",
 			Owner: "agents",
 			Read:  func(v runtime.View) settings.Value { return MaxConcurrent(MaxConcurrentOf(v)) },
 			Write: func(val settings.Value) runtime.Msg {

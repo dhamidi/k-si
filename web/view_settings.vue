@@ -14,7 +14,7 @@
 		<site_nav :nav="settings.Nav"></site_nav>
 		<main class="view-settings">
 			<h1>Settings</h1>
-			<p class="lead">The system's configuration. Edit any setting here; the change is logged and takes effect at once.</p>
+			<p class="lead">käsi's configuration. Edit any setting here; your change applies immediately.</p>
 
 			<p v-if="settings.Settings.length == 0" class="empty">No settings contributed.</p>
 

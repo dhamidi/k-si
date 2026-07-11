@@ -22,10 +22,10 @@
 
 			<div v-if="store.IsFile">
 				<h1 class="filename">{{ store.Path }}</h1>
-				<p class="filemeta">{{ store.File.Size }} bytes · <a :href="store.File.RawPath">download</a></p>
+				<p class="filemeta">{{ store.File.SizeText }} · <a :href="store.File.RawPath">Download</a></p>
 				<pre v-if="store.File.IsText">{{ store.File.Text }}</pre>
-				<p v-if="store.File.TooLarge" class="notice">File too large to display ({{ store.File.Size }} bytes). <a :href="store.File.RawPath">Download</a>.</p>
-				<p v-if="store.File.IsBinary" class="notice">Binary file ({{ store.File.Size }} bytes). <a :href="store.File.RawPath">Download</a>.</p>
+				<p v-if="store.File.TooLarge" class="notice">File too large to display ({{ store.File.SizeText }}). <a :href="store.File.RawPath">Download</a>.</p>
+				<p v-if="store.File.IsBinary" class="notice">Binary file ({{ store.File.SizeText }}). <a :href="store.File.RawPath">Download</a>.</p>
 			</div>
 
 			<div v-else>
@@ -36,7 +36,7 @@
 						<a :href="entry.Path">
 							<span class="name">{{ entry.Name }}</span>
 							<span v-if="entry.IsDir" class="kind">dir</span>
-							<span v-else class="size">{{ entry.Size }} B</span>
+							<span v-else class="size">{{ entry.SizeText }}</span>
 						</a>
 					</li>
 				</ul>

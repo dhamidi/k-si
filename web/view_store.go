@@ -51,7 +51,9 @@ type StoreEntry struct {
 	Name  string
 	IsDir bool
 	Size  int64
-	Path  string
+	// SizeText is Size rendered for a human (files only): "512 bytes", "1.5 KB".
+	SizeText string
+	Path     string
 }
 
 // StoreFile is a single file's rendered state (decision-012). Exactly one of
@@ -59,7 +61,9 @@ type StoreEntry struct {
 // contents when the file is UTF-8 text under the inline size cap; otherwise the
 // view offers a download (RawPath, the same route with ?raw=1).
 type StoreFile struct {
-	Size     int64
+	Size int64
+	// SizeText is Size rendered for a human: "512 bytes", "1.5 KB", "2.3 MB".
+	SizeText string
 	IsText   bool
 	Text     string
 	TooLarge bool

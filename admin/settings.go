@@ -14,8 +14,8 @@ import (
 func Settings() []settings.Setting {
 	return []settings.Setting{{
 		Key:   "base_url",
-		Short: "Public base URL for capability links",
-		Long:  "The origin (https://host) käsi builds reply and request links against (docs/04). Editing it changes the very next reply's link.",
+		Short: "Public base URL",
+		Long:  "The web address käsi builds its reply and request links from. Editing it changes the next reply's link.",
 		Owner: "admin",
 		Read:  func(v runtime.View) settings.Value { return BaseURLOf(v) },
 		Write: func(val settings.Value) runtime.Msg {

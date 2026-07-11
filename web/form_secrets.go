@@ -53,13 +53,13 @@ func (f SecretsForm) Validate() SecretsForm {
 	case f.Namespace == "":
 		f.Errors.Set("namespace", "a namespace is required")
 	case !secretNamespaceRE.MatchString(f.Namespace):
-		f.Errors.Set("namespace", "a namespace is letters, digits, dashes, dots, underscores, or slashes — no spaces")
+		f.Errors.Set("namespace", "a namespace may contain only letters, digits, dashes, dots, underscores, or slashes (no spaces)")
 	}
 	switch {
 	case f.Key == "":
 		f.Errors.Set("key", "a key is required")
 	case !secretKeyRE.MatchString(f.Key):
-		f.Errors.Set("key", "a key is letters, digits, dashes, dots, underscores — no spaces or slashes")
+		f.Errors.Set("key", "a key may contain only letters, digits, dashes, dots, or underscores (no spaces or slashes)")
 	}
 	return f
 }

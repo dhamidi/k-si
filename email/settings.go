@@ -127,7 +127,7 @@ func Settings() []settings.Setting {
 	return []settings.Setting{{
 		Key:   "initiators",
 		Short: "Initiator allowlist",
-		Long:  "The addresses allowed to start new tasks by email (docs/04). Anyone here may open a task; everyone else is ignored. Add or remove rows, then Save.",
+		Long:  "The email addresses allowed to start new tasks. Anyone listed here may open a task by email; everyone else is ignored. Add or remove rows, then Save.",
 		Owner: "email",
 		Read:  func(v runtime.View) settings.Value { return AllowlistOf(v) },
 		Write: func(val settings.Value) runtime.Msg {

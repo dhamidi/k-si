@@ -17,7 +17,7 @@
 		<site_nav :nav="secrets.Nav"></site_nav>
 		<main class="view-secrets">
 			<h1>Secrets</h1>
-			<p class="lead">Credentials käsi resolves inside effects. Stored by reference — the value is written once and never shown again. Setting an existing reference rotates it.</p>
+			<p class="lead">Credentials käsi uses while working a task. Each is stored by reference — you write the value once and it is never shown again. Setting an existing reference rotates it.</p>
 
 			<form class="add" method="post" :action="secrets.SavePath">
 				<h2>Add or rotate a secret</h2>

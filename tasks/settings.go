@@ -56,7 +56,7 @@ func Settings() []settings.Setting {
 		{
 			Key:   "reply_from",
 			Short: "Reply-from address",
-			Long:  "The deliverable From address käsi sends replies as (docs/04) — an address you can actually send for.",
+			Long:  "The From address käsi sends replies as. It must be an address you can actually send mail from.",
 			Owner: "tasks",
 			Read:  func(v runtime.View) settings.Value { return FromAddress(ReplyFrom(v)) },
 			Write: func(val settings.Value) runtime.Msg {
@@ -66,7 +66,7 @@ func Settings() []settings.Setting {
 		{
 			Key:   "max_task_runs",
 			Short: "Max agent runs per task",
-			Long:  "The loop breaker (decision-016): after this many runs without resolving, a task is paused. 0 turns the breaker off.",
+			Long:  "If a task runs this many times without finishing, käsi pauses it so it can't loop forever. 0 turns this limit off.",
 			Owner: "tasks",
 			Read:  func(v runtime.View) settings.Value { return LoopGuard(LoopGuardOf(v)) },
 			Write: func(val settings.Value) runtime.Msg {
