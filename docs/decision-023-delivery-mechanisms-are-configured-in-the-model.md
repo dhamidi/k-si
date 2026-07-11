@@ -64,8 +64,10 @@ model or log
 
 It is **set up through the settings UI**
 ([decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)):
-the email module contributes a **flat** ForwardEmail setting group — domain, IMAP
-host, its send/receive credential **references**, and `inbound`/`outbound` toggles.
+the email module contributes a **flat, multi-field** ForwardEmail setting — its own
+`ToForm` (the default former makes only single-leaf forms), like the allowlist's but
+without the dynamic reshape — carrying domain, IMAP host, its send/receive credential
+**references**, and `inbound`/`outbound` toggles.
 It is the settings engine's first **secret-bearing** setting, but the credential
 plumbing already exists: the secrets store, the web edge's `SecretStore` capability,
 the `/secrets` management UI, and Flow C's secret gate are all built (decision-004).
