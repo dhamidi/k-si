@@ -65,12 +65,16 @@ model or log
 It is **set up through the settings UI**
 ([decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)):
 the email module contributes a **flat** ForwardEmail setting group — domain, IMAP
-host, the API token / IMAP password (a `secret` field), and `inbound`/`outbound`
-toggles. It is the settings engine's first **secret-bearing** setting, so building
-it requires implementing decision-020's decision-004 secret gate, which is a no-op
-today (no prior setting carried a secret). The form is **flat** — no shape-changing
-action — so it stays clear of decision-020's rule that a secret must not ride a
-dynamic reshape.
+host, its send/receive credential **references**, and `inbound`/`outbound` toggles.
+It is the settings engine's first **secret-bearing** setting, but the credential
+plumbing already exists: the secrets store, the web edge's `SecretStore` capability,
+the `/secrets` management UI, and Flow C's secret gate are all built (decision-004).
+So the mechanism holds `secret://…` references and the plaintext is stored on the
+`/secrets` page; the setting form carries only references, domain, and toggles —
+flat, with no inline secret field and no shape-changing action, so it stays clear of
+decision-020's rule that a secret must not ride a dynamic reshape. (Typing the
+credentials inline, by wiring `saveSetting`'s still-stubbed sensitive-field gate to
+the same `secrets.Set` Flow C uses, is an optional UX nicety, not a prerequisite.)
 
 **Safety is configuration-gated, not launch-gated.** A fresh boot stays safe by
 default — spool out, no live inbound — and the `-poll`/`-send`/`-from` flags remain
@@ -92,8 +96,9 @@ unconfigured mechanism can't."
 - **No new public surface.** ForwardEmail is polled, so it inherits Fastmail's
   host-gated posture ([decision-006](./decision-006-browse-ui-is-host-gated-no-app-tokens.md))
   — the model-gating adds config, not exposure.
-- It proves the settings module's **first secret-bearing setting**, which forces
-  decision-020's decision-004 gate (a no-op today) to be built.
+- It is the settings module's **first secret-bearing setting**, but the secrets
+  store, the `SecretStore` edge, the `/secrets` UI, and Flow C's gate already exist
+  (decision-004) — the mechanism references secrets rather than needing a new gate.
 - `OutboundVia` selects **one** active sender; multi-sender fallback/priority is
   deferred.
 - Effects still never read the model, and the reducer never manages a goroutine or

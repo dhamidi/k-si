@@ -3,9 +3,11 @@
 Actions to build [decision-023](docs/decision-023-delivery-mechanisms-are-configured-in-the-model.md).
 Rides on the settings engine ([decision-020](docs/decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md)) —
 its `settings/` package, reshape, and base-url migration (`admin.BaseURLOf`) are
-built, but its **decision-004 secret gate is a no-op today** and no former yields a
-`group`; both are prerequisites here (§4). ForwardEmail inbound is **polled over
-IMAP** — no webhook (deferred, see end). Spec only; no code exists yet.
+built. The secrets store, the web `SecretStore` edge (`Set`/`Entries`/`Delete`), the
+`/secrets` UI, and Flow C's secret gate are also built (decision-004), so credentials
+are handled by **referencing** secrets stored on `/secrets` — no new secret gate is
+required (§4). ForwardEmail inbound is **polled over IMAP** — no webhook (deferred,
+see end). Spec only; the email-mechanism code does not exist yet.
 
 ## The mechanisms today and after
 
@@ -41,13 +43,14 @@ Later: `exedev-maildir` (inotify on `~/Maildir/new`), `smtp` (raw). Same abstrac
 
 See "Deferred" at the end. No public route, no token, no `web/server.go` change for inbound.
 
-## 4. Set it up through käsi — the settings customer (build the secret gate first)
+## 4. Set it up through käsi — the settings customer
 
-- [ ] **Prerequisite:** implement decision-020's decision-004 **secret gate** in `web/form_setting.go` (a no-op today): a `secret`-kind field is written to `secrets.Set` → `secret://…` at the web edge and substituted as a reference *before* `Form.Parse`; plaintext never enters the model, the log, or a re-render.
-- [ ] **Prerequisite:** a `group`-kind former (none exists) so a mechanism renders as a flat set of labelled fields.
-- [ ] `email/settings.go` — contribute a **flat** `forwardemail` group Setting (short/long descriptions): `domain` (text), `api_token` (**secret**), `imap_password` (**secret**), `inbound` (bool), `outbound` (bool). **No shape-changing action** — flat only, so the secret fields never ride a reshape (decision-020's secret×dynamic rule).
+- [ ] Credentials use the **existing** secrets store + `/secrets` UI (decision-004, built): store the plaintext there as `secret://forwardemail/api-token` and `secret://forwardemail/imap-password`; the mechanism config holds only the **references** (`SendCredRef`/`RecvCredRef`). No new secret gate required.
+- [ ] `email/settings.go` — contribute a **flat** `forwardemail` group Setting (short/long descriptions): `domain` (text), `send_cred` / `recv_cred` (a `choice` over `SecretStore.Entries()` — pick which stored secret to use), `inbound` (bool), `outbound` (bool). Flat, no shape-changing action.
+- [ ] Group former: if the settings engine doesn't yet render a `group` kind, add it (small — a flat set of labelled fields).
 - [ ] On save: emit `set-mechanism{forwardemail, …}`. Enabling `outbound` as the active sender also emits `set-outbound-via`.
 - [ ] **Outbound deliverability guard:** enabling `outbound` requires a resolvable reply-from + base-url (the check `cmd/kasi/serve.go:71` does for `-send` today) — validate at save time and reject otherwise, so a UI toggle can't start sending undeliverable mail.
+- [ ] (Optional UX) inline credential entry: wire `saveSetting`'s stubbed sensitive-field gate to the same `s.secrets.Set` Flow C uses (`web/server.go`), so a `secret`-kind field can be typed in the mechanism form directly. Not required — referencing works today.
 
 ## 5. ForwardEmail sender (the `Mail` twin)
 
@@ -63,7 +66,7 @@ See "Deferred" at the end. No public route, no token, no `web/server.go` change 
 
 - [ ] `t/mail/mechanism-outbound-dispatch.test` — `OutboundVia` selects the backend; unknown mechanism leaves the row pending, no drop.
 - [ ] `t/mail/forwardemail-poll-inbound.test` — IMAP poll → `route()` → task; a re-polled (same `InboxID`) message creates no second task.
-- [ ] `t/web/settings-forwardemail.test` — `visit /settings`, set the flat group; the two secrets go to the store (not the model/log); `visit` render assertion (decision-008). Enabling outbound with no reply-from is rejected.
+- [ ] `t/web/settings-forwardemail.test` — store creds on `/secrets`, then `visit /settings` and set the flat group referencing them; the model/log hold only `secret://` refs (no plaintext); `visit` render assertion (decision-008). Enabling outbound with no reply-from is rejected.
 - [ ] Ring-3 live probe (spends real mail) — behind the existing `probe` gate.
 
 ## Notes / deferred
