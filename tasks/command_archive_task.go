@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"strings"
 
+	"github.com/dhamidi/k-si/agents"
 	"github.com/dhamidi/k-si/runtime"
 	"github.com/dhamidi/k-si/store"
 )
@@ -66,5 +68,14 @@ func archiveTaskEffect(ctx context.Context, e Edges, p ArchiveTaskPayload,
 		set[sha] = true
 	}
 
-	return e.Work.Delete(p.TaskID, set)
+	if err := e.Work.Delete(p.TaskID, set); err != nil {
+		return err
+	}
+	// The task is gone; remove its per-task Codex home too, so no 0600 OAuth credential
+	// lingers outside the workspace after the task ends (decision-025, decision-004). A
+	// no-op when no root is configured (the twin rings) or no home was ever created.
+	if err := agents.RemoveCodexHome(e.CodexHomeRoot, p.TaskID); err != nil {
+		log.Printf("tasks: archive %d: remove codex home: %v", p.TaskID, err)
+	}
+	return nil
 }

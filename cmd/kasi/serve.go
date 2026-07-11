@@ -27,6 +27,7 @@ import (
 	"github.com/dhamidi/k-si/admin"
 	adminmsg "github.com/dhamidi/k-si/admin/msg"
 	"github.com/dhamidi/k-si/credentials"
+	credentialsmsg "github.com/dhamidi/k-si/credentials/msg"
 	"github.com/dhamidi/k-si/agents"
 	agentmsg "github.com/dhamidi/k-si/agents/msg"
 	"github.com/dhamidi/k-si/apprunner"
@@ -113,6 +114,16 @@ func runServe(args []string) int {
 
 	clock := runtime.RealClock{}
 	work := workspace.NewOS(*workdir)
+	// $STATE/codex holds each real Codex run's per-task persistent CODEX_HOME at
+	// <root>/<taskID> (decision-025): outside the workspace and out/, so no OAuth
+	// credential is ever harvested or archived (decision-004). Threaded to the agents
+	// effect (which materializes it) and the tasks archive path (which reaps it).
+	codexRoot := filepath.Join(*state, "codex")
+	// The agent-edge write-back for a token codex rotates mid-run: it Sets the reserved
+	// reference AND records the name-only audit, exactly like the /codex web sign-in
+	// (decision-025, decision-023). Its App is bound after the App is built (harnesses
+	// are built first, below); the harness only calls it during a live run, long after.
+	codexRefresh := &codexRefresher{sec: sec}
 	// The agent's persistent store: one directory under $STATE, symlinked into
 	// every run's workspace at ./store/ and persisting across tasks — outside the
 	// event log, like the mail edge (Flow F, decision-012). It lives beside the
@@ -148,9 +159,12 @@ func runServe(args []string) int {
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
 		email.Module(email.Edges{Clock: clock, Senders: senders, Content: content, Work: work}),
-		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
-		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harnesses: buildHarnesses(*workdir, sec), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
+		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content, CodexHomeRoot: codexRoot}),
+		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harnesses: buildHarnesses(*workdir, codexRefresh), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr), CodexHomeRoot: codexRoot}),
 	).UseLog(logStore).UseClock(clock)
+	// Bind the App into the Codex credential write-back now that it exists, so a mid-run
+	// token rotation can record its name-only audit (decision-025).
+	codexRefresh.app = app
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -159,6 +173,15 @@ func runServe(args []string) int {
 		return fail("kasi serve:", err)
 	}
 	defer app.Stop()
+
+	// Reap orphaned per-task Codex homes left by a crash/restart (decision-025): the
+	// model is now replayed, so a home whose task is done or absent is a stale 0600
+	// credential that must not linger (decision-004). Homes for tasks still in flight
+	// (present and not done) are kept — their next turn resumes into them.
+	agents.SweepCodexHomes(codexRoot, func(id int64) bool {
+		t, ok := tasks.Get(app.View(), tasks.TaskID(id))
+		return ok && t.Status != tasks.Done
+	})
 
 	// Seed the reply-from identity ONLY when unset, so a UI edit survives a restart
 	// and a re-passed -from never clobbers it — the guarded seeding that makes the
@@ -291,6 +314,52 @@ func buildHarnesses(workdir string, refresh agents.CredentialRefresher) map[stri
 		}
 	}
 	return harnesses
+}
+
+// secretStore is the slice of the real secrets edge the Codex write-back needs: Set
+// the reserved reference and list Entries to tell whether it still exists.
+// *secrets.SQLiteSecrets satisfies it.
+type secretStore interface {
+	Set(url, plaintext string) error
+	Entries() ([]secrets.Entry, error)
+}
+
+// codexRefresher is the agent-edge credential write-back for a token codex ROTATES
+// mid-run (decision-025). It wraps the secrets store and the App so a rotation is
+// persisted AND audited exactly like the /codex web sign-in: Set the reserved
+// reference, then record the name-only record-secret-set (decision-023, decision-004).
+// It is the CredentialRefresher the Codex harness holds; app is bound after the App is
+// built (the harness only calls this during a live run, long after boot).
+type codexRefresher struct {
+	sec secretStore
+	app *runtime.App
+}
+
+// Connected reports whether the reserved Codex reference is still stored — the operator
+// has not signed out. A store error is surfaced so the harness skips the write rather
+// than resurrecting a possibly-deleted secret.
+func (r *codexRefresher) Connected(ref string) (bool, error) {
+	entries, err := r.sec.Entries()
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.Ref == ref {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Refresh persists the rotated credential to ref and records the name-only audit, the
+// same two steps the /codex sign-in takes — never the value, only the reference name
+// (decision-023, decision-004).
+func (r *codexRefresher) Refresh(ref, plaintext string) error {
+	if err := r.sec.Set(ref, plaintext); err != nil {
+		return err
+	}
+	r.app.Send(credentialsmsg.NewRecordSecretSet(credentialsmsg.RecordSecretSetPayload{Ref: ref}))
+	return nil
 }
 
 // knownHarness reports whether name is a harness käsi can run — the -harness flag's

@@ -72,6 +72,14 @@ func registerDomainVocabulary(in *testlang.Interp, inst *instance) {
 		return "", stopAgent(inst)
 	}
 
+	// codex-lifecycle exercises the decision-004-critical Codex home lifecycle without
+	// a live codex — the merge gate forbids *_test.go and the real *Codex core is gated
+	// on h.(*Codex) which no ring resolves, so this Go-level check rides a scenario
+	// (decision-025). It touches no App state, so any replay converges trivially.
+	v["codex-lifecycle"] = func(in *testlang.Interp, args []string) (string, error) {
+		return "", agents.VerifyCodexLifecycle()
+	}
+
 	v["outbound"] = func(in *testlang.Interp, args []string) (string, error) {
 		return outbound(inst, args)
 	}

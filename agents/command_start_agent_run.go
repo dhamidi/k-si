@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 
 	"github.com/dhamidi/k-si/apps"
@@ -73,6 +72,14 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 	// materialised here and nowhere else. Keyed by the request field name.
 	var env map[string]string
 	for field, url := range p.SecretRefs {
+		// The reserved Codex credential reference is materialized ONLY into a private
+		// per-task CODEX_HOME as a 0600 auth.json (decision-025); it must never be
+		// resolvable into a worker env var through the ordinary Flow-C secrets path,
+		// which would put the OAuth blob on /proc/<pid>/environ. Reject the request
+		// rather than silently resolve it (decision-004).
+		if url == codexAuthRef {
+			return fmt.Errorf("agents: %q is reserved for the Codex sign-in and cannot be requested into a run environment (decision-025)", codexAuthRef)
+		}
 		plaintext, err := e.Secrets.Resolve(ctx, url)
 		if err != nil {
 			return err
@@ -151,23 +158,23 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 	// from the registry — the same harness across launch, watch, and signal, so a
 	// restart resolves the one that launched.
 	h := e.resolveHarness(p.Harness)
-	// When the run is pinned to the REAL Codex harness, give this turn a private
-	// CODEX_HOME (decision-025, the linchpin): a transient dir outside the workspace
-	// and out/, seeded with a config.toml and the operator's credential materialized
-	// from the reserved secret (or the host's, preserving today's posture). Only the
-	// DIR PATH rides env — never the ~4KB blob, which would leak via /proc/<pid>/environ.
-	// The Codex harness removes the home after the turn and writes back any token codex
-	// rotated. Gated on the concrete *Codex, so every twin ring (sim/recorded/live
-	// resolve a decorator, not *Codex) skips this entirely and its log and cassettes
-	// stay byte-identical.
-	var codexHome string
+	// When the run is pinned to the REAL Codex harness, give this turn the task's
+	// PERSISTENT private CODEX_HOME (decision-025, the linchpin): $STATE/codex/<taskID>,
+	// created once and REUSED across every resume turn so codex's sessions/ rollout
+	// store survives and resume continues the real thread. It is seeded with a minimal
+	// config.toml and the operator's credential materialized 0600 from the reserved
+	// secret (or the host's, preserving today's posture). Only the DIR PATH rides env —
+	// never the ~4KB blob, which would leak via /proc/<pid>/environ. It is removed at
+	// task-finish (archive-task) or by the boot sweep, NEVER per run. Gated on the
+	// concrete *Codex, so every twin ring (sim/recorded/live resolve a decorator, not
+	// *Codex) skips this entirely and its log and cassettes stay byte-identical.
 	if _, ok := h.(*Codex); ok {
-		home, err := materializeCodexHome(ctx, e)
-		if err != nil {
-			return err
+		if home := CodexHomeDir(e.CodexHomeRoot, p.TaskID); home != "" {
+			if err := materializeCodexHome(ctx, e, home); err != nil {
+				return err
+			}
+			env["CODEX_HOME"] = home
 		}
-		codexHome = home
-		env["CODEX_HOME"] = home
 	}
 	var handle Handle
 	var err error
@@ -181,12 +188,9 @@ func startAgentRunEffect(ctx context.Context, e Edges, p StartAgentRunPayload,
 		handle, err = h.Start(ctx, p.TaskID, p.RunID, env)
 	}
 	if err != nil {
-		// The harness never registered a run, so its post-turn finalize will not fire;
-		// remove the just-materialized CODEX_HOME here so the credential does not linger
-		// (decision-025). Empty for every non-codex harness.
-		if codexHome != "" {
-			os.RemoveAll(codexHome)
-		}
+		// The harness never registered a run, but the CODEX_HOME is per-task and
+		// persistent — a later relaunch reuses it and it is reaped at task-finish or by
+		// the boot sweep — so it is deliberately NOT removed here (decision-025).
 		return err
 	}
 	// Persist the session the harness returned, but ONLY when it minted its own —

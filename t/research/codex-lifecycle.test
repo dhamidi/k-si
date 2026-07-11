@@ -1,0 +1,23 @@
+# t/research/codex-lifecycle.test — the decision-004-critical Codex home lifecycle,
+# exercised WITHOUT a live codex and WITHOUT resolving *Codex through the harness
+# registry (decision-025). The whole real-Codex home/auth/skills/finalize core is
+# gated on h.(*Codex), which no test ring resolves — and the merge gate forbids
+# *_test.go (the scripts are the tests, docs/12) — so this one vocab line runs the
+# Go-level assertions against the lifecycle's pure and package-internal seams.
+#
+# codex-lifecycle asserts, and fails the scenario if any breaks:
+#   - per-task home path derivation ($STATE/codex/<taskID>), inert on an empty root;
+#   - materialize the credential from the reserved secret as a 0600 auth.json;
+#   - a MINIMAL config.toml (no host API-key/provider/MCP bleed over the OAuth login);
+#   - REUSE across resume turns — the same home, codex's sessions/ store survives;
+#   - no plaintext credential blob rides the env (only the DIR PATH does);
+#   - rotation write-back ONLY when the operator is still connected, and audited —
+#     never resurrecting a signed-out secret, never on an unchanged token;
+#   - finalize does NOT remove the home (it persists across the task's turns);
+#   - teardown on task-finish deletes the home and its 0600 credential;
+#   - the boot sweep reaps a done/absent task's orphan home but keeps a live one.
+#
+# It drives no App messages, so the standing replay-convergence check passes trivially
+# and the twin rings and their cassettes stay byte-identical.
+
+codex-lifecycle

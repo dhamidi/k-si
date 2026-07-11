@@ -32,6 +32,11 @@ type Edges struct {
 	// (feature-notifications.md). A plain config string, not an interface edge —
 	// mirrors email.Edges.BaseURL.
 	ControlURL string
+	// CodexHomeRoot is $STATE/codex — the parent dir under which each real Codex run
+	// gets a per-task persistent CODEX_HOME at <root>/<taskID> (decision-025). A plain
+	// config string like ControlURL, wired at boot in cmd/kasi; empty in the twin rings
+	// and SimEdges, so no home is ever materialized there.
+	CodexHomeRoot string
 }
 
 // Module bundles harness invocation, agent runs, and transcripts (docs/01).

@@ -12,6 +12,11 @@ type Edges struct {
 	Clock   runtime.Clock
 	Work    workspace.Workspace
 	Content store.Content
+	// CodexHomeRoot is $STATE/codex — where a real Codex run's per-task persistent home
+	// lives (decision-025). archive-task removes <root>/<taskID> alongside the workspace
+	// so no 0600 OAuth credential outlives the task (decision-004). Empty in the twin
+	// rings and SimEdges, so the teardown is a no-op there.
+	CodexHomeRoot string
 }
 
 // Module bundles task lifecycle and workspaces (docs/01).

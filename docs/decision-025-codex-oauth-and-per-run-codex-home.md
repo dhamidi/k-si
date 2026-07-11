@@ -1,4 +1,12 @@
-# Decision 025 — Codex OAuth sign-in, and a per-run CODEX_HOME
+# Decision 025 — Codex OAuth sign-in, and a per-task CODEX_HOME
+
+> **Revision (adversarial review).** The first cut made `CODEX_HOME` *per-run* and tore
+> it down after every `Wait`. That broke resume: codex stores its session rollouts under
+> `$CODEX_HOME/sessions/`, so a fresh home each turn left `codex exec resume`/`--last`
+> with nothing to continue on turn 2. The home is now **per-task and persistent** at
+> `$STATE/codex/<taskID>`, reused across the task's turns and reaped only when the task
+> ends (or by a boot sweep). The sections below are written to that corrected model; §6
+> and §7 record the review's other fixes (audited rotation, reserved-ref hardening).
 
 ## Context
 
@@ -33,31 +41,48 @@ it through `/proc/<pid>/environ`).
 
 ## Decision
 
-### 1. A per-run transient CODEX_HOME is the primitive
+### 1. A per-task persistent CODEX_HOME is the primitive
 
 The start-agent-run effect — the single choke point that already materializes secrets
-at the edge — builds a **private, transient `CODEX_HOME`** for each real Codex turn
-and tears it down after `Wait`. It lives in the OS temp dir, **outside the task
-workspace and `out/`**, so the manifest harvest and the archive never touch it
-(decision-004,
+at the edge — gives each real Codex run the task's **private, persistent `CODEX_HOME`**
+at **`$STATE/codex/<taskID>`**, created idempotently (`os.MkdirAll`) at run start and
+**reused across every one of the task's turns**. It lives beside the databases and
+workspaces under `$STATE`, **outside the task workspace and `out/`**, so the manifest
+harvest and the archive never touch it (decision-004,
 [decision-019](./decision-019-out-is-a-per-turn-outbox.md)). It is the single landing
 site for two things a Codex process needs and nothing else provides: the operator's
 credential as a `0600` `auth.json`, and the task's learned skills linked into
 `CODEX_HOME/skills/<name>/`.
 
-Only the **directory path** rides the run environment (`CODEX_HOME=/tmp/…`). The
-credential blob itself — ~4 KB of `auth.json` — is written as a `0600` file inside
+**Why per-task, not per-run.** codex keeps its session rollouts under
+`$CODEX_HOME/sessions/`. `codex exec resume <id>` and `codex exec resume --last` select
+from *that store*, not from the run's cwd. If the home were minted fresh each turn and
+removed after `Wait` (the first cut), turn 2's resume would find an empty `sessions/`
+and could not continue the real thread — the whole session-identity mechanism of §5
+would be dead on arrival. A stable per-task home is what makes resume real: the rollout
+codex wrote on turn 1 is still there on turn 2. The credential (`auth.json`) is
+*re-materialized/refreshed* each turn so a rotation elsewhere is picked up, but the
+directory and its `sessions/` persist. `$STATE` is threaded to the effect and the
+task-finish path as a plain config string (`CodexHomeRoot`, like `ControlURL`) — no
+effect reads the model to find it.
+
+Only the **directory path** rides the run environment (`CODEX_HOME=$STATE/codex/<id>`).
+The credential blob itself — ~4 KB of `auth.json` — is written as a `0600` file inside
 that dir and is **never** an environment variable. This is strictly better than an
-env-var blob for decision-004: a `0600` file in a private temp dir is not world- or
+env-var blob for decision-004: a `0600` file in a private state dir is not world- or
 sibling-readable through `/proc/<pid>/environ`, does not appear in a child's inherited
-environment, and is removed with the home. The materialization is called only when the
-resolved harness is the real Codex, so it is inert in every twin ring (sim, recorded,
-recording) and cassettes are untouched.
+environment, and is removed with the home at task-finish. The materialization is called
+only when the resolved harness is the real Codex, so it is inert in every twin ring
+(sim, recorded, recording) and cassettes are untouched.
 
 `seedCodexAuth` prefers the reserved secret (below) and falls back to copying the
 host's `~/.codex/auth.json` when no secret is stored — preserving today's
 host-logged-in posture — and writes nothing when neither exists, so codex fails to
 authenticate and the run records the error rather than käsi inventing a credential.
+`seedCodexConfig` writes a **minimal** `config.toml` (once) rather than copying the
+host's: copying it would bleed the operator's API-key/provider/MCP settings into a home
+whose auth is the ChatGPT OAuth `auth.json`, and a stray API key would override the
+OAuth login.
 
 ### 2. OAuth sign-in through käsi at a host-gated /codex surface
 
@@ -116,6 +141,48 @@ logs a `record-session`, and the next turn's `Resume` still reads `run.Session` 
 the model and resumes the exact thread. käsi generates no session id for Codex; it
 reads the one codex declares.
 
+### 6. Teardown is at task-finish, plus a boot sweep
+
+Because the home is now per-task, it is torn down where the **task** ends, not where a
+run ends. The `archive-task` effect — the existing workspace-cleanup path that deletes
+`task-<id>/` — also `RemoveAll`s `$STATE/codex/<taskID>`, so the `0600` credential never
+outlives the task (decision-004). `finalizeCredentials` no longer removes anything; it
+only writes back a rotation (§7).
+
+A crash between a task finishing and its home being reaped, or a run that errors before
+it registers, would otherwise orphan a home with a live credential in it. So `kasi
+serve` runs a **boot sweep** after the model is replayed: it walks `$STATE/codex/`,
+parses each entry as a task id, and removes every home whose task is **done or absent**,
+keeping only those still in flight (present and not `Done`) so an interrupted task
+resumes into its home (decision-015). No `0600` credential survives a restart it
+shouldn't.
+
+### 7. Rotation write-back is audited and connection-gated; the reserved ref is fenced off
+
+`finalizeCredentials` persists a token codex rotated **mid-turn** back to the reserved
+reference, but the first cut did so with an unaudited direct `Set` that fired even when
+the operator had signed out (Deleted the ref) or when the run had fallen back to the
+host `~/.codex`. Two fixes:
+
+- **Connection-gated.** The write-back happens **only if the reserved reference still
+  exists** — the same "connected" predicate §2 defines. A signed-out operator is never
+  silently re-signed-in by a rotation, and a host-`~/.codex` fallback (which stored no
+  reserved reference) never writes one. It also skips when the token did not actually
+  change this turn.
+- **Audited.** The write is routed through the same audited edge the `/codex` handler
+  uses: `Set` the reference, then record the **name-only** `record-secret-set`
+  (decision-023). A rotation at the agent edge now shows up in the audit exactly like a
+  web sign-in — the reference name only, never the value (decision-004). This is the one
+  place the harness emits a message, and it is safe for replay convergence precisely
+  because it only ever runs on the real `*Codex`, which no test ring resolves.
+
+Finally, the reserved reference `secret://codex/oauth/auth-json` is **fenced off from
+the ordinary Flow-C secrets path**: `startAgentRunEffect` rejects it in `SecretRefs`
+resolution, so an agent's web-form request can never resolve the OAuth blob into a
+worker env var (which would put it on `/proc/<pid>/environ`). The credential reaches a
+run **only** as the `0600` `auth.json` inside the private home, never as an environment
+variable.
+
 ## Consequences
 
 - **decision-004 is strengthened, not merely preserved.** The credential now has a
@@ -127,10 +194,20 @@ reads the one codex declares.
   replay convergence holds trivially: no new field marshals, and the only log entries
   are the name-only secret-mutation records decision-023 already defines. The
   Claude/sim/recorded logs and committed cassettes stay byte-identical.
-- **The twin rule holds.** The per-run home, the credential materialization, and the
+- **The twin rule holds.** The per-task home, the credential materialization, and the
   real device-auth launcher are all gated on the real Codex; the sim sign-in returns
   canned public values and a sentinel credential, so `t/web/codex-signin.test`
   exercises the whole connect → poll → harvest → sign-out loop without a live login.
+- **The lifecycle is covered without a live codex.** The home/auth/finalize core is
+  gated on `h.(*Codex)`, which no ring resolves, and the merge gate forbids `*_test.go`
+  (the scripts are the tests). So the decision-004-critical behavior is factored into
+  pure and package-internal seams (`CodexHomeDir`, `materializeCodexHome`,
+  `RemoveCodexHome`, `SweepCodexHomes`, `finalizeCredentials`) and driven by
+  `t/research/codex-lifecycle.test` via a `codex-lifecycle` vocab that calls
+  `agents.VerifyCodexLifecycle`. It asserts reuse across resume turns (same home,
+  `sessions/` survives), `0600` perms, no plaintext blob in env, the minimal config,
+  teardown on task-finish, the boot sweep, and rotation-writeback-only-when-connected —
+  without a subprocess or harness dispatch, so the twin rings stay byte-identical.
 - **A run may fail closed.** With no stored secret and no host `auth.json`, a Codex run
   starts with an unauthenticated home and records codex's auth error — deliberate: käsi
   never fabricates a credential.
@@ -146,5 +223,3 @@ reads the one codex declares.
 - [decision-020](./decision-020-settings-are-typed-contributions-rendered-by-a-runtime-form-engine.md) — the settings module `/codex` sits alongside; the harness choice that selects Codex.
 - [decision-023 (delivery)](./decision-023-delivery-mechanisms-are-configured-in-the-model.md) — the inbound-webhook reachability wall that device-auth's outbound poll sidesteps.
 - [decision-024](./decision-024-harness-selection-and-generalized-session-identity.md) — the harness registry and session generalization this completes, correcting its mint assumption to a harvest.
-</content>
-</invoke>
