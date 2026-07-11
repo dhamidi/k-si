@@ -1,0 +1,37 @@
+# t/mail/mechanism-outbound-dispatch.test — OutboundVia selects the sender by name,
+# resolved live at send time, and an unknown mechanism leaves the reply PENDING
+# rather than dropping it (decision-023, decision-016). In the sim ring every known
+# mechanism maps to the one observable Mail twin, so `outbound` counts a send
+# regardless of which backend is chosen — what this proves is the SELECTION and the
+# leave-pending-not-drop behaviour, not which wire the mail left on (that is the
+# ring-3 live probe's job).
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# A fresh model has no OutboundVia set, so the reader defaults to the spool: the
+# first reply goes out through it (the outbound count proves it left; the stored
+# outbound_via stays empty until a sender is explicitly chosen, below).
+deliver { from owner@example.test; to kasi@decode.ee; subject "one"; body "first question" }
+agent { out reply.txt "First answer." }
+task 1 status is awaiting-user
+outbound count is 1
+
+# Switch the active sender to Fastmail. The next reply still goes out — proving the
+# handler resolves the CURRENT OutboundVia at send time and dispatches by that name.
+send set-outbound-via { name fastmail }
+model email outbound_via is fastmail
+deliver { from owner@example.test; reply-to-last; body "second question" }
+agent { out reply.txt "Second answer." }
+task 1 status is awaiting-user
+outbound count is 2
+
+# Switch to a mechanism with no built sender. The reply is queued but cannot be
+# submitted, so its outbox row is left PENDING (retried on the next restart by the
+# one-shot reconcile sub) and nothing new goes out — never silently dropped.
+send set-outbound-via { name nonexistent }
+deliver { from owner@example.test; reply-to-last; body "third question" }
+agent { out reply.txt "Third answer." }
+task 1 status is awaiting-user
+outbound count is 2
+outbox last status is pending

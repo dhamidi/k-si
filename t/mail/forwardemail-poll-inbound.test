@@ -1,0 +1,42 @@
+# t/mail/forwardemail-poll-inbound.test — ForwardEmail's IMAP inbound feeds the
+# SAME route() pipeline Fastmail's poller does, and its poll cursor rides the log in
+# its OWN slot so two pollers never clobber each other (decision-018, decision-023).
+# The real IMAP fetch is live-only (ring-3 probe); here the model-level behaviour is
+# driven directly — configuration, the shared route/re-route idempotency, and the
+# per-mechanism cursor.
+
+send allow-sender   { address owner@example.test }
+send set-reply-from { address kasi@decode.ee }
+
+# Configure ForwardEmail for inbound, referencing its IMAP password by secret:// URL
+# (never plaintext, decision-004). The live poller gates each tick on this.
+send set-mechanism {
+    name          forwardemail
+    inbound       true
+    recv_cred_ref secret://forwardemail/imap-password
+}
+model email mechanisms forwardemail inbound is true
+model email mechanisms forwardemail recv_cred_ref is secret://forwardemail/imap-password
+
+# A message arriving over ForwardEmail routes to a task exactly as a Fastmail-polled
+# one would — route() and route-email are shared across every inbound mechanism.
+deliver { from owner@example.test; to kasi@decode.ee; subject "over imap"; body "hi from imap" }
+task 1 status is awaiting-agent
+tasks count is 1
+
+# The ForwardEmail poll cursor advances in its own PollCursors slot; Fastmail's
+# PollCursor is untouched, so both pollers keep independent high-water marks.
+send record-poll-state { state "3857529045/43"; mechanism forwardemail }
+model email poll_cursors forwardemail is 3857529045/43
+model email poll_cursor is ""
+
+# Re-polling the same message (same InboxID — AddInbox is idempotent on Message-ID)
+# creates no second task: the shared route-email idempotency absorbs the re-fetch.
+send route-email {
+    inbox_id   1
+    recipient  kasi@decode.ee
+    sender     owner@example.test
+    message_id "<in-1@example.test>"
+}
+tasks count is 1
+task 1 turns is 1

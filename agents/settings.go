@@ -39,8 +39,8 @@ func Settings() []settings.Setting {
 			Long:  "How many tasks käsi works on at once; the rest wait their turn. Keeping this low protects the machine's memory. 0 means no limit.",
 			Owner: "agents",
 			Read:  func(v runtime.View) settings.Value { return MaxConcurrent(MaxConcurrentOf(v)) },
-			Write: func(val settings.Value) runtime.Msg {
-				return msg.NewSetMaxConcurrentRuns(msg.SetMaxConcurrentRunsPayload{Max: int(val.(MaxConcurrent))})
+			Write: func(val settings.Value) []runtime.Msg {
+				return []runtime.Msg{msg.NewSetMaxConcurrentRuns(msg.SetMaxConcurrentRunsPayload{Max: int(val.(MaxConcurrent))})}
 			},
 		},
 	}

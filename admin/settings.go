@@ -18,8 +18,8 @@ func Settings() []settings.Setting {
 		Long:  "The web address käsi builds its reply and request links from. Editing it changes the next reply's link.",
 		Owner: "admin",
 		Read:  func(v runtime.View) settings.Value { return BaseURLOf(v) },
-		Write: func(val settings.Value) runtime.Msg {
-			return msg.NewSetBaseURL(msg.SetBaseURLPayload{URL: val.(BaseURL).String()})
+		Write: func(val settings.Value) []runtime.Msg {
+			return []runtime.Msg{msg.NewSetBaseURL(msg.SetBaseURLPayload{URL: val.(BaseURL).String()})}
 		},
 	}}
 }

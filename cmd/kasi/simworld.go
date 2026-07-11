@@ -162,7 +162,7 @@ func assembleSim(w *simWorld, clock runtime.Clock) []*runtime.Module {
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: w.outbound, Content: w.content, Work: w.work}),
+		email.Module(email.Edges{Clock: clock, Senders: email.SimSenders(w.outbound), Content: w.content, Work: w.work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: w.work, Content: w.content}),
 		agents.Module(agents.Edges{Store: w.store, Clock: clock, Harness: w.harness, Work: w.work, Secrets: w.secrets, Content: w.content}),
 	}

@@ -22,9 +22,13 @@ func handleSendOutbox(v runtime.View, s Model, p SendOutboxPayload,
 	meta runtime.Meta) (Model, []runtime.Cmd) {
 
 	// A subscription cannot return a command, so it emits this message and the
-	// handler turns it into the send-email effect (docs/01, docs/03).
+	// handler turns it into the send-email effect (docs/01, docs/03). The active
+	// sender is resolved HERE, from the live model — not at reconcile-sub build
+	// time, which would freeze a stale choice — so switching the sender takes
+	// effect on the next queued reply (decision-023).
 	return s, []runtime.Cmd{NewSendEmail(SendEmailPayload{
 		OutboxID:  p.OutboxID,
 		MessageID: p.MessageID,
+		Mechanism: OutboundVia(v),
 	})}
 }

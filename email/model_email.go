@@ -21,6 +21,40 @@ type Model struct {
 	// Absent on pre-decision-018 log entries, so it decodes as "" and replay stays
 	// convergent (docs/13).
 	PollCursor string `json:"poll_cursor"`
+	// PollCursors holds the high-water mark for each NAMED inbound mechanism
+	// (forwardemail's IMAP UIDVALIDITY/UID, and future polled providers), keyed by
+	// mechanism name so two pollers running at once never overwrite each other's
+	// cursor. Fastmail keeps its own PollCursor above for back-compatibility, so
+	// existing logs replay unchanged. Advanced only through record-poll-state (with
+	// its Mechanism field set), so a restart resumes across the offline gap
+	// (decision-018). Absent on older log entries, so it decodes as nil.
+	PollCursors map[string]string `json:"poll_cursors,omitempty"`
+	// Mechanisms is the set of configured delivery providers, keyed by name
+	// (spool, fastmail, forwardemail, …), each independently enabled inbound
+	// and/or outbound (decision-023). It carries only configuration and
+	// secret:// credential references — never plaintext (decision-004). A map
+	// marshals by sorted keys, so it stays replay-convergent without extra
+	// ordering. Absent on pre-decision-023 log entries, so it decodes as nil and
+	// the readers below tolerate that.
+	Mechanisms map[string]Mechanism `json:"mechanisms,omitempty"`
+	// OutboundVia names the one mechanism that currently sends käsi's replies.
+	// Resolved live in the send-outbox handler and threaded into the send-email
+	// command, so changing it takes effect on the next queued reply. Empty means
+	// the spool default (see OutboundVia below), so a fresh model and every
+	// pre-decision-023 log entry resolve to a working, safe sender.
+	OutboundVia string `json:"outbound_via,omitempty"`
+}
+
+// Mechanism is one configured delivery provider (decision-023): whether it is
+// enabled to receive and/or send, the domain it handles, and secret:// references
+// to its credentials. It never holds plaintext — the API token and IMAP password
+// live in the secrets store and are resolved at the edge, per use (decision-004).
+type Mechanism struct {
+	Inbound     bool   `json:"inbound"`
+	Outbound    bool   `json:"outbound"`
+	Domain      string `json:"domain,omitempty"`
+	SendCredRef string `json:"send_cred_ref,omitempty"`
+	RecvCredRef string `json:"recv_cred_ref,omitempty"`
 }
 
 // OutboxEntry is email's model of one queued reply. Its status drives
@@ -78,6 +112,63 @@ func withoutAllowed(list []string, addr string) []string {
 // first poll, which correctly anchors an initial deployment to "now".
 func PollCursor(v runtime.View) string {
 	return runtime.Slice[Model](v, "email").PollCursor
+}
+
+// OutboundVia returns the name of the mechanism that should send käsi's replies.
+// It is the exported read the send-outbox handler resolves at send time, so a
+// change to the active sender applies to the next queued reply (decision-023). An
+// unset value resolves to "spool": a fresh model, and every log written before
+// mechanisms existed, sends through the safe development spool rather than nothing.
+func OutboundVia(v runtime.View) string {
+	return runtime.Slice[Model](v, "email").activeSender()
+}
+
+// activeSender is the spool-defaulting resolution shared by the exported reader
+// and the OutboundViaName method other modules read through.
+func (m Model) activeSender() string {
+	if m.OutboundVia == "" {
+		return "spool"
+	}
+	return m.OutboundVia
+}
+
+// OutboundViaName exposes the active sender to another module without that module
+// importing this package (which imports tasks, so tasks cannot import back). The
+// consumer defines a one-method interface and reads the email slice through it;
+// email.OutboundVia is the in-package reader for handlers here.
+func (m Model) OutboundViaName() string {
+	return m.activeSender()
+}
+
+// OutboundViaRaw returns the stored active-sender value, empty when never set —
+// the "unset" signal the boot guarded seed checks, distinct from OutboundVia which
+// collapses unset to "spool" for callers that just want a working sender.
+func OutboundViaRaw(v runtime.View) string {
+	return runtime.Slice[Model](v, "email").OutboundVia
+}
+
+// MechanismOf returns the configuration of the named mechanism and whether it is
+// configured at all. Tolerates a nil map (returns the zero Mechanism, false), so
+// it is safe on a fresh or pre-decision-023 model.
+func MechanismOf(v runtime.View, name string) (Mechanism, bool) {
+	m, ok := runtime.Slice[Model](v, "email").Mechanisms[name]
+	return m, ok
+}
+
+// InboundEnabled reports whether the named mechanism is configured to receive
+// mail — the gate each inbound poller checks per tick, so a mechanism that is off
+// (or absent) is polled as a no-op (decision-023).
+func InboundEnabled(v runtime.View, name string) bool {
+	m, ok := runtime.Slice[Model](v, "email").Mechanisms[name]
+	return ok && m.Inbound
+}
+
+// InboundCursor returns the high-water mark a NAMED inbound poller (forwardemail
+// and future polled mechanisms) should resume from — the per-mechanism counterpart
+// of PollCursor, which stays fastmail's. Empty before the first poll, which
+// correctly anchors an initial deployment to "now".
+func InboundCursor(v runtime.View, name string) string {
+	return runtime.Slice[Model](v, "email").PollCursors[name]
 }
 
 // PendingOutbox returns email's still-unsent outbox entries — the exported pure

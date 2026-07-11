@@ -59,8 +59,8 @@ func Settings() []settings.Setting {
 			Long:  "The From address käsi sends replies as. It must be an address you can actually send mail from.",
 			Owner: "tasks",
 			Read:  func(v runtime.View) settings.Value { return FromAddress(ReplyFrom(v)) },
-			Write: func(val settings.Value) runtime.Msg {
-				return msg.NewSetReplyFrom(msg.SetReplyFromPayload{Address: string(val.(FromAddress))})
+			Write: func(val settings.Value) []runtime.Msg {
+				return []runtime.Msg{msg.NewSetReplyFrom(msg.SetReplyFromPayload{Address: string(val.(FromAddress))})}
 			},
 		},
 		{
@@ -69,8 +69,8 @@ func Settings() []settings.Setting {
 			Long:  "If a task runs this many times without finishing, käsi pauses it so it can't loop forever. 0 turns this limit off.",
 			Owner: "tasks",
 			Read:  func(v runtime.View) settings.Value { return LoopGuard(LoopGuardOf(v)) },
-			Write: func(val settings.Value) runtime.Msg {
-				return msg.NewSetLoopGuard(msg.SetLoopGuardPayload{Max: int(val.(LoopGuard))})
+			Write: func(val settings.Value) []runtime.Msg {
+				return []runtime.Msg{msg.NewSetLoopGuard(msg.SetLoopGuardPayload{Max: int(val.(LoopGuard))})}
 			},
 		},
 	}

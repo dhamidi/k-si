@@ -46,5 +46,24 @@ func handleNotifyUser(v runtime.View, s Model, p msg.NotifyUserPayload,
 		Body:       p.Body,
 		TaskID:     p.TaskID,
 		RunID:      p.RunID,
+		Mechanism:  activeSender(v),
 	})}
+}
+
+// outboundViaReader is the one method this handler needs from the email slice.
+// Defining it here, in the consumer, lets tasks read the active sender without
+// importing the email package — which imports tasks, so the dependency must stay
+// one-way (decision-023).
+type outboundViaReader interface{ OutboundViaName() string }
+
+// activeSender resolves the mechanism a notification should leave through — the
+// same OutboundVia the reply path uses — so a notification and a reply exit through
+// the same provider. Defaults to the spool when email is unconfigured.
+func activeSender(v runtime.View) string {
+	if s, ok := v.Slice("email"); ok {
+		if r, ok := s.(outboundViaReader); ok {
+			return r.OutboundViaName()
+		}
+	}
+	return "spool"
 }

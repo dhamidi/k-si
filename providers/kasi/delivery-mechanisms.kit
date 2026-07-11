@@ -1,0 +1,32 @@
+# delivery-mechanisms.kit — the two model writes behind the delivery-mechanism
+# settings (decision-023): set-mechanism upserts one provider's config (keyed by
+# name, so mechanisms configured independently never clobber each other), and
+# set-outbound-via chooses the single active sender. Both are contract messages so
+# the payload + constructor live in email/msg (the email.Mechanism model type is
+# NOT imported by the leaf — the payload carries the fields inline). The handler
+# bodies are hand-filled after scaffolding.
+
+kasi message {
+	module email
+	tag set-mechanism
+	contract true
+	fields {
+		name string
+		inbound bool
+		outbound bool
+		domain string
+		send_cred_ref string
+		recv_cred_ref string
+	}
+	description "configure one delivery mechanism (upsert its entry, keyed by name; carries secret:// credential references, never plaintext)"
+}
+
+kasi message {
+	module email
+	tag set-outbound-via
+	contract true
+	fields {
+		name string
+	}
+	description "choose the mechanism that sends käsi's replies (the single active sender)"
+}

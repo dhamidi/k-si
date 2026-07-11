@@ -91,6 +91,43 @@ decision-020's "`poll`/`send` stay flags for launch-enforced safety" for the
 configured-mechanism case: the guarantee moves from "the process can't" to "an
 unconfigured mechanism can't."
 
+## Implementation notes
+
+Choices settled while building this, beyond the design above:
+
+- **A setting may write more than one message.** `settings.Setting.Write` now returns
+  `[]runtime.Msg` (was one): the ForwardEmail save emits `set-mechanism` and, when it
+  enables or disables the sender, `set-outbound-via`. The save sends them in order;
+  the other settings return a one-element slice.
+- **A boolean field kind.** The form engine gained `KindBool` (a checkbox) plus
+  `field.vue`'s render branch, so the inbound/outbound toggles are real checkboxes
+  rather than an on/off choice. An unchecked box submits nothing, so absence reads as
+  false.
+- **Per-mechanism poll cursor.** Two pollers cannot share one cursor, so
+  `email.Model` gained `PollCursors map[string]string` and `record-poll-state` gained
+  an optional `Mechanism` field: empty stays Fastmail's original `PollCursor` (old
+  logs replay unchanged), a named mechanism advances its own entry.
+- **The deliverability guard lives in the setting's Read+Parse.** `Form.Parse` cannot
+  see the model, so `Read` captures whether a deliverable reply-from and base URL
+  exist right now into the value, and `Parse` rejects enabling outbound when they do
+  not — the engine's single gate, no web-layer branch.
+- **Notifications resolve the active sender through a consumer interface.** The email
+  package imports tasks, so tasks cannot import back; the notify-user handler reads
+  the active sender through a one-method interface it defines and `email.Model`
+  satisfies, keeping the dependency one-way.
+- **Outbound uses a conventional credential path; inbound honors the configured one.**
+  The email module has no `Secrets` edge and `Mail.Submit(raw)` takes no credential,
+  so the outbound sender is built at boot resolving `secret://forwardemail/api-token`
+  (exactly as the JMAP sender resolves its fixed token). The inbound poller lives in
+  `serve` and reads the mechanism's `RecvCredRef` live. The settings form pre-fills
+  both reference fields with their conventional paths so the two stay aligned; a
+  non-conventional send reference is recorded but the boot sender still resolves the
+  conventional one.
+- **The ring-3 live probe is deferred pending credentials.** Exercising the real REST
+  send and IMAP poll needs a ForwardEmail paid-tier account (send + IMAP), which this
+  deployment does not have. The sender and IMAP client are covered by review and by
+  model-level scenarios; the live probe runs once the operator provisions ForwardEmail.
+
 ## Consequences
 
 - The email edge stops being boot-frozen and becomes a set of pluggable mechanisms;

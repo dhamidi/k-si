@@ -24,11 +24,13 @@ type Setting struct {
 	// domain's pure View read helper — a read like any other (docs/15).
 	Read func(v runtime.View) Value
 
-	// Write turns an accepted value into a set-* message — the one imperative
-	// write, logged and replayable (decision-001). An existing message where the
-	// setting maps to one; a new whole-value message where it does not (a
-	// list-replacing set-allowlist, not an incremental allow-sender).
-	Write func(Value) runtime.Msg
+	// Write turns an accepted value into the imperative writes that record it —
+	// logged and replayable (decision-001). Usually one message (an existing set-*
+	// where the setting maps to one, or a whole-value message like set-allowlist);
+	// a few settings need more than one applied together (a mechanism that both
+	// configures itself and becomes the active sender), so the save sends each in
+	// order. An empty slice writes nothing.
+	Write func(Value) []runtime.Msg
 }
 
 // Value is a setting's typed value — a domain type (an Allowlist, a BaseURL, a

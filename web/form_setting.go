@@ -53,8 +53,12 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// App.Send blocks until applied, so the redirected GET shows the new value.
-	s.app.Send(setting.Write(value))
+	// App.Send blocks until applied, so the redirected GET shows the new value. A
+	// setting may record itself in more than one message (configure a mechanism AND
+	// make it the active sender); they are sent in order.
+	for _, m := range setting.Write(value) {
+		s.app.Send(m)
+	}
 
 	index, _ := s.router.Path("settings.index", nil)
 	http.Redirect(w, r, index, http.StatusSeeOther)

@@ -11,9 +11,10 @@ The one this guide walks through is **ForwardEmail**: enter a couple of credenti
 flip it on, and mail flows — käsi picks it up, and sends replies signed so they land
 in the inbox.
 
-Status: this is the design of record. Fastmail is built; the pluggable mechanisms,
-ForwardEmail, and the settings that configure them are being built on top of the
-settings module (decision-020, decision-023).
+Status: built. Fastmail and the pluggable-mechanism edge, the ForwardEmail sender
+and IMAP inbound, and the settings that configure them are all in place on top of
+the settings module (decision-020, decision-023). The one remaining step is a live
+ForwardEmail run, which waits on a paid-tier account (send + IMAP).
 
 ## What a mechanism is
 

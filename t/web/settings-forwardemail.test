@@ -1,0 +1,78 @@
+# t/web/settings-forwardemail.test — the flat, secret-bearing ForwardEmail setting
+# (decision-023), driven through the REAL web.Server in-process (decision-008). The
+# credentials are stored on /secrets and the mechanism config holds only their
+# secret:// references, never plaintext (decision-004). This scenario proves: the
+# setting renders, a token typed into a reference field is rejected, enabling the
+# sender without a deliverable identity is rejected, and a valid save records the
+# references and makes ForwardEmail the active sender — with no plaintext anywhere in
+# the model or the page. The sim boot seeds base_url=https://kasi.test (a .test
+# domain, undeliverable) and does NOT seed reply_from, so the deliverability guard
+# bites until both are set to real values.
+
+send allow-sender { address kasi@decode.ee }
+
+# --- store the two credentials on /secrets (plaintext discarded at the edge) ------
+# Realistic ForwardEmail credentials — the plaintext we then assert never appears in
+# the mechanism config or on the settings page.
+post /secrets {
+    namespace forwardemail
+    key       api-token
+    value     fe-live-9f2a71c4b8e6d05a3c1f7b92e4d6a8c0
+}
+post /secrets {
+    namespace forwardemail
+    key       imap-password
+    value     imap-Zx7Z-q4Rm-t9Kd-2Wpb-6Nfh
+}
+
+# --- the setting is listed on the index and its form renders ----------------------
+visit /settings matches "*ForwardEmail delivery*"
+visit /settings matches "*forwardemail*"
+visit /settings/forwardemail matches "*Your sending domain*"
+visit /settings/forwardemail matches "*Receive mail through ForwardEmail*"
+visit /settings/forwardemail matches "*Send replies through ForwardEmail*"
+
+# --- a token typed into a reference field is rejected (decision-004 guard) ---------
+# The credential fields hold secret:// references only; a raw token is refused so it
+# can never reach the model or the log.
+post /settings/forwardemail {
+    send_cred fe-live-9f2a71c4b8e6d05a3c1f7b92e4d6a8c0
+} matches "*must be a secret reference*"
+
+# --- enabling the sender without a deliverable identity is rejected ----------------
+# base_url is still https://kasi.test and reply_from is unset, so turning outbound on
+# would send mail nobody receives. The save is refused with the guard's message.
+post /settings/forwardemail {
+    send_cred secret://forwardemail/api-token
+    outbound  true
+} matches "*deliverable reply-from*"
+
+# --- give käsi a deliverable identity ---------------------------------------------
+post /settings/base_url { value https://kasi.decode.ee } matches "*/settings*"
+send set-reply-from { address kasi@decode.ee }
+
+# --- a valid save records the references and makes ForwardEmail the active sender --
+post /settings/forwardemail {
+    domain    decode.ee
+    send_cred secret://forwardemail/api-token
+    recv_cred secret://forwardemail/imap-password
+    inbound   true
+    outbound  true
+} matches "*/settings*"
+
+# The model holds the config — references only, both toggles on, and ForwardEmail is
+# now the active outbound sender.
+model email mechanisms forwardemail domain is decode.ee
+model email mechanisms forwardemail send_cred_ref is secret://forwardemail/api-token
+model email mechanisms forwardemail recv_cred_ref is secret://forwardemail/imap-password
+model email mechanisms forwardemail inbound is true
+model email mechanisms forwardemail outbound is true
+model email outbound_via is forwardemail
+
+# CRITICAL (decision-004): neither plaintext credential appears in the model config…
+model email mechanisms forwardemail lacks "*fe-live-9f2a71c4b8e6d05a3c1f7b92e4d6a8c0*"
+model email mechanisms forwardemail lacks "*imap-Zx7Z-q4Rm-t9Kd-2Wpb-6Nfh*"
+# …nor on the rendered settings form (which shows the references).
+visit /settings/forwardemail matches "*secret://forwardemail/api-token*"
+visit /settings/forwardemail lacks "*fe-live-9f2a71c4b8e6d05a3c1f7b92e4d6a8c0*"
+visit /settings/forwardemail lacks "*imap-Zx7Z-q4Rm-t9Kd-2Wpb-6Nfh*"

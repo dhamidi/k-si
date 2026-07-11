@@ -47,8 +47,17 @@ const (
 	KindSecret   Kind = "secret"   // masked <input type=password> (decision-004)
 	KindFile     Kind = "file"     // <input type=file>, stored in archive
 	KindNumber   Kind = "number"   // <input type=number>, a bounded int
+	KindBool     Kind = "bool"     // <input type=checkbox>, an on/off toggle
 	KindList     Kind = "list"     // repeated Fields, add/remove controls
 	KindGroup    Kind = "group"    // a nested struct's fields
+)
+
+// True and False are the raw string values a KindBool field's Value carries — an
+// unchecked checkbox submits nothing, so absence reads as False. Parsers compare
+// a bool field's Value against True.
+const (
+	True  = "true"
+	False = ""
 )
 
 // Event is the shape-changing input Update folds in: which list to grow or

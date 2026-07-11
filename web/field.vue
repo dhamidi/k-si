@@ -26,6 +26,9 @@
 		<input v-if="field.Kind == 'number'" type="number"
 			:id="field.Name" :name="field.Name" :value="field.Value">
 
+		<input v-if="field.Kind == 'bool'" type="checkbox" value="true"
+			:id="field.Name" :name="field.Name" :checked="field.Value == 'true'">
+
 		<input v-if="field.Kind == 'secret'" type="password" autocomplete="off"
 			:id="field.Name" :name="field.Name">
 

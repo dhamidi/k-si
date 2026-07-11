@@ -115,14 +115,20 @@ func runServe(args []string) int {
 	// The app runner keeps registered apps up under systemd --user (feature-apps.md).
 	// Apps live as direct children of the store, so its root is the same store dir.
 	appRunner := apprunner.NewOS(filepath.Join(*state, "store"))
-	// One JMAP client serves both real-world directions. Outbound defaults to the
-	// spool sender — replies written to <spool>/*.eml for inspection — while -send
-	// submits them through Fastmail for real. Sending real mail is outward-facing,
-	// so it is opt-in like -poll; a production deployment runs with both (docs/04).
+	// Build one outbound sender per delivery mechanism at boot; the model's
+	// OutboundVia selects which one sends, so switching providers is a config change,
+	// not a redeploy (decision-023). spool is the reader's default, so a fresh
+	// deployment writes replies to <spool>/*.eml for inspection and nothing leaves
+	// the machine until a real sender is configured and chosen. One JMAP client
+	// serves both Fastmail directions (send here, poll below).
 	jmap := email.NewJMAP(sec, "secret://fastmail/api-token")
-	var outbound email.Mail = email.NewSpoolMail(*spooldir)
-	if *send {
-		outbound = jmap
+	senders := map[string]email.Mail{
+		"spool":    email.NewSpoolMail(*spooldir),
+		"fastmail": jmap,
+		// ForwardEmail resolves its API token from the conventional reference at each
+		// send; the operator stores the token there on the Secrets page and names the
+		// same reference in the mechanism's settings form (decision-023, decision-004).
+		"forwardemail": email.NewForwardEmail(sec, "secret://forwardemail/api-token"),
 	}
 
 	app := runtime.New(
@@ -132,7 +138,7 @@ func runServe(args []string) int {
 		memory.Module(memory.Edges{Clock: clock}),
 		skills.Module(skills.Edges{Clock: clock}),
 		counter.Module(counter.Edges{Clock: clock}),
-		email.Module(email.Edges{Clock: clock, Mail: outbound, Content: content, Work: work}),
+		email.Module(email.Edges{Clock: clock, Senders: senders, Content: content, Work: work}),
 		tasks.Module(tasks.Edges{Clock: clock, Work: work, Content: content}),
 		agents.Module(agents.Edges{Store: dataStore, Clock: clock, Harness: agents.NewClaude(*workdir), Work: work, Secrets: sec, Content: content, ControlURL: controlURL(*addr)}),
 	).UseLog(logStore).UseClock(clock)
@@ -151,6 +157,29 @@ func runServe(args []string) int {
 	if *from != "" && tasks.ReplyFrom(app.View()) == "" {
 		app.Send(taskmsg.NewSetReplyFrom(taskmsg.SetReplyFromPayload{Address: *from}))
 	}
+	// Seed the Fastmail mechanism from -send/-poll, only when it is not already
+	// configured (guarded, decision-020) — a UI edit survives a restart and a
+	// re-passed flag never clobbers it. Fastmail's one API token serves both
+	// directions, so both credential references point at it. set-mechanism upserts
+	// the whole entry, so both flags are folded into one seed rather than two writes
+	// that would overwrite each other. The -send boot guard above already proved the
+	// reply-from and base-url are deliverable before outbound is turned on.
+	if *send || *poll {
+		if _, ok := email.MechanismOf(app.View(), "fastmail"); !ok {
+			app.Send(emailmsg.NewSetMechanism(emailmsg.SetMechanismPayload{
+				Name:        "fastmail",
+				Inbound:     *poll,
+				Outbound:    *send,
+				SendCredRef: "secret://fastmail/api-token",
+				RecvCredRef: "secret://fastmail/api-token",
+			}))
+		}
+	}
+	// Seed the active sender from -send, only when unset (guarded): the reader
+	// defaults to the spool, so leaving it unset keeps replies spooled.
+	if *send && email.OutboundViaRaw(app.View()) == "" {
+		app.Send(emailmsg.NewSetOutboundVia(emailmsg.SetOutboundViaPayload{Name: "fastmail"}))
+	}
 	// Arm the runaway breakers (decision-016). These stay UNCONDITIONAL: the int caps
 	// default to non-zero (2, 20) and 0 is a legitimate value ("disabled"/"unlimited"),
 	// so the model carries no clean "unset" signal to guard on, and a wrong guard is
@@ -168,9 +197,13 @@ func runServe(args []string) int {
 		app.Send(adminmsg.NewSetBaseURL(adminmsg.SetBaseURLPayload{URL: *baseURL}))
 	}
 
-	if *poll {
-		go pollInbox(ctx, app, jmap, content)
-	}
+	// Start both inbound pollers unconditionally; each no-ops per tick unless its
+	// mechanism is enabled in the model, so inbound is a config toggle, not a launch
+	// flag (decision-023). The -poll flag only guarded-seeds fastmail.Inbound above;
+	// turning either provider on later, from the settings UI, takes effect without a
+	// restart. Both feed the same route() pipeline and can run at once.
+	go pollInbox(ctx, app, jmap, content)
+	go pollForwardEmail(ctx, app, sec, content)
 
 	// The /apps page reads each app's liveness and logs through the same runner
 	// that keeps them up (feature-apps.md). The settings surface renders and writes
@@ -234,21 +267,67 @@ func seedAllowlist(app *runtime.App, csv string) {
 func pollInbox(ctx context.Context, app *runtime.App, jmap *email.JMAP, content *store.SQLiteContent) {
 	state := email.PollCursor(app.View())
 	for {
-		msgs, next, err := jmap.Fetch(ctx, state)
-		if err != nil {
-			log.Printf("poll: %v", err)
-		} else {
-			for _, m := range msgs {
-				route(app, content, m)
+		// Poll only while Fastmail inbound is enabled in the model; a disabled or
+		// absent mechanism no-ops (decision-023). Reading the gate per tick means a
+		// UI toggle starts or stops polling without a restart.
+		if email.InboundEnabled(app.View(), "fastmail") {
+			msgs, next, err := jmap.Fetch(ctx, state)
+			if err != nil {
+				log.Printf("poll fastmail: %v", err)
+			} else {
+				for _, m := range msgs {
+					route(app, content, m)
+				}
+				// Advance the cursor through the log AFTER the batch is routed. A crash
+				// in the gap replays the old cursor and re-Fetches the batch, which
+				// route-email absorbs (idempotent on an already-ingested inbox row,
+				// decision-018) — the safe direction. Only log a genuine advance so an
+				// idle poll doesn't append a redundant entry every 15s.
+				if next != state {
+					app.Send(email.NewRecordPollState(email.RecordPollStatePayload{State: next}))
+					state = next
+				}
 			}
-			// Advance the cursor through the log AFTER the batch is routed. A crash
-			// in the gap replays the old cursor and re-Fetches the batch, which
-			// route-email absorbs (idempotent on an already-ingested inbox row,
-			// decision-018) — the safe direction. Only log a genuine advance so an
-			// idle poll doesn't append a redundant entry every 15s.
-			if next != state {
-				app.Send(email.NewRecordPollState(email.RecordPollStatePayload{State: next}))
-				state = next
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(15 * time.Second):
+		}
+	}
+}
+
+// forwardEmailIMAPHost is ForwardEmail's IMAP server — a fixed hostname, unlike the
+// sending domain (which ForwardEmail derives from the From header). It is a whole
+// literal, not assembled from parts.
+const forwardEmailIMAPHost = "imap.forwardemail.net"
+
+// pollForwardEmail is the second inbound edge: it polls ForwardEmail over IMAP,
+// exactly as pollInbox polls Fastmail over JMAP, feeding the same route() pipeline.
+// It runs only while the forwardemail mechanism is enabled for inbound and has a
+// credential reference stored; otherwise it no-ops (decision-023). The IMAP login
+// is the reply-from address (the address käsi receives at) and the password is the
+// mechanism's stored secret reference, resolved at the edge per poll. Its cursor is
+// the per-mechanism PollCursors entry, kept separate from Fastmail's (decision-018).
+func pollForwardEmail(ctx context.Context, app *runtime.App, sec secrets.Secrets, content *store.SQLiteContent) {
+	state := email.InboundCursor(app.View(), "forwardemail")
+	for {
+		if m, ok := email.MechanismOf(app.View(), "forwardemail"); ok && m.Inbound && m.RecvCredRef != "" {
+			// Rebuild the client from the live config each active tick, so a changed
+			// login or credential takes effect without a restart. The IMAP client is
+			// cheap — it dials fresh per Fetch and caches nothing.
+			client := email.NewIMAP(sec, forwardEmailIMAPHost, tasks.ReplyFrom(app.View()), m.RecvCredRef)
+			msgs, next, err := client.Fetch(ctx, state)
+			if err != nil {
+				log.Printf("poll forwardemail: %v", err)
+			} else {
+				for _, msg := range msgs {
+					route(app, content, msg)
+				}
+				if next != state {
+					app.Send(email.NewRecordPollState(email.RecordPollStatePayload{State: next, Mechanism: "forwardemail"}))
+					state = next
+				}
 			}
 		}
 		select {

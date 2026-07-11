@@ -43,5 +43,9 @@ func sendNotificationEffect(ctx context.Context, e Edges, p msg.SendNotification
 	if err != nil {
 		return fmt.Errorf("email: send-notification: build: %w", err)
 	}
-	return e.Mail.Submit(ctx, raw) // fire-and-forget
+	mail, ok := e.Senders[p.Mechanism]
+	if !ok {
+		return fmt.Errorf("email: send-notification: no sender for mechanism %q", p.Mechanism)
+	}
+	return mail.Submit(ctx, raw) // fire-and-forget
 }

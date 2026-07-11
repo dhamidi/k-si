@@ -15,6 +15,10 @@ type SendNotificationPayload struct {
 	Body       string   `json:"body"`
 	TaskID     int64    `json:"task_id"`
 	RunID      int64    `json:"run_id"`
+	// Mechanism is the sender to submit through — the active OutboundVia, resolved
+	// by the emitting handler so a notification leaves through the same provider as
+	// replies (decision-023). Empty means the spool default.
+	Mechanism string `json:"mechanism,omitempty"`
 }
 
 func NewSendNotification(p SendNotificationPayload) runtime.Cmd {
