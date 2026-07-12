@@ -1,0 +1,27 @@
+# The Agents section (decision-024): lists the worker agents with their status and
+# lets the operator choose the default one new tasks run on. Host-gated, no token.
+
+# The section shows up in the shared navbar on every page.
+visit /tasks matches "*Agents*"
+
+# The page lists both agents. Claude is built in; Codex is not signed in in a fresh
+# deployment (no reserved credential), and offers to sign in.
+visit /agents matches "*Agents*"
+visit /agents matches "*Claude*"
+visit /agents matches "*Built in*"
+visit /agents matches "*Codex*"
+visit /agents matches "*Not signed in*"
+visit /agents matches "*Sign in to Codex*"
+
+# The default picker is present; Claude is the default until changed.
+visit /agents matches "*Default agent*"
+
+# Choose Codex as the default — one set-worker-harness message, then a redirect back.
+post /agents { agent codex } matches "*/agents*"
+model agents worker_harness is "codex"
+
+# Codex is now the default but still not signed in, so the page warns about it.
+visit /agents matches "*Codex is the default agent but is not signed in*"
+
+# An unknown agent name is rejected (the select only offers real harnesses).
+post /agents { agent nope } matches "*unknown agent*"

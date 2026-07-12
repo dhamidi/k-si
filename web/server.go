@@ -313,6 +313,16 @@ func NewServer(app *runtime.App, secrets SecretStore, content store.Content, wor
 	if err := s.router.POST("settings.save", "/settings/{key}", http.HandlerFunc(s.saveSetting)); err != nil {
 		return nil, err
 	}
+	// The Agents section (decision-024): list every worker agent with its connection
+	// status and pick the default one new tasks run on. index renders it; save records
+	// the choice via set-worker-harness (the same message the setting emits). /codex
+	// (below) is the manage-sign-in sub-page of this section. Host-gated, no token.
+	if err := s.router.GET("agents.index", "/agents", http.HandlerFunc(s.showAgents)); err != nil {
+		return nil, err
+	}
+	if err := s.router.POST("agents.save", "/agents", http.HandlerFunc(s.saveDefaultAgent)); err != nil {
+		return nil, err
+	}
 	// The Codex sign-in surface (decision-025): käsi signs in to Codex once, on the
 	// operator's behalf, and holds the result as a decision-004 secret the Codex
 	// agent runs on. index shows the state (signed in / signing in / not signed in /

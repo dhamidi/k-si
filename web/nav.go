@@ -32,6 +32,7 @@ var navTopLevel = []struct {
 	{"Apps", "apps.index"},
 	{"Store", "store.index"},
 	{"Secrets", "secrets.index"},
+	{"Agents", "agents.index"},
 	{"Settings", "settings.index"},
 }
 

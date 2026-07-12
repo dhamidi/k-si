@@ -78,7 +78,7 @@ func (s *Server) showCodex(w http.ResponseWriter, r *http.Request) {
 		PollPath:       s.codexPollPath(),
 		DisconnectPath: s.codexDisconnectPath(),
 		SecretsPath:    s.secretsIndexPath(),
-		Nav:            s.navView("settings.index"),
+		Nav:            s.navView("agents.index"),
 	}
 
 	switch {

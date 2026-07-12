@@ -48,6 +48,11 @@ const signInParseTimeout = 30 * time.Second
 var (
 	codexURLRE  = regexp.MustCompile(`https?://\S+`)
 	codexCodeRE = regexp.MustCompile(`[A-Z0-9]{4,}-[A-Z0-9]{4,}`)
+	// codex colours its device-auth output, so a scanned line arrives wrapped in
+	// ANSI escapes (e.g. "\x1b[94mhttps://…\x1b[0m"). Strip them before matching —
+	// otherwise codexURLRE's \S+ swallows the trailing reset ("…/device\x1b[0m")
+	// and the displayed link 404s.
+	codexANSIRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
 )
 
 func (e *ExecCodexSignIn) Start(ctx context.Context, harvest CodexHarvest) (CodexSignInSession, error) {
@@ -131,7 +136,7 @@ func (s *execCodexSession) scan(r io.Reader, ready chan<- struct{}) {
 	signalled := false
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := codexANSIRE.ReplaceAllString(scanner.Text(), "")
 		s.mu.Lock()
 		if s.url == "" {
 			if m := codexURLRE.FindString(line); m != "" {
