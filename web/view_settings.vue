@@ -16,6 +16,8 @@
 			<h1>Settings</h1>
 			<p class="lead">käsi's configuration. Edit any setting here; your change applies immediately.</p>
 
+			<p v-if="settings.Spooling" class="warning" role="alert">Replies are being spooled to disk, not emailed. Set an Outbound sender to start delivering mail.</p>
+
 			<p class="connections"><a :href="settings.CodexPath">Codex sign-in</a> — sign in to Codex so käsi can run Codex agents.</p>
 
 			<p v-if="settings.Settings.length == 0" class="empty">No settings contributed.</p>
@@ -38,6 +40,7 @@
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
 h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
 .lead { font-size: 0.875rem; margin: 0 0 1.5rem; }
+.warning { font-size: 0.875rem; margin: 0 0 1.5rem; padding: 0.75rem; border: 1px solid #b00020; color: #b00020; border-radius: 0.25rem; }
 .connections { font-size: 0.875rem; margin: 0 0 1.5rem; padding: 0 0 1rem; border-bottom: 1px solid; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
 .setting-row { border-bottom: 1px solid; padding: 0 0 0.75rem; }

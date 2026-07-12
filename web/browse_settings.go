@@ -18,6 +18,7 @@ func (s *Server) showSettings(w http.ResponseWriter, r *http.Request) {
 		Settings:  s.settingRows(s.app.View(), s.settingShowPath),
 		CodexPath: s.codexIndexPath(),
 		Nav:       s.navView("settings.index"),
+		Spooling:  s.isSpooling(s.app.View()),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

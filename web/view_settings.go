@@ -28,6 +28,11 @@ type SettingsView struct {
 	// entries on every page, this one lit. Reverse-routed, never string-built
 	// (no-url-string-building).
 	Nav NavView
+	// Spooling is true when outbound mail is being written to the spool instead of
+	// emailed (email.Spooling via SetOutboundHealth). It drives the warning banner so
+	// a silent non-delivery is flagged at the top of the settings surface, where the
+	// operator can reach the Outbound sender control to fix it.
+	Spooling bool
 }
 
 // SettingRow is one setting in the index list: its key, short description, owning

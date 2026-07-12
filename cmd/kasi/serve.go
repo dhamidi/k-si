@@ -267,6 +267,10 @@ func runServe(args []string) int {
 	// `codex login --device-auth` against a dedicated käsi-managed home, harvesting
 	// the credential at the web edge on approval. Host-gated, no inbound callback.
 	server.SetCodexSignIn(web.NewExecCodexSignIn(""))
+	// Surface the spool warning on the settings index: when outbound resolves to the
+	// spool, replies are written to disk rather than emailed, so the operator is told
+	// where to fix it (the Outbound sender control) instead of a silent non-delivery.
+	server.SetOutboundHealth(email.Spooling)
 	// Apps are addressed under the public origin (scheme+host, no port) so the
 	// control endpoint mints public-correct URLs; the per-app port is appended
 	// (feature-apps.md). Derived from -base-url, dropping any port it carries.

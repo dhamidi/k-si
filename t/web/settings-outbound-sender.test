@@ -1,0 +1,66 @@
+# t/web/settings-outbound-sender.test — the explicit Outbound sender selector makes
+# the delivery surface recoverable (bug: outbound silently stranded on spool with no
+# UI path back to Fastmail). The selector is MODEL-DRIVEN: it lists the built-in
+# spool plus every mechanism in email.Model.Mechanisms, so a configured sender
+# (Fastmail, which has no page of its own) is always re-selectable, and disabling a
+# mechanism is never the only way to change the active sender. When outbound resolves
+# to the spool, the settings index warns that replies are being spooled, not emailed.
+# Driven through the REAL web.Server in-process (decision-008).
+
+send allow-sender { address owner@example.test }
+
+# The two mechanisms that exist in production: Fastmail (seeded at boot from
+# -send/-poll) and ForwardEmail (added in the UI). Credentials are secret:// refs,
+# never plaintext (decision-004). Neither is the active sender yet.
+send set-mechanism {
+    name          fastmail
+    inbound       true
+    outbound      true
+    send_cred_ref secret://fastmail/api-token
+    recv_cred_ref secret://fastmail/api-token
+}
+send set-mechanism {
+    name          forwardemail
+    inbound       true
+    outbound      true
+    send_cred_ref secret://forwardemail/api-token
+    recv_cred_ref secret://forwardemail/imap-password
+}
+
+# A fresh model has no active sender, so outbound resolves to the spool: the index
+# warns, and the selector defaults to spool. This is the strand the bug left behind.
+visit /settings matches "*Replies are being spooled*"
+
+# The selector is listed on the index and lists the built-in spool plus every
+# configured mechanism — Fastmail is selectable even though it has no page of its own
+# (the crux of the bug: a mechanism in the model that the static UI list omitted).
+visit /settings matches "*Outbound sender*"
+visit /settings/outbound_sender matches "*pick a configured sender like Fastmail*"
+visit /settings/outbound_sender matches "*spool*"
+visit /settings/outbound_sender matches "*fastmail*"
+visit /settings/outbound_sender matches "*forwardemail*"
+
+# Recover from the spool by selecting Fastmail directly — no need to toggle any
+# mechanism's own enable. Outbound now resolves to Fastmail and the warning clears.
+post /settings/outbound_sender { sender fastmail } matches "*/settings*"
+model email outbound_via is fastmail
+visit /settings lacks "*Replies are being spooled*"
+
+# Switching back to the spool re-raises the warning — the state is never hidden.
+post /settings/outbound_sender { sender spool } matches "*/settings*"
+model email outbound_via is spool
+visit /settings matches "*Replies are being spooled*"
+
+# The list is MODEL-DRIVEN: a mechanism added later appears as an option with no code
+# change, so the static-list omission that caused the bug cannot recur.
+send set-mechanism {
+    name          postmark
+    outbound      true
+    send_cred_ref secret://postmark/api-token
+}
+visit /settings/outbound_sender matches "*postmark*"
+
+# A sender the form never offered is rejected — a hand-crafted POST cannot point
+# outbound at a name with no sender behind it, so the choice stays spool.
+post /settings/outbound_sender { sender nonexistent } matches "*choose one of the listed senders*"
+model email outbound_via is spool

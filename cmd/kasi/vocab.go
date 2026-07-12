@@ -1303,6 +1303,9 @@ func (inst *instance) webServer() (*web.Server, error) {
 		// the sim twin so the whole sign-in loop runs without a real login — canned
 		// public code+URL and a sentinel credential the SimSecrets edge discards.
 		s.SetCodexSignIn(web.NewSimCodexSignIn())
+		// The spool warning on the settings index is driven by the same email read as
+		// production (serve.go), so scenarios exercise the real banner (docs/16).
+		s.SetOutboundHealth(email.Spooling)
 		inst.server = s
 	}
 	return inst.server, nil

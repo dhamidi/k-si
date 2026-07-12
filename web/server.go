@@ -101,6 +101,27 @@ type Server struct {
 	codexSignIn  CodexSignIn
 	codexMu      sync.Mutex
 	codexSession CodexSignInSession
+	// spooling reports whether outbound mail is currently being written to the spool
+	// instead of emailed — the state the settings index flags as a warning so a silent
+	// non-delivery is never left unnoticed. Wired by SetOutboundHealth from
+	// email.Spooling; nil (a fresh server) reads as "not spooling", so the warning is
+	// simply absent until a caller opts in.
+	spooling func(runtime.View) bool
+}
+
+// SetOutboundHealth wires the outbound-delivery health probe the settings index
+// surfaces (email.Spooling): when it reports true, the index shows a warning that
+// replies are being spooled to disk rather than emailed. Keeps web free of an email
+// import — the owning domain supplies the read, assembled in the open beside the
+// settings list (docs/15).
+func (s *Server) SetOutboundHealth(spooling func(runtime.View) bool) {
+	s.spooling = spooling
+}
+
+// isSpooling reports whether outbound mail is being spooled, tolerating an unwired
+// probe (a server with no health check reads as healthy).
+func (s *Server) isSpooling(v runtime.View) bool {
+	return s.spooling != nil && s.spooling(v)
 }
 
 // Settings concatenates each module's settings contribution into the one slice the

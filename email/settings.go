@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/mail"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/dhamidi/k-si/admin"
@@ -243,12 +245,105 @@ func deliverableIdentity(v runtime.View) bool {
 	return true
 }
 
+// spoolSender is the built-in outbound mechanism that writes replies to disk
+// instead of emailing them — the safe default a fresh deployment carries, and the
+// value OutboundVia resolves to when unset (model_email.go). It is always a
+// selectable sender, so the operator can never be stranded with no valid choice.
+const spoolSender = "spool"
+
+// outboundSender is the active-sender selector as a setting VALUE: a single choice
+// over the built-in spool plus every configured mechanism, driving set-outbound-via
+// directly. It exists because "which mechanism sends" used to be a side effect of
+// each mechanism's own outbound checkbox — so disabling the one visible mechanism
+// reverted the sender to spool with no way to point back at another (fastmail, which
+// has no page of its own). This control decouples "which sender is active" from "is
+// this mechanism enabled", and lists EVERY mechanism in the model, so a configured
+// sender is always re-selectable. Its state lives in email.Model.OutboundVia; the
+// read is OutboundVia, the write is set-outbound-via — no new edge state.
+type outboundSender struct {
+	Selected string   // the mechanism that currently sends (spool when unset)
+	Options  []string // spool + every configured mechanism — the selectable senders
+}
+
+const outboundSenderField = "sender"
+
+// outboundSenderOptions returns the selectable senders: the built-in spool first
+// (always available), then every configured mechanism by name, sorted so the render
+// is stable for the replay-convergence twins and the operator sees a consistent
+// order. A mechanism appears here the moment set-mechanism records it, so the
+// selector is MODEL-DRIVEN — there is no static list to fall out of sync with the
+// mechanisms the model actually holds (the bug this fixes).
+func outboundSenderOptions(v runtime.View) []string {
+	names := make([]string, 0)
+	for name := range runtime.Slice[Model](v, "email").Mechanisms {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return append([]string{spoolSender}, names...)
+}
+
+// ToForm builds the flat sender selector: one KindChoice over the offered senders,
+// pre-selected to the active one. No Update — the shape is fixed. Parse rejects any
+// value the form did not offer, so a hand-crafted POST can never point outbound at a
+// name that was not a real option.
+func (o outboundSender) ToForm() settings.Form {
+	f := settings.Form{Fields: []settings.Field{{
+		Name:    outboundSenderField,
+		Label:   "Sender",
+		Kind:    settings.KindChoice,
+		Value:   o.Selected,
+		Options: o.Options,
+	}}}
+
+	f.Parse = func(f settings.Form) (settings.Value, settings.FieldErrors) {
+		errs := settings.FieldErrors{}
+		chosen := o.Selected
+		for _, fld := range f.Fields {
+			if fld.Name == outboundSenderField {
+				chosen = strings.TrimSpace(fld.Value)
+			}
+		}
+		if !slices.Contains(o.Options, chosen) {
+			errs.Set(outboundSenderField, "choose one of the listed senders")
+			return outboundSender{Selected: o.Selected, Options: o.Options}, errs
+		}
+		return outboundSender{Selected: chosen, Options: o.Options}, errs
+	}
+
+	return f
+}
+
+// Spooling reports whether outbound mail is currently being written to the spool
+// rather than emailed — the state the settings surface flags as a warning, so a
+// silent non-delivery can never sit unnoticed (the trap this fixes). Exposed so the
+// web index can surface it without importing email's internals.
+func Spooling(v runtime.View) bool {
+	return OutboundVia(v) == spoolSender
+}
+
 // Settings is email's contribution to the settings surface (docs/16): the initiator
-// allowlist (the DYNAMIC reshape setting) and the ForwardEmail mechanism (the flat,
-// secret-bearing setting, decision-023). Both keep their state in email.Model; each
-// is a read plus a whole-value write over it, not a relocation.
+// allowlist (the DYNAMIC reshape setting), the outbound-sender selector (the explicit
+// active-sender control), and the ForwardEmail mechanism (the flat, secret-bearing
+// setting, decision-023). All keep their state in email.Model; each is a read plus a
+// whole-value write over it, not a relocation.
 func Settings() []settings.Setting {
 	return []settings.Setting{
+		{
+			Key:   "outbound_sender",
+			Short: "Outbound sender",
+			Long:  "Choose where käsi's replies are sent from. Spool writes replies to disk without emailing them; pick a configured sender like Fastmail to actually deliver mail. The change takes effect on the next reply.",
+			Owner: "email",
+			Read: func(v runtime.View) settings.Value {
+				return outboundSender{
+					Selected: OutboundVia(v),
+					Options:  outboundSenderOptions(v),
+				}
+			},
+			Write: func(val settings.Value) []runtime.Msg {
+				o := val.(outboundSender)
+				return []runtime.Msg{msg.NewSetOutboundVia(msg.SetOutboundViaPayload{Name: o.Selected})}
+			},
+		},
 		{
 			Key:   "initiators",
 			Short: "Initiator allowlist",
