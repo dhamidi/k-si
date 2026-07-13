@@ -68,7 +68,7 @@ class KasiProvider {
 				id: `module.${module.name}`,
 				description: module.description ?? `Domain module ${module.name}`,
 				files: module.files,
-				details: { module: module.name },
+				details: { name: module.name },
 			})
 		}
 
@@ -108,7 +108,8 @@ class KasiProvider {
 				id: `model.${model.module}.${model.name}`,
 				description: model.description ?? `Model slice object ${model.name}`,
 				files: model.files,
-				details: { module: model.module },
+				// name is the kebab spec form; the Go type (PascalCase) is pascalCase(name).
+				details: { module: model.module, name: kebabCase(model.name) },
 			})
 		}
 
@@ -118,7 +119,7 @@ class KasiProvider {
 				id: `subscription.${subscription.module}.${subscription.name}`,
 				description: subscription.description ?? `Subscription ${subscription.name}`,
 				files: subscription.files,
-				details: { module: subscription.module },
+				details: { module: subscription.module, name: subscription.name },
 			})
 		}
 
@@ -128,7 +129,7 @@ class KasiProvider {
 				id: `view.${view.name}`,
 				description: view.description ?? `htmlc view ${view.name}`,
 				files: view.files,
-				details: { render: view.render },
+				details: { name: view.name, render: view.render },
 			})
 		}
 
@@ -138,7 +139,8 @@ class KasiProvider {
 				id: `form.${form.name}`,
 				description: form.description ?? `Form object ${form.name}`,
 				files: form.files,
-				details: { message: form.message },
+				// message is the kebab tag; discovery reads the PascalCase constructor suffix.
+				details: { name: form.name, ...(form.message ? { message: kebabCase(form.message) } : {}) },
 			})
 		}
 
@@ -1564,8 +1566,11 @@ class KasiComponent {
 	}
 
 	inspect() {
+		// The canonical spec is the matching type schema's shape: the kind plus the
+		// discovered details (which carry the schema's `name`/`module`/… fields), NOT
+		// the dotted component id — that lives on id(). Emitting the id as `name`
+		// broke round-trip for every type whose schema declares a kebab `name`.
 		return {
-			name: this.componentID,
 			kind: this.kind,
 			...this.details,
 			files: this.files,
@@ -2311,6 +2316,17 @@ function camelCase(name) {
 
 function snakeCase(name) {
 	return name.replaceAll('-', '_')
+}
+
+// kebabCase inverts a PascalCase Go identifier to the kebab-case spec name the
+// type schemas advertise (Task -> task, AgentRun -> agent-run, UIRequest ->
+// ui-request, BaseURL -> base-url) — so a discovered component's inspect() round-
+// trips back through generate.
+function kebabCase(name) {
+	return name
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+		.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+		.toLowerCase()
 }
 
 export default function provider(kit) {
