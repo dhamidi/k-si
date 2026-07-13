@@ -36,6 +36,12 @@ type Content interface {
 	SkillByID(id int64) (SkillRow, bool, error)
 	SkillByName(name string) (SkillRow, bool, error)
 	AllSkills() ([]SkillRow, error)
+	// DeleteSkill removes a skill's tree by its unique name (Flow D Ask 2). The
+	// owner retires a skill from the web UI; this drops the tar so provisioning
+	// (which reads AllSkills directly) stops laying it into future runs. Deleting
+	// an absent name is a no-op success — idempotent, so a double-submit or retry
+	// is harmless.
+	DeleteSkill(name string) error
 }
 
 // SkillRow is one row of the skill table (docs/03): an agent-authored (or

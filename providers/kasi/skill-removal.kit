@@ -1,0 +1,30 @@
+# skill-removal.kit — Ask 2: the owner removes a skill from the registry via the
+# web UI (docs/feature-skill-removal.md).
+#
+# A skill lives in two homes: the tar blob in the store's `skill` table (a
+# mutable edge, hand-deleted via Content.DeleteSkill) and this registry model.
+# Only the model half is a logged event, scaffolded here; the store delete, the
+# web handler/route, the views, and the scenario are hand-filled. Apply with:
+#
+#   kit manifest apply providers/kasi/skill-removal.kit
+#
+# then fill the reducer per the intent.
+
+kasi message {
+	module skills
+	tag unregister-skill
+	contract true
+	fields {
+		name string
+	}
+	description "drop a skill from the registry by name; sent by the owner's /skills Remove control (Flow D Ask 2)"
+	intent {
+		Remove the entry whose Name == name from the registry, mirroring
+		memory/message_forget.go: i := s.findName(p.Name); if i < 0 return (s,
+		nil) — an absent name is an idempotent no-op. Otherwise copy-on-write a
+		fresh slice preserving order (append s.Skills[:i] then s.Skills[i+1:]),
+		assign it back, and return (s, nil). Pure — no commands, no edges; the
+		store tar blob is deleted separately at the web edge (Content.DeleteSkill),
+		and this logged event is what makes the registry converge on replay.
+	}
+}

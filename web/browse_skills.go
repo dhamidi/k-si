@@ -8,6 +8,7 @@ import (
 	"github.com/dhamidi/dispatch"
 
 	"github.com/dhamidi/k-si/skills"
+	skillsmsg "github.com/dhamidi/k-si/skills/msg"
 	"github.com/dhamidi/k-si/skilltree"
 )
 
@@ -19,7 +20,7 @@ func (s *Server) showSkills(w http.ResponseWriter, r *http.Request) {
 	all := skills.All(s.app.View())
 
 	view := SkillsView{
-		Skills: skillRows(all, s.skillShowPath),
+		Skills: skillRows(all, s.skillShowPath, s.skillDeletePath),
 		Nav:    s.navView("skills.index"),
 	}
 
@@ -73,6 +74,7 @@ func (s *Server) showSkill(w http.ResponseWriter, r *http.Request) {
 		Version:     row.Version,
 		Files:       files,
 		SkillMD:     string(md),
+		DeletePath:  s.skillDeletePath(name),
 		Nav:         s.navView("skills.index"),
 	}
 	// An agent-origin skill links back to the task that authored it (docs/08).
@@ -136,9 +138,46 @@ func (s *Server) showSkillFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deleteSkill removes a skill for good — the owner's curation action on /skills
+// (decision-006, no token). A skill lives in two homes, so the delete hits both,
+// edge-first (mirrors form_secrets.go deleteSecret): DeleteSkill drops the tar
+// blob the store provisions into future runs, and only on success does the
+// unregister-skill event drop the registry entry (converges on replay). App.Send
+// blocks until applied, so the redirected GET already shows the skill gone.
+// Idempotent throughout: a double-submit is harmless.
+func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
+	params, _ := dispatch.ParamsFromContext(r.Context())
+	name := params["name"]
+	if name == "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// Home #1: the tar blob. Delete it FIRST — on failure we return without
+	// emitting, so the registry never loses an entry whose blob still lingers.
+	if err := s.content.DeleteSkill(name); err != nil {
+		log.Printf("web: delete skill %q: %v", name, err)
+		http.Error(w, "could not remove the skill", http.StatusInternalServerError)
+		return
+	}
+
+	// Home #2: the registry model, via a logged event.
+	s.app.Send(skillsmsg.NewUnregisterSkill(skillsmsg.UnregisterSkillPayload{Name: name}))
+
+	index, _ := s.router.Path("skills.index", nil)
+	http.Redirect(w, r, index, http.StatusSeeOther)
+}
+
 // skillShowPath reverse-routes a skill's detail path for its name.
 func (s *Server) skillShowPath(name string) string {
 	p, _ := s.router.Path("skills.show", dispatch.Params{"name": name})
+	return p
+}
+
+// skillDeletePath reverse-routes a skill's delete POST target for its name — the
+// inline Remove control's action (Flow D Ask 2).
+func (s *Server) skillDeletePath(name string) string {
+	p, _ := s.router.Path("skills.delete", dispatch.Params{"name": name})
 	return p
 }
 

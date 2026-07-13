@@ -24,6 +24,9 @@
 						<a :href="skill.OriginTaskPath">#{{ skill.OriginTask }}</a></li>
 					<li>version: {{ skill.Version }}</li>
 				</ul>
+				<form class="remove" method="post" :action="skill.DeletePath">
+					<button type="submit">Remove</button>
+				</form>
 			</header>
 
 			<section class="files">
@@ -51,4 +54,5 @@ h1 { font-size: 1.5rem; margin: 0.25rem 0; }
 .meta { font-size: 0.875rem; margin: 0.5rem 0; list-style: none; padding: 0; display: flex; flex-direction: row; flex-wrap: wrap; gap: 0.75rem; }
 h2 { font-size: 1rem; margin: 1.5rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .files ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.remove { margin: 0.5rem 0; }
 </style>

@@ -28,12 +28,16 @@ type SkillRow struct {
 	Description string
 	Origin      string
 	ShowPath    string
+	// DeletePath is the reverse-routed POST target that removes this skill (Flow D
+	// Ask 2). The row's inline Remove control submits here; a skill lives in two
+	// homes (the tar blob and the registry) and the handler clears both.
+	DeletePath string
 }
 
 // skillRows builds the list rows from the registry, newest-first (model order is
 // creation order, so newest is the reverse), each carrying its reverse-routed
-// detail path.
-func skillRows(all []skills.Skill, showPath func(name string) string) []SkillRow {
+// detail and delete paths.
+func skillRows(all []skills.Skill, showPath, deletePath func(name string) string) []SkillRow {
 	rows := make([]SkillRow, 0, len(all))
 	for i := len(all) - 1; i >= 0; i-- {
 		sk := all[i]
@@ -42,6 +46,7 @@ func skillRows(all []skills.Skill, showPath func(name string) string) []SkillRow
 			Description: sk.Description,
 			Origin:      sk.Origin,
 			ShowPath:    showPath(sk.Name),
+			DeletePath:  deletePath(sk.Name),
 		})
 	}
 	return rows

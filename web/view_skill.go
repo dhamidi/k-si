@@ -27,6 +27,9 @@ type SkillView struct {
 	Files []SkillFileLink
 	// SkillMD is the raw SKILL.md body, shown inline in a <pre> (structure first).
 	SkillMD string
+	// DeletePath is the reverse-routed POST target that removes this skill (Flow D
+	// Ask 2). The detail header's Remove control submits here.
+	DeletePath string
 	// Nav is the shared top-level navbar (navView) — a skill detail lights the
 	// Skills section.
 	Nav NavView

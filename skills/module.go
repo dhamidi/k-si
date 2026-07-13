@@ -13,6 +13,7 @@ func Module(e Edges) *runtime.Module {
 	mod := runtime.NewModule("skills", Model{}, e)
 
 	registerRegisterSkill(mod)
+	registerUnregisterSkill(mod)
 	return mod
 }
 

@@ -262,6 +262,11 @@ func NewServer(app *runtime.App, secrets SecretStore, content store.Content, wor
 	if err := s.router.GET("skills.file", "/skills/{name}/files/{+path}", http.HandlerFunc(s.showSkillFile)); err != nil {
 		return nil, err
 	}
+	// POST /skills/{name}/delete removes a skill for good (Flow D Ask 2): it drops
+	// the tar blob AND emits unregister-skill. Host-gated, no token (decision-006).
+	if err := s.router.POST("skills.delete", "/skills/{name}/delete", http.HandlerFunc(s.deleteSkill)); err != nil {
+		return nil, err
+	}
 	// The memory curation UI (docs/08, feature-memory.md): GET lists every
 	// remembered fact with an add/edit form; POST /memory is the owner's remember
 	// (add or edit); POST /memory/{name}/forget removes one. Host-gated, no token

@@ -297,6 +297,22 @@ func (c *MemoryContent) AddSkill(row SkillRow) (int64, error) {
 	return row.ID, nil
 }
 
+// DeleteSkill removes the skill named name — the sim twin of
+// *SQLiteContent.DeleteSkill (Flow D Ask 2). Deleting an absent name is a no-op
+// success (idempotent). nextSkill is left untouched so ids stay monotonic.
+func (c *MemoryContent) DeleteSkill(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.skills {
+		if c.skills[i].Name == name {
+			c.skills = append(c.skills[:i], c.skills[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func (c *MemoryContent) SkillByID(id int64) (SkillRow, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

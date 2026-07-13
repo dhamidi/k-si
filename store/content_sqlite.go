@@ -547,6 +547,16 @@ func (c *SQLiteContent) AddSkill(row SkillRow) (int64, error) {
 	}
 }
 
+// DeleteSkill removes the skill named name (Flow D Ask 2). Deleting an absent
+// name is a no-op success — idempotent (no rows-affected check), so a retry or a
+// double-submit is harmless. Mirrors *SQLiteSecrets.Delete.
+func (c *SQLiteContent) DeleteSkill(name string) error {
+	if _, err := c.db.Exec(`DELETE FROM skill WHERE name = ?`, name); err != nil {
+		return fmt.Errorf("delete skill %q: %w", name, err)
+	}
+	return nil
+}
+
 func (c *SQLiteContent) SkillByID(id int64) (SkillRow, bool, error) {
 	return c.scanSkill(c.db.QueryRow(
 		`SELECT id, name, description, content, origin, origin_task, version, updated_at FROM skill WHERE id = ?`, id,

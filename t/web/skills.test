@@ -51,3 +51,28 @@ visit /skills/pay-invoice matches "*/skills/pay-invoice/files/scripts/extract.sh
 # The file view renders the entry's raw text — the leaf that makes the tree
 # browsable. The {+path} catch-all carries the multi-segment path.
 visit /skills/pay-invoice/files/scripts/extract.sh matches "*echo total*"
+
+# --- the owner removes the skill (Flow D Ask 2) ---
+# The list and detail carry an inline Remove control whose form posts to the
+# skill's delete path — the entry point the owner clicks.
+visit /skills matches "*Remove*"
+visit /skills matches "*/skills/pay-invoice/delete*"
+
+# Removing hits BOTH homes. First the registry (Home #2): the skill leaves the
+# list and the model, converging on replay via the logged unregister-skill event.
+post /skills/pay-invoice/delete
+visit /skills lacks "*pay-invoice*"
+visit /skills matches "*No skills yet*"
+model skills skills is ""
+
+# Then the blob (Home #1): a brand-new task provisions from the store, so its
+# empty provisioned box is the ONLY proof the tar is gone — DeleteSkill ran, not
+# just the model event (visit/model alone would pass even if the blob lingered).
+deliver {
+    from    kasi@decode.ee
+    to      research@kasi.test
+    subject "pay this"
+    body    "pay the attached invoice"
+}
+task 2 status is awaiting-agent
+task 2 provisioned are ""

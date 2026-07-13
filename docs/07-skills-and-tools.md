@@ -54,9 +54,10 @@ adds it to the registry ([05](./05-agents-and-tasks.md),
   from the UI). This is how käsi accumulates know-how over time instead of
   re-deriving it each task.
 
-The write path is the same registry either way; only `origin` differs. Editing or
-retiring an agent-authored skill is done from the UI ([08](./08-web-ui.md)) like
-any other.
+The write path is the same registry either way; only `origin` differs. Retiring a
+skill — agent-authored or UI-authored — is done from the UI ([08](./08-web-ui.md))
+with a per-skill **Remove** control; see [Removing a skill](./feature-skill-removal.md)
+for what that clears (the registry entry and the stored tree).
 
 ## Tools via mise
 

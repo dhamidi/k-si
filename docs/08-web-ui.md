@@ -89,7 +89,8 @@ Scoped to the fallback role:
 
 Skills shown here include both UI-authored ones and those an **agent wrote during
 a task** ([05](./05-agents-and-tasks.md), [07](./07-skills-and-tools.md)); the UI
-is where you review, edit, or retire them.
+is where you review, edit, or retire them. Each skill has a **Remove** control that
+takes it out for good — see [Removing a skill](./feature-skill-removal.md).
 
 ## How the UI touches the core
 
