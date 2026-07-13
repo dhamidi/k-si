@@ -53,6 +53,10 @@ class KasiProvider {
 		yield new SettingType(this.kit)
 		yield new ComponentType(this.kit)
 		yield new EdgeType(this.kit)
+		// scenario, like edge, is manifest-/spec-only (never a CLI generate
+		// subcommand — it sits past the eighth): it advertises the type discovered
+		// `.test` scenarios round-trip through (kit component spec | generate --spec).
+		yield new ScenarioType(this.kit)
 	}
 
 	async *components() {
@@ -144,7 +148,10 @@ class KasiProvider {
 				id: `scenario.${scenario.name}`,
 				description: scenario.description ?? `Test scenario ${scenario.name}`,
 				files: scenario.files,
-				details: {},
+				// path is the canonical, round-trippable spec field (ScenarioType's
+				// schema): the t/-relative path, sans .test. The scan name dots the
+				// separators; segment names use hyphens, so dots are only separators.
+				details: { path: scenario.name.replaceAll('.', '/') },
 			})
 		}
 
@@ -1460,6 +1467,72 @@ class SettingType extends KasiType {
 	}
 }
 
+// --- scenario ------------------------------------------------------------------
+
+// ScenarioType advertises the type that discovered `t/**/*.test` scenarios round-
+// trip through (docs/13, docs/14). A scenario has no module or tag — its identity
+// is its path under t/, so `path` (ring/name, sans .test) is the whole canonical
+// spec, matching what KasiComponent.inspect() reports for a discovered scenario.
+class ScenarioType extends KasiType {
+	id() {
+		return 'scenario'
+	}
+
+	description() {
+		return 'A `kasi test` scenario: a t/<ring>/<name>.test script driven by the test runner, asserting rendered markers and model/edge state — never *_test.go (docs/13, docs/14)'
+	}
+
+	schema() {
+		const { Type } = this.kit
+		return Type.Object({
+			path: Type.String({
+				description: 'Scenario path under t/, without the .test suffix (ring/name)',
+				examples: ['research/memory-forget', 'web/skills'],
+				pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)+$',
+			}),
+		})
+	}
+
+	// A scenario carries no module/tag, so the base normalize() doesn't fit. Accept
+	// an explicit `path`, the CLI/manifest `scenario.<ring>.<name>` (parent+name)
+	// form, or a `ring`+`name` pair — all spell the same t/-relative path.
+	normalize(spec) {
+		let path = spec.path
+		if (path === undefined) {
+			const ring = spec.ring ?? spec.parent
+			const name = spec.name
+			if (ring !== undefined && name !== undefined) {
+				path = `${ring}/${name}`
+			}
+		}
+		if (typeof path !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)+$/.test(path)) {
+			throw new this.kit.UserError(`${this.id()}: path must be a t/-relative scenario path like "research/memory-forget", got ${JSON.stringify(path)}`)
+		}
+		return { ...spec, path }
+	}
+
+	async *generate(rawSpec, env) {
+		const spec = this.normalize(rawSpec)
+		const file = `t/${spec.path}.test`
+
+		yield* this.createFresh(env, file, scenarioTemplate(spec))
+
+		if (spec.intent !== undefined) {
+			yield this.plan(
+				spec,
+				`Write the ${spec.path} scenario`,
+				[file],
+				`Intent: ${spec.intent}
+
+Write ${file} as a Tcl-style scenario script (docs/14): drive the domain with the
+deliver/agent/visit/post/model/task vocabulary and assert on real rendered markers
+and model/edge state, never internals. No *_test.go — the scenario IS the test
+(docs/13). Do not refactor unrelated code.`,
+			)
+		}
+	}
+}
+
 // --- Components ----------------------------------------------------------------
 
 class KasiComponent {
@@ -1473,6 +1546,13 @@ class KasiComponent {
 
 	provider() {
 		return 'kasi'
+	}
+
+	// type names the advertised component type this instance was discovered as —
+	// the exact key kit's `provider test`/`component spec` match on (a component's
+	// kind IS its type id here), so matching never falls back to fuzzy name-guessing.
+	type() {
+		return this.kind
 	}
 
 	id() {
@@ -1494,6 +1574,16 @@ class KasiComponent {
 }
 
 // --- Go templates (canonical shapes: docs/15-tactical-patterns.md) -------------
+
+function scenarioTemplate(spec) {
+	const what = spec.description ?? `the ${spec.path} scenario`
+	return `# t/${spec.path}.test — ${what}
+#
+# A Tcl-style scenario script (docs/14): drive the domain and assert on rendered
+# markers and model/edge state. Replace this skeleton with the real steps.
+
+`
+}
 
 function moduleTemplate(name, what, gomod) {
 	return `package ${name}
